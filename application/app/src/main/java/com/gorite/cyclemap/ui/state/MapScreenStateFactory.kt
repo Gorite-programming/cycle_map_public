@@ -27,6 +27,7 @@ import com.gorite.cyclemap.data.ElevationRepository
 import com.gorite.cyclemap.ui.cycling.ElevationSample
 import com.gorite.cyclemap.ui.cycling.anchoredStartElevation
 import com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile
+import com.gorite.cyclemap.ui.cycling.buildNodeElevationProfile
 import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
 import com.gorite.cyclemap.routing.segmentGradesAlong
@@ -280,20 +281,28 @@ internal fun rememberMapScreenState(
                     val (segments, nodeElevations) = graphLock.read {
                         graph.segmentGradesAlong(coords) to graph.nodeElevationsAlong(coords)
                     }
-                    if (segments.any { it.gradePercent != null }) {
-                        // 出発地の絶対標高: graph が持つノードの標高を優先し、無ければ端末に残っている標高タイル
-                        val start = anchoredStartElevation(segments, nodeElevations)
-                            ?: elevationRepository.getCachedElevation(coords.first().first, coords.first().second)
-                        buildGradeElevationProfile(segments, start)
-                    } else emptyList()
+                    // graph が標高を持つなら、経路上のノードの標高から直接作る (最も正確でオフラインで一貫する)。
+                    // 持たないときは、勾配を積み上げ、出発地の標高だけ端末のタイルキャッシュで合わせる。
+                    buildNodeElevationProfile(segments, nodeElevations).ifEmpty {
+                        if (segments.any { it.gradePercent != null }) {
+                            buildGradeElevationProfile(
+                                segments,
+                                anchoredStartElevation(segments, nodeElevations)
+                                    ?: elevationRepository.getCachedElevation(coords.first().first, coords.first().second),
+                            )
+                        } else emptyList()
+                    }
                 }
             } else emptyList()
             realElevProfileState.value = gradeProfile.ifEmpty { buildRouteElevationProfile(coords, summary.distanceMeters) }
-            // 標高タイルが端末にあれば (またはネット接続で取得できれば) 絶対標高の実測で置き換える。
-            // 一部しか実測で埋まらない場合は、架空値が混ざるので置き換えない。
-            val real = elevationRepository.getRouteElevationProfile(coords, summary.distanceMeters)
-            if (real.isNotEmpty() && real.all { it.source == ElevationSource.GSI_DEM }) {
-                realElevProfileState.value = real
+            // graph が標高を持たない旧版のときだけ、標高タイルが端末にあれば (またはネット接続で取得できれば)
+            // 絶対標高の実測で置き換える。一部しか実測で埋まらない場合は、架空値が混ざるので置き換えない。
+            // graph が標高を持つときは上書きしない (別の計算と食い違い、値が揺れるため)。
+            if (graph == null || !graph.hasElevations) {
+                val real = elevationRepository.getRouteElevationProfile(coords, summary.distanceMeters)
+                if (real.isNotEmpty() && real.all { it.source == ElevationSource.GSI_DEM }) {
+                    realElevProfileState.value = real
+                }
             }
         } else {
             realElevProfileState.value = emptyList()

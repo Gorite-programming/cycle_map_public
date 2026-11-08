@@ -65,4 +65,32 @@ class GradeElevationProfileTest {
         assertEquals(null, anchoredStartElevation(segs, listOf(1.0)))
         assertEquals(null, anchoredStartElevation(emptyList(), listOf(1.0)))
     }
+
+    @Test
+    fun nodeProfileFollowsNodeElevationsAndKeepsShortEdgeClimbs() {
+        // 勾配が不明 (短い辺) でも、ノードの標高の差から登りが出る
+        val segs = listOf(seg(1000.0, null), seg(1000.0, null))
+        val p = buildNodeElevationProfile(segs, listOf(10.0, 60.0, 60.0))
+        assertEquals(10.0, p.first().elevationM, 1e-6)
+        assertEquals(60.0, p.last().elevationM, 1e-6)
+        assertEquals(50.0, elevationGain(p, 2000.0)!!, 3.0)
+        assertTrue(p.all { it.source == ElevationSource.GRAPH_GRADE })
+    }
+
+    @Test
+    fun nodeProfileInterpolatesMissingNodes() {
+        val segs = listOf(seg(500.0, null), seg(500.0, null), seg(1000.0, null))
+        val p = buildNodeElevationProfile(segs, listOf(0.0, null, null, 100.0))
+        // 距離 500m (全体の 1/4) の標高は 0→100 を線形補間した 25m 付近 (3 点平均の影響を許す)
+        val at500 = p.minByOrNull { kotlin.math.abs(it.distanceM - 500.0) }!!
+        assertEquals(25.0, at500.elevationM, 3.0)
+    }
+
+    @Test
+    fun nodeProfileIsEmptyWithoutEnoughElevations() {
+        val segs = listOf(seg(500.0, 1.0), seg(500.0, 1.0))
+        assertTrue(buildNodeElevationProfile(segs, listOf(null, null, null)).isEmpty())
+        assertTrue(buildNodeElevationProfile(segs, listOf(5.0, null, null)).isEmpty())
+        assertTrue(buildNodeElevationProfile(segs, listOf(5.0, 6.0)).isEmpty()) // 個数が合わない
+    }
 }

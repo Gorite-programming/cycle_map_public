@@ -197,9 +197,14 @@ class LazyMappedRoutingTest {
             assertTrue(steepDown > gentleDown)
             assertTrue(up > flat)
 
-            // FLAT: 上り坂回避は上限5.0倍でクランプ
-            val flatUp = penalty(15.0f, RoutePreference.FLAT)
-            assertTrue(flatUp <= 5.0)
+            // FLAT: 上り坂回避は上限8.0倍でクランプ。おすすめより常に強く、勾配が急なほど増える
+            val flatUp = penalty(30.0f, RoutePreference.FLAT)
+            assertEquals(8.0, flatUp, 1e-9)
+            for (g in listOf(1.0f, 3.0f, 5.0f, 10.0f)) {
+                assertTrue(penalty(g, RoutePreference.FLAT) > penalty(g, RoutePreference.RECOMMENDED), "grade $g")
+            }
+            assertTrue(penalty(10.0f, RoutePreference.FLAT) > penalty(5.0f, RoutePreference.FLAT))
+            assertEquals(2.5, penalty(5.0f, RoutePreference.FLAT), 1e-9) // 1 + 0.20*5 + 0.02*25
         }
     }
 

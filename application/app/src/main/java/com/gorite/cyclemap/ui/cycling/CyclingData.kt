@@ -76,6 +76,53 @@ fun elevationSourceLabel(profile: List<ElevationSample>): String {
 }
 
 /**
+ * 経路上のノードの絶対標高 ([nodeElevations]、不明は null) から標高プロファイルを作る (約 50m 間隔、3 点移動平均)。
+ * graph が標高を持っていればこちらを使う: 勾配の積み上げと違い、短い辺の登りも落ちず、オフラインで一貫した値になる。
+ * 不明な点は前後の標高から距離で線形補間する。標高が 2 点未満しか無ければ空。
+ */
+fun buildNodeElevationProfile(
+    segments: List<com.gorite.cyclemap.routing.RouteSegmentGrade>,
+    nodeElevations: List<Double?>,
+): List<ElevationSample> {
+    if (segments.isEmpty() || nodeElevations.size != segments.size + 1) return emptyList()
+    val total = segments.sumOf { it.distanceMeters }
+    if (total <= 0.0) return emptyList()
+    val dist = DoubleArray(segments.size + 1)
+    segments.forEachIndexed { i, seg -> dist[i + 1] = dist[i] + seg.distanceMeters }
+    val known = nodeElevations.indices.filter { nodeElevations[it] != null }
+    if (known.size < 2) return emptyList()
+    fun elevationAtNode(i: Int): Double {
+        nodeElevations[i]?.let { return it }
+        val before = known.lastOrNull { it < i }
+        val after = known.firstOrNull { it > i }
+        return when {
+            before == null -> nodeElevations[after!!]!!
+            after == null -> nodeElevations[before]!!
+            else -> {
+                val f = if (dist[after] > dist[before]) (dist[i] - dist[before]) / (dist[after] - dist[before]) else 0.0
+                nodeElevations[before]!! + (nodeElevations[after]!! - nodeElevations[before]!!) * f
+            }
+        }
+    }
+    val sampleCount = (total / 50.0).roundToInt().coerceIn(30, 300)
+    val step = total / sampleCount
+    var seg = 0
+    val raw = (0..sampleCount).map { n ->
+        val d = n * step
+        while (seg < segments.size - 1 && dist[seg + 1] < d) seg++
+        val span = dist[seg + 1] - dist[seg]
+        val f = if (span > 0.0) ((d - dist[seg]) / span).coerceIn(0.0, 1.0) else 0.0
+        val a = elevationAtNode(seg)
+        val b = elevationAtNode(seg + 1)
+        a + (b - a) * f
+    }
+    return raw.indices.map { i ->
+        val smoothed = if (i == 0 || i == raw.lastIndex) raw[i] else (raw[i - 1] + raw[i] + raw[i + 1]) / 3.0
+        ElevationSample(i * step, smoothed, ElevationSource.GRAPH_GRADE)
+    }
+}
+
+/**
  * 勾配を積み上げた相対標高を絶対標高に合わせるための、出発地の標高を求める。
  * 経路上のノードの絶対標高 ([nodeElevations]、不明は null) と、勾配を積み上げた相対標高との差の平均を使う
  * (1 点だけで決めるより、DEM のばらつきに強い)。絶対標高が 1 点も無ければ null。
