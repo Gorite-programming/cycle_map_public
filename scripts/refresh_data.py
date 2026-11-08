@@ -7,7 +7,8 @@
   3. 検索DB : sandbox/data-tool/rebuild_all.py (OSM 切り出し → 取り込み → Overture → 統合 → 書き出し)
   4. graph  : build_prefectures.py をステージング (work/refresh/<日時>/packages) に出力
   5. タイル : build_tiles.py (Protomaps 最新ビルド) をステージングに出力
-  6. 検証   : 県ごとに 検索DBの整合・件数の増減・graph のサイズ・ZIP の構成・タイルの検証
+  6. 検証   : 県ごとに 検索DBの整合・件数の増減・graph のサイズ・ZIP の構成・タイルの検証、
+             経路の回帰チェック (新旧 graph で同じ OD を引き、到達率と距離の中央値を比べる)
   7. 昇格   : 検証を通した県だけを packages/ に置換。通らなかった県は現行の成果物のまま (検索DBも退避から戻す)
   8. 記録   : packages/data_manifest.json (出典と時点) と、ステージングの report.md
 
@@ -50,6 +51,11 @@ ZIP_MEMBERS = {"%s.search.db", "%s.graph", "%s.graph.idx", "manifest.json", "LIC
 SEARCH_ROWS_RATIO = (0.80, 1.30)
 GRAPH_BYTES_RATIO = (0.70, 1.40)
 MIN_FREE_GB = 12
+# 経路の回帰チェック (新旧 graph で同じ固定シードの OD を引いて比べる)。これを外れたら昇格しない
+REGRESSION_OD = 60
+REGRESSION_MAX_REACH_DROP = 3.0       # 到達率の低下 (ポイント)
+REGRESSION_MAX_DISTANCE_CHANGE = 5.0  # 経路距離の中央値の変化 (%)
+GRADLEW = ROOT / "application" / "gradlew"
 
 
 class Step:
@@ -289,6 +295,51 @@ def check_pref(name, stage, prev, check_tiles=True):
     return ok, notes, facts
 
 
+def bench_baseline(graph_path, log):
+    """routing-core のベンチで、基準 (おすすめ) の到達率 (%) と経路距離の中央値 (m) を返す。"""
+    out = subprocess.run([str(GRADLEW), "-q", "--offline", ":routing-core:benchmarkRealGraph",
+                          "-Pgraph=%s" % graph_path, "-Pod=%d" % REGRESSION_OD],
+                         cwd=ROOT / "application", capture_output=True, text=True)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(out.stdout + out.stderr)
+    if out.returncode != 0:
+        raise RuntimeError("ベンチが失敗しました (ログ: %s)" % log)
+    return parse_bench_baseline(out.stdout)
+
+
+def parse_bench_baseline(text):
+    """ベンチの表から、基準の行の (到達率 %, 経路距離の中央値 m) を取り出す。"""
+    for line in text.splitlines():
+        if line.startswith("| 基準"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            return float(cells[1].rstrip("%")), float(cells[6].rstrip("m"))
+    raise ValueError("ベンチの出力に基準の行がありません")
+
+
+def regression_check(name, stage, prev, log):
+    """新旧 graph の経路を比べる。戻り値は (合格か, 所見, 数値)。旧版が無ければ合格扱い。"""
+    old_zip = prev / ("%s.zip" % name)
+    new_zip = stage / "packages" / ("%s.zip" % name)
+    if not old_zip.is_file() or not new_zip.is_file():
+        return True, "回帰チェック: 比較対象なし", {}
+    work = stage / "regression" / name
+    results = {}
+    for label, z in (("old", old_zip), ("new", new_zip)):
+        d = work / label
+        d.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(z) as zf:
+            for member in ("%s.graph" % name, "%s.graph.idx" % name):
+                zf.extract(member, d)
+        results[label] = bench_baseline(d / ("%s.graph" % name), log)
+    shutil.rmtree(work, ignore_errors=True)
+    (old_reach, old_dist), (new_reach, new_dist) = results["old"], results["new"]
+    change = (new_dist / old_dist - 1.0) * 100.0 if old_dist > 0 else 0.0
+    facts = {"reach_old": old_reach, "reach_new": new_reach, "median_distance_change_pct": round(change, 2)}
+    summary = "回帰チェック: 到達率 %.1f%% → %.1f%%、距離中央値 %+.1f%%" % (old_reach, new_reach, change)
+    ok = (old_reach - new_reach) <= REGRESSION_MAX_REACH_DROP and abs(change) <= REGRESSION_MAX_DISTANCE_CHANGE
+    return ok, ("" if ok else "NG: ") + summary, facts
+
+
 # ------------------------------- 昇格・記録 -------------------------------
 
 def promote(name, stage, with_tiles=True):
@@ -310,19 +361,32 @@ def restore_search_db(name, prev):
 
 
 def write_manifest(sources, results):
+    """packages/data_manifest.json を更新する。今回扱わなかった県 (--only で外した県) の記録は残す。"""
+    manifest_path = PACKAGES / "data_manifest.json"
+    previous = {}
+    if manifest_path.is_file():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8")).get("prefectures", {})
+        except (ValueError, OSError):
+            previous = {}
     manifest = {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "sources": sources,
-        "prefectures": {},
+        "prefectures": {k: v for k, v in previous.items() if k not in results},
     }
     for name, info in results.items():
+        if not info["promoted"] and name in previous:
+            # 昇格しなかった県は、packages/ の中身が前回のままなので前回の記録を残す
+            manifest["prefectures"][name] = dict(previous[name], last_attempt_failed=True)
+            continue
         entry = {"promoted": info["promoted"], "facts": info["facts"]}
         for path_key, path in (("zip_sha256", PACKAGES / ("%s.zip" % name)),
                                ("tiles_sha256", PACKAGES / ("%s.pmtiles" % name.lower()))):
             if info["promoted"] and path.is_file():
                 entry[path_key] = sha256(path)
         manifest["prefectures"][name] = entry
-    (PACKAGES / "data_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest["prefectures"] = {k: manifest["prefectures"][k] for k in PREFECTURES if k in manifest["prefectures"]}
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def write_report(stage, stamp, steps, results, sources):
@@ -346,7 +410,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
     ap.add_argument("--source-pbf", type=Path, help="使う OSM PBF (省略時は Geofabrik の chugoku-latest を取得)")
-    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,tiles")
+    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,tiles,regression")
     ap.add_argument("--overture-release", help="Overture の版 (例 2026-09-23.1)。'latest' で最新")
     ap.add_argument("--dry-run", action="store_true", help="計画だけ表示する")
     args = ap.parse_args()
@@ -383,7 +447,7 @@ def main():
         pbf = steps.run("OSM取得", lambda: fetch_osm(GEOFABRIK_URL, False))
     if pbf is None:
         pbf = next(iter(sorted(DATA_DIR.glob("chugoku-*.osm.pbf"), reverse=True)), None) or ROOT / "japan-latest.osm.pbf"
-    pbf = Path(pbf)
+    pbf = Path(pbf).resolve()  # 相対パスだと、作業ディレクトリの違う data-tool から見つからない
     if not pbf.is_file():
         print("OSM の PBF がありません: %s" % pbf, file=sys.stderr)
         return 2
@@ -401,6 +465,16 @@ def main():
     results = {}
     for name in names:
         ok, notes, facts = check_pref(name, stage, prev, check_tiles="tiles" not in skip)
+        if ok and "graph" not in skip and "regression" not in skip:
+            try:
+                r_ok, r_note, r_facts = regression_check(name, stage, prev, log)
+            except Exception as e:  # ベンチ自体が動かないときは、昇格を止めて人に見てもらう
+                r_ok, r_note, r_facts = False, "NG: 回帰チェックを実行できません (%s)" % e, {}
+            notes.insert(0, r_note)
+            facts["regression"] = r_facts
+            if not r_ok:
+                ok = False
+                notes = [n for n in notes if n != "合格"]
         results[name] = {"promoted": False, "notes": notes, "facts": facts, "ok": ok}
         print("[%s] %s: %s" % (name, "合格" if ok else "不合格", " / ".join(notes)), flush=True)
     for name, info in results.items():

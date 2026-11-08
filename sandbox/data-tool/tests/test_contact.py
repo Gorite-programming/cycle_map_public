@@ -144,3 +144,23 @@ def test_export_writes_detail_columns_and_counts(tmp_db, tmp_path):
         assert dict(db.execute("SELECT key, value FROM meta"))["schema_version"] == "2"
     finally:
         db.close()
+
+
+def test_export_adds_search_only_reading_for_kanji_names(tmp_db, tmp_path):
+    """漢字名は、かな・ローマ字で探せるよう search_text に読みを足す。表示用の kana 列には入れない (誤読があるため)。"""
+    pytest.importorskip("pykakasi")
+    conn = masterdb.connect(tmp_db)
+    try:
+        masterdb.insert_pois(conn, [_row("広島大学", "osm", "node/1", 30)])
+    finally:
+        conn.close()
+    out = str(tmp_path / "y.search.db")
+    export.export_search_db(tmp_db, "hiroshima", out)
+    db = sqlite3.connect("file:%s?mode=ro" % out, uri=True)
+    try:
+        kana, search_text = db.execute("SELECT kana, search_text FROM places").fetchone()
+        assert kana is None
+        assert "ひろしまだいがく" in search_text
+        assert "hiroshimadaigaku" in search_text
+    finally:
+        db.close()

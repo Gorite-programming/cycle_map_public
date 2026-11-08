@@ -39,3 +39,12 @@ class RouteChoicesTest {
         assertEquals(2, alternativeLinesOf(opts, 5).size)
     }
 }
+
+class ElevationAxisTest {
+    @org.junit.Test
+    fun axisDoesNotGoNegativeForRoutesAboveSeaLevel() {
+        org.junit.Assert.assertEquals(0.0, elevationAxisLow(4.0, 560.0), 1e-9)
+        org.junit.Assert.assertEquals(90.0, elevationAxisLow(100.0, 100.0), 1e-9)
+        org.junit.Assert.assertEquals(-4.0, elevationAxisLow(-3.0, 10.0), 1e-9) // 海面下の区間はそのまま
+    }
+}

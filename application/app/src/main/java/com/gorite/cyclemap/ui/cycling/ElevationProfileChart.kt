@@ -43,8 +43,8 @@ fun ElevationProfileChart(
     val minElev = remember(points) { points.minOf { it.elevationM } }
     val maxElev = remember(points) { points.maxOf { it.elevationM } }
     val span = (maxElev - minElev).coerceAtLeast(10.0)
-    // 上下に余白を取った表示レンジ
-    val lo = minElev - span * 0.1
+    // 上下に余白を取った表示レンジ。経路が 0m 以上なら、下の余白で軸が負 (「-48m」など) にならないよう 0 で止める
+    val lo = elevationAxisLow(minElev, span)
     val hi = maxElev + span * 0.15
 
     Canvas(
@@ -151,4 +151,10 @@ fun ElevationProfileChart(
             }
         }
     }
+}
+
+/** 標高チャートの縦軸の下端。最低点の下に余白を取るが、最低点が 0m 以上なら 0m より下にはしない。 */
+internal fun elevationAxisLow(minElev: Double, span: Double): Double {
+    val padded = minElev - span * 0.1
+    return if (minElev >= 0.0) padded.coerceAtLeast(0.0) else padded
 }

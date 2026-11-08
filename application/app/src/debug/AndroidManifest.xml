@@ -10,6 +10,14 @@
                 <action android:name="com.gorite.cyclemap.test.CAMERA" />
             </intent-filter>
         </receiver>
+        <!-- debug ビルド専用: adb から模擬の現在地を流す検証フック (案内・リルートの確認用。リリースには含まれない) -->
+        <receiver
+            android:name=".verify.LocationDebugReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.gorite.cyclemap.test.SIMLOC" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

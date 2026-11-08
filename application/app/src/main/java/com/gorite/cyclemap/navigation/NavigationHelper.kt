@@ -1,5 +1,7 @@
 package com.gorite.cyclemap.navigation
 
+import kotlinx.coroutines.launch
+
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import android.animation.ValueAnimator
@@ -83,12 +85,26 @@ internal fun buildRouteInstructions(
                 ?: "unknown"
         }
     }
+    // ルート上の edge の道路名 (graph が道路名区間を持つときだけ)。案内の「県道41号に入る」などに使う。
+    val routeBranches = (0 until nodeIds.lastIndex).map { i ->
+        val fromIndex = graphIndexOf(nodeIds[i])
+        val toIndex = graphIndexOf(nodeIds[i + 1])
+        if (fromIndex == null || toIndex == null) null
+        else graph.outgoingBranches(fromIndex).firstOrNull { it.targetIndex == toIndex }
+    }
+    val edgeNames: List<String?> = routeBranches.map { it?.roadName }
     val instructions = TurnClassifier.classifyMappedRoute(
         nodeIds = nodeIds,
         coordinates = points,
         branchesOf = ::branchesOf,
         edgeTypes = edgeTypes,
-    )
+    ).map { ins ->
+        ins.copy(
+            outgoingRoadName = outgoingRoadNameAt(edgeNames, ins.routeIndex),
+            // 曲がり角に入ってくる辺 (routeIndex-1 → routeIndex) の車線
+            incomingTurnLanes = routeBranches.getOrNull(ins.routeIndex - 1)?.turnLanes,
+        )
+    }
     for (instruction in instructions) {
         Log.d(
             "CycleMapInstruction",
@@ -102,6 +118,13 @@ internal fun buildRouteInstructions(
     }
     return instructions
 }
+
+/**
+ * 曲がり角 (ルート内の [routeIndex] 番目のノード) から先の道路名。曲がった直後の短い区間に名前が無い
+ * (交差点内の取り付け道路など) こともあるので、先の 3 区間まで見る。
+ */
+internal fun outgoingRoadNameAt(edgeNames: List<String?>, routeIndex: Int): String? =
+    (routeIndex until (routeIndex + 3).coerceAtMost(edgeNames.size)).firstNotNullOfOrNull { edgeNames.getOrNull(it) }
 
 // ---------------------------------------------------------------------------
 // ナビ案内バナー文言生成
@@ -223,7 +246,9 @@ internal fun ServiceLocationUpdates(
     val onStatus by rememberUpdatedState(onGpsStatusChanged)
     DisposableEffect(context) {
         var serviceRef: LocationTrackingService? = null
-        val locationListener: (Location) -> Unit = { newLocation ->
+        val locationListener: (Location) -> Unit = listener@{ newLocation ->
+            // 検証用の模擬位置を流している間は、本物の GPS を無視する (debug ビルドの adb 検証のみ)
+            if (com.gorite.cyclemap.verify.SimulatedLocationBus.isActive()) return@listener
             onSpeed(newLocation.speed.toDouble())
             val service = serviceRef
             onLocation(newLocation, service?.recording == true, service?.recordedPoints ?: 0)
@@ -237,7 +262,15 @@ internal fun ServiceLocationUpdates(
             service.addStatusListener(statusListener)
         }
         LocationTrackingService.bind(context, connection)
+        // 検証用の模擬位置 (debug ビルドの LocationDebugReceiver からだけ来る)
+        val simJob = kotlinx.coroutines.MainScope().launch {
+            com.gorite.cyclemap.verify.SimulatedLocationBus.locations.collect { sim ->
+                onSpeed(sim.speed.toDouble())
+                onLocation(sim, serviceRef?.recording == true, serviceRef?.recordedPoints ?: 0)
+            }
+        }
         onDispose {
+            simJob.cancel()
             serviceRef?.removeListener(locationListener)
             serviceRef?.removeStatusListener(statusListener)
             runCatching { context.unbindService(connection) }

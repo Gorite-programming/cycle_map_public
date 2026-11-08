@@ -213,6 +213,8 @@ internal fun poiLabelVisible(zoom: Double, prominence: Int): Boolean = when {
     zoom >= 16.0 -> prominence >= 600
     zoom >= 15.0 -> prominence >= 800
     zoom >= 13.5 -> prominence >= 880
+    // 引いた地図でも、鉄道駅 (960〜) と世界遺産などの名所 (1000 前後) は名前を出す (Google マップの z12 相当)
+    zoom >= 11.0 -> prominence >= 940
     else -> false
 }
 

@@ -54,3 +54,23 @@ def test_handler_way_averages_nodes():
     assert h.rows[0]["lat"] == 34.1
     assert h.rows[0]["lon"] == 132.2
     assert h.rows[0]["category"] == "named"
+
+
+def test_category_for_landmarks_without_amenity_or_tourism():
+    # 厳島神社 (way) は heritage・landuse=religious・building=shrine だけを持つ
+    shrine = {"name": "厳島神社", "heritage": "1", "heritage:operator": "whc",
+              "landuse": "religious", "boundary": "protected_area"}
+    assert category_for(shrine) == "tourism:attraction"
+    assert category_for({"building": "shrine", "name": "厳島神社本殿"}) == \
+        "amenity:place_of_worship"
+    assert category_for({"landuse": "religious", "name": "x寺"}) == \
+        "amenity:place_of_worship"
+    assert category_for({"historic": "castle", "name": "広島城"}) == \
+        "historic:castle"
+    assert category_for({"natural": "peak", "name": "弥山"}) == "natural:peak"
+    assert category_for({"natural": "wood", "name": "x"}) == "named"
+    assert category_for({"railway": "tram_stop", "name": "紙屋町東"}) == \
+        "railway:tram_stop"
+    # 既存の優先順位は変えない (amenity が先)
+    assert category_for({"amenity": "place_of_worship", "heritage": "1"}) == \
+        "amenity:place_of_worship"

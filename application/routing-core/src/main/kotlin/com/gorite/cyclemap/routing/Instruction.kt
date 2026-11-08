@@ -79,6 +79,10 @@ data class RouteInstruction(
     val outgoingRoadType: String,
     /** 判定理由 (短い機械可読トークン列, 例: "fork-ahead-other-behind")。 */
     val reason: String,
+    /** 曲がった先の道路名 (「県道41号」「平和大通り」など)。graph が道路名を持つときだけ。 */
+    val outgoingRoadName: String? = null,
+    /** 曲がり角の手前の道の車線 (OSM の turn:lanes)。車線案内に使う。graph が車線を持つときだけ。 */
+    val incomingTurnLanes: String? = null,
 ) {
     fun debugLine(
         currentEdge: String,

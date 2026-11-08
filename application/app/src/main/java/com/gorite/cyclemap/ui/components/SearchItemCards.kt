@@ -56,10 +56,14 @@ internal fun SearchResultItemCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // カテゴリ + 住所 (同じ名前の支店を見分けられるように)
                     Text(
-                        formatCategoryLabel(result.category),
+                        listOfNotNull(formatCategoryLabel(result.category), result.address?.let(::shortAddress))
+                            .joinToString(" ・ "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                     result.distanceMeters?.let { dist ->
@@ -135,4 +139,14 @@ internal fun FavoriteSpotItemCard(
             }
         }
     }
+}
+
+/**
+ * 検索結果に添える住所の短い表記。都道府県と、重複した区名 (「広島市中区 中区袋町5-7」の 2 つ目の「中区」) を除く。
+ */
+internal fun shortAddress(address: String): String {
+    var a = address.trim().replace(Regex("^(広島県|岡山県|山口県|鳥取県|島根県)\\s*"), "")
+    // 「◯◯市△△区 △△区…」のような重複を 1 つにする
+    Regex("^(\\S*?([^\\s市]+区))\\s+\\2").find(a)?.let { m -> a = m.groupValues[1] + a.substring(m.range.last + 1) }
+    return a.replace(Regex("\\s+"), " ")
 }

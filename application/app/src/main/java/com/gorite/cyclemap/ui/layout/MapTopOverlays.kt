@@ -141,8 +141,10 @@ internal fun BoxScope.MapTopOverlays(
         val nextAfterThis = futureInstructions.getOrNull(1)
         val distNextAfterThis = nextAfterThis?.let { (it.distanceFromStartMeters - traveled).coerceAtLeast(0.0) }
 
-        val laneProvider = androidx.compose.runtime.remember {
-            com.gorite.cyclemap.real.RealLaneGuidanceProvider()
+        // 車線は、次の曲がり角の手前の道の turn:lanes (graph の車線区間) から。無い道では何も出さない
+        val laneProvider = androidx.compose.runtime.remember(nextInstruction?.incomingTurnLanes) {
+            val lanes = nextInstruction?.incomingTurnLanes
+            com.gorite.cyclemap.real.RealLaneGuidanceProvider(laneDataSource = { lanes })
         }
         var activeLaneHints by androidx.compose.runtime.remember {
             androidx.compose.runtime.mutableStateOf<List<com.gorite.cyclemap.contract.LaneInfo>>(emptyList())
@@ -150,7 +152,7 @@ internal fun BoxScope.MapTopOverlays(
         val currentTurnType = nextInstruction.toGuidanceTurnType()
         val nextTurnType = nextAfterThis.toGuidanceTurnType()
 
-        androidx.compose.runtime.LaunchedEffect(nextInstruction?.nodeId, currentTurnType) {
+        androidx.compose.runtime.LaunchedEffect(nextInstruction?.nodeId, currentTurnType, laneProvider) {
             val hints = laneProvider.getLaneHints(nextInstruction?.nodeId ?: 0L, currentTurnType)
             val hintsFromLaneHint: List<com.gorite.cyclemap.routing.LaneHint> = hints.map {
                 com.gorite.cyclemap.routing.LaneHint(
@@ -194,7 +196,8 @@ internal fun BoxScope.MapTopOverlays(
                 turnType = currentTurnType,
                 distanceMeters = distanceMeters ?: 0.0,
                 instructionText = guide?.text?.withoutDistancePrefix() ?: "直進",
-                roadLabel = com.gorite.cyclemap.ui.map.roadClassLabel(nextInstruction?.outgoingRoadType),
+                // 道路名 (「県道41号」など) があればそれを、無ければ道路の区分 (「住宅街の道」など) を出す
+                roadLabel = nextInstruction?.outgoingRoadName ?: com.gorite.cyclemap.ui.map.roadClassLabel(nextInstruction?.outgoingRoadType),
                 next = if (nextInstruction != null && nextAfterThis != null) {
                     com.gorite.cyclemap.ui.map.NavNextHint(
                         turnType = nextTurnType,

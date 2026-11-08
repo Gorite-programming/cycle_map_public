@@ -23,6 +23,10 @@ data class GraphEdge(
     val oneWay: Boolean = false,
     val gradePercent: Double? = null,
     val costMultiplier: Double = 1.0,
+    /** 案内に出す道路名 (「国道2号」「県道41号」、または道の名前)。graph には書かず、索引の道路名区間に書く。 */
+    val roadName: String? = null,
+    /** この辺の進行方向の車線 (OSM の turn:lanes、例 "left|through|through;right")。索引の車線区間に書く。 */
+    val turnLanes: String? = null,
 ) {
     init {
         require(distanceMeters >= 0.0) { "distanceMeters must be non-negative" }

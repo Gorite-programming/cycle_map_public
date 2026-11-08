@@ -120,6 +120,7 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
         records = []
         fts_records = []
         kana_cache = {}
+        search_reading_cache = {}
         n_kana_tag = 0
         n_kana_pykakasi = 0
         for i, r in enumerate(rows, start=1):
@@ -138,6 +139,17 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
                 if kana:
                     n_kana_pykakasi += 1
             variants = normalize_variants(r["name"])
+            # 検索専用の読み: pykakasi の読み (ひらがな・ローマ字) を search_text にだけ足す。
+            # 地名で約24%の誤読があるため表示用の kana 列には入れないが (use_pykakasi 時を除く)、
+            # 検索では誤読は「その読みで当たらない」だけなので、漢字名をかなで探せる利点が大きい。
+            if r["name"] not in search_reading_cache:
+                search_reading_cache[r["name"]] = pykakasi_reading(r["name"])
+            sr = search_reading_cache[r["name"]]
+            if sr:
+                for v in (sr["hira"], sr["hepburn"].lower()):
+                    v = "".join(v.split())
+                    if v and v != r["name"]:
+                        variants.append(v)
             if kana and kana != r["name"]:
                 # 読み自体も検索対象にする (normalizeは元文字列を除くため)
                 variants.append(kana)

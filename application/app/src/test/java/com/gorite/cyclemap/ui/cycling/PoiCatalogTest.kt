@@ -85,7 +85,9 @@ class PoiCatalogTest {
 
     @Test
     fun namesAreShownOnlyForProminentFacilitiesWhenZoomedOut() {
-        assertFalse(poiLabelVisible(12.0, 960))
+        assertTrue(poiLabelVisible(12.0, 960)) // 駅は引いた地図でも名前を出す
+        assertFalse(poiLabelVisible(12.0, 880)) // 普通の観光地は出さない
+        assertFalse(poiLabelVisible(10.5, 960))
         assertTrue(poiLabelVisible(14.0, 960))
         assertFalse(poiLabelVisible(14.0, 700))
         assertTrue(poiLabelVisible(16.5, 700))
@@ -128,5 +130,28 @@ class PoiCatalogTest {
             assertTrue("${cat.name} icon", cat.iconRes != 0)
             assertTrue("${cat.name} colour", Regex("#[0-9A-Fa-f]{6}").matches(cat.colorHex))
         }
+    }
+
+    @Test
+    fun landmarksAndTramStopsHaveTheirOwnCategories() {
+        assertEquals(PoiCategory.LANDMARK, PoiCategory.forCategory("historic:castle"))
+        assertEquals(PoiCategory.LANDMARK, PoiCategory.forCategory("natural:peak"))
+        assertEquals(PoiCategory.TRAM, PoiCategory.forCategory("railway:tram_stop"))
+        assertEquals(PoiCategory.STATION, PoiCategory.forCategory("railway:station"))
+    }
+
+    @Test
+    fun migrationFromVersion2AddsOnlyTheVersion3Categories() {
+        // 版 2 で飲食を外していた人は、外したままにする。版 3 で増えた初期表示カテゴリだけを足す
+        val v2Choice = setOf(PoiCategory.STATION, PoiCategory.CONVENIENCE, PoiCategory.HOSPITAL)
+        val migrated = PoiCategory.migrateSelection(v2Choice, fromVersion = 2)
+        assertEquals(v2Choice + setOf(PoiCategory.TRAM, PoiCategory.LANDMARK), migrated)
+    }
+
+    @Test
+    fun worldHeritageNamesOutrankOrdinaryMuseums() {
+        val shrine = com.gorite.cyclemap.search.SearchRanking.computePoiProminenceScore("世界遺産 厳島神社", "tourism:attraction")
+        val museum = com.gorite.cyclemap.search.SearchRanking.computePoiProminenceScore("厳島神社宝物館", "tourism:museum")
+        assertTrue(shrine > museum)
     }
 }

@@ -319,6 +319,8 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
             val onewayTag = way.tags["oneway"]
             val oneway = onewayTag in setOf("yes", "true", "1", "-1")
             val reverseOnly = onewayTag == "-1"
+            val roadName = roadDisplayName(way.tags)
+            val (forwardLanes, backwardLanes) = turnLanesByDirection(way.tags)
 
             for (index in 0 until way.nodeIds.size - 1) {
                 val fromId = way.nodeIds[index]
@@ -341,7 +343,7 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
 
                 if (!reverseOnly) {
                     outgoing.getOrPut(fromId) { mutableListOf() }
-                        .add(GraphEdge(fromId, toId, distance, roadType, oneway))
+                        .add(GraphEdge(fromId, toId, distance, roadType, oneway, roadName = roadName, turnLanes = forwardLanes))
                 }
                 if (!oneway || reverseOnly) {
                     // oneway="-1": the to→from direction is the only permitted direction;
@@ -349,7 +351,8 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
                     // treat it as forward-only.
                     val reverseEdgeOneWay = oneway && !reverseOnly
                     outgoing.getOrPut(toId) { mutableListOf() }
-                        .add(GraphEdge(toId, fromId, distance, roadType, reverseEdgeOneWay))
+                        .add(GraphEdge(toId, fromId, distance, roadType, reverseEdgeOneWay, roadName = roadName,
+                            turnLanes = backwardLanes))
                 }
             }
         }
@@ -631,6 +634,14 @@ fun collectBicycleNetworkStats(file: File): BicycleNetworkStats {
 // ---------------------------------------------------------------------------
 
 class GraphBinaryWriter(private val elevations: Map<Long, Float>? = null) {
+    /** 直前の [write] で書いた辺の順 (= 索引の辺の通し番号) の道路名。索引の道路名区間に使う。 */
+    var edgeRoadNames: List<String?> = emptyList()
+        private set
+
+    /** 直前の [write] で書いた辺の順の車線 (turn:lanes)。索引の車線区間に使う。 */
+    var edgeTurnLanes: List<String?> = emptyList()
+        private set
+
     fun write(graph: RoadGraph, output: File) {
         // 標高 (ノード id → m) があれば、辺ごとの勾配 (%) を書き込む。無ければ従来どおり勾配なし。
         var gradeEdges = 0
@@ -644,6 +655,8 @@ class GraphBinaryWriter(private val elevations: Map<Long, Float>? = null) {
                 out.writeDouble(node.longitude)
             }
             val edges = graph.outgoing.values.flatten()
+            edgeRoadNames = edges.map { it.roadName }
+            edgeTurnLanes = edges.map { it.turnLanes }
             out.writeInt(edges.size)
             edges.forEach { edge ->
                 out.writeLong(edge.from)
@@ -813,9 +826,10 @@ fun main(args: Array<String>) {
             "interpolated=${stats.interpolated} unknown=${stats.unknown}")
         corrected
     }
-    GraphBinaryWriter(elevations).write(graph, output)
+    val writer = GraphBinaryWriter(elevations)
+    writer.write(graph, output)
     val indexFile = File(output.path + ".idx")
-    writeGraphIndex(output, indexFile, elevations)
+    writeGraphIndex(output, indexFile, elevations, writer.edgeRoadNames, writer.edgeTurnLanes)
 
     peak.stop()
     val edgeCount = graph.outgoing.values.sumOf { it.size }
@@ -830,7 +844,25 @@ fun main(args: Array<String>) {
 // Graph index writer  (output format CYCLEMAP_INDEX_V2 — unchanged)
 // ---------------------------------------------------------------------------
 
-internal fun writeGraphIndex(graphFile: File, indexFile: File, elevations: Map<Long, Float>? = null) {
+/** 文字列の表 + 辺ごとの番号 (無ければ -1) の区間を書く (道路名・車線で共通)。 */
+private fun writeStringTableSection(output: DataOutputStream, magic: String, values: List<String?>, label: String) {
+    val table = LinkedHashMap<String, Int>()
+    val ids = IntArray(values.size) { i -> values[i]?.let { v -> table.getOrPut(v) { table.size } } ?: -1 }
+    output.writeUTF(magic)
+    output.writeInt(table.size)
+    table.keys.forEach(output::writeUTF)
+    output.writeInt(values.size)
+    ids.forEach(output::writeInt)
+    println("$label distinct=${table.size} edges=${ids.count { it >= 0 }} / ${values.size}")
+}
+
+internal fun writeGraphIndex(
+    graphFile: File,
+    indexFile: File,
+    elevations: Map<Long, Float>? = null,
+    edgeRoadNames: List<String?>? = null,
+    edgeTurnLanes: List<String?>? = null,
+) {
     DataInputStream(BufferedInputStream(FileInputStream(graphFile))).use { input ->
         val magicLength = input.readUnsignedShort()
         val magic = ByteArray(magicLength); input.readFully(magic)
@@ -886,6 +918,14 @@ internal fun writeGraphIndex(graphFile: File, indexFile: File, elevations: Map<L
                 output.writeUTF(ELEVATION_SECTION_MAGIC)
                 output.writeInt(nodeCount)
                 for (i in 0 until nodeCount) output.writeShort(encodeElevationDecimeters(elevations[nodeIdByIndex[i]]).toInt())
+            }
+            // 続けて道路名区間: 名前の表と、辺の通し番号ごとの名前の番号 (無ければ -1)。案内の「県道41号」などに使う。
+            if (edgeRoadNames != null && edgeRoadNames.size == edgeCount) {
+                writeStringTableSection(output, ROAD_NAME_SECTION_MAGIC, edgeRoadNames, "roadNames")
+            }
+            // 続けて車線区間 (OSM の turn:lanes)。案内の車線表示に使う。
+            if (edgeTurnLanes != null && edgeTurnLanes.size == edgeCount && edgeTurnLanes.any { it != null }) {
+                writeStringTableSection(output, TURN_LANES_SECTION_MAGIC, edgeTurnLanes, "turnLanes")
             }
         }
         println("index nodes=$nodeCount edges=$edgeCount output=${indexFile.absolutePath}")

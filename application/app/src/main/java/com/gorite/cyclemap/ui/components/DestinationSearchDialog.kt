@@ -71,8 +71,6 @@ import com.gorite.cyclemap.data.Fts5SupportDetector
 import com.gorite.cyclemap.data.SearchDbSelection
 import com.gorite.cyclemap.data.SearchDbSelector
 import com.gorite.cyclemap.search.GenreDictionary
-import com.gorite.cyclemap.search.SearchCandidate
-import com.gorite.cyclemap.search.SearchRanking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -198,29 +196,8 @@ internal fun DestinationSearchDialog(
                 userLon = uLon,
             )
         }
-        val ranked = if (trimmed.isNotEmpty() && found.isNotEmpty()) {
-            val candidates = found.mapIndexed { idx, it ->
-                SearchCandidate(
-                    id = idx.toString(),
-                    name = it.name,
-                    searchText = "${it.name} ${it.category}",
-                    category = it.category,
-                    latitude = it.latitude,
-                    longitude = it.longitude,
-                    distanceMeters = it.distanceMeters ?: 0.0,
-                )
-            }
-            val rankedCandidates = SearchRanking.rankCandidates(candidates, trimmed, uLat, uLon)
-            if (rankedCandidates.isNotEmpty()) {
-                rankedCandidates.mapNotNull { cand ->
-                    cand.id.toIntOrNull()?.let { found.getOrNull(it) }
-                }
-            } else {
-                found
-            }
-        } else {
-            found
-        }
+        // 並び順は searchPlaces が一致度・重要度・距離の総合点で決めている (ここで並べ直さない)
+        val ranked = found
         results = ranked
         message = when {
             unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索DBがありません"

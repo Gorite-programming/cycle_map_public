@@ -19,7 +19,15 @@ internal data class SearchResult(
     val latitude: Double,
     val longitude: Double,
     val distanceMeters: Double? = null,
+    /** 住所 (検索DB の address 列)。同じ名前の支店を見分けるのに表示する。 */
+    val address: String? = null,
+    /** 検索用の別表記 (search_text 列)。読みでの一致を点数に入れるのに使う。 */
+    val searchText: String? = null,
 )
+
+/** 住所で検索したときに作る結果のカテゴリ (DB の行ではなく、住所が一致した地点の代表点)。 */
+internal const val ADDRESS_RESULT_CATEGORY = "address"
+
 
 /** カテゴリフィルタタブの定義 */
 internal enum class SearchCategory(val label: String, val categoryPrefixes: List<String>) {
@@ -76,7 +84,30 @@ fun formatCategoryLabel(category: String): String {
         category.startsWith("amenity:police") -> "警察・交番"
         category.startsWith("amenity:fire_station") -> "消防署"
         category.startsWith("place:city") || category.startsWith("place:town") -> "市区町村"
-        else -> category
+        category == ADDRESS_RESULT_CATEGORY -> "住所"
+        category.startsWith("shop:mall") || category.startsWith("shop:department_store") -> "ショッピングモール"
+        category.startsWith("amenity:bicycle_rental") -> "レンタサイクル"
+        category.startsWith("amenity:bicycle_parking") -> "駐輪場"
+        category.startsWith("amenity:charging_station") -> "充電スポット"
+        category.startsWith("amenity:pharmacy") || category.startsWith("shop:chemist") -> "薬局・ドラッグストア"
+        category.startsWith("amenity:bar") || category.startsWith("amenity:pub") -> "バー・居酒屋"
+        category.startsWith("amenity:townhall") -> "役所"
+        category.startsWith("amenity:kindergarten") -> "幼稚園・保育園"
+        category.startsWith("amenity:ferry_terminal") -> "フェリー乗り場"
+        category.startsWith("tourism:hotel") || category.startsWith("tourism:guest_house") ||
+            category.startsWith("tourism:hostel") || category.startsWith("tourism:motel") -> "宿泊"
+        category.startsWith("tourism:camp_site") -> "キャンプ場"
+        category.startsWith("leisure:stadium") || category.startsWith("leisure:sports_centre") -> "スポーツ施設"
+        category.startsWith("leisure:") -> "レジャー"
+        category.startsWith("historic:") -> "史跡"
+        category.startsWith("natural:") -> "自然"
+        category.startsWith("railway:") -> "鉄道"
+        category.startsWith("public_transport:") -> "交通"
+        category.startsWith("place:") -> "地名"
+        category.startsWith("shop:") -> "お店"
+        category.startsWith("amenity:") || category.startsWith("office:") ||
+            category.startsWith("craft:") || category.startsWith("man_made:") -> "施設"
+        else -> "スポット" // "named" など、種類の分からない地点
     }
 }
 
@@ -159,7 +190,86 @@ internal fun clusterBusStops(
 }
 
 /**
- * 検索クエリとの一致度、カテゴリ優先度、距離を総合してソートする。
+ * 検索語との一致度 (0..1000)。名前の完全一致 > 読み・別表記の完全一致 > 前方一致 > 部分一致。
+ * 「〜駅」の検索で、駅名だけで登録された鉄道駅 (「広島」) は名前の完全一致に準じる。
+ */
+@VisibleForTesting
+internal fun textMatchScore(result: SearchResult, query: String): Double {
+    val q = SearchNormalizer.normalize(query)
+    if (q.isEmpty()) return 0.0
+    val qCompact = q.replace(" ", "")
+    val name = SearchNormalizer.normalize(result.name)
+    val nameCompact = name.replace(" ", "")
+    val tokens = SearchNormalizer.normalize(result.searchText ?: "").split(' ').filter { it.isNotEmpty() }
+    val stationBase = extractStationQuery(query.trim())?.let { SearchNormalizer.normalize(it) }
+    val isStation = result.category.startsWith("railway:station") || result.category.startsWith("public_transport:station") ||
+        result.category.startsWith("railway:halt")
+    return when {
+        name == q || nameCompact == qCompact -> 1000.0
+        stationBase != null && isStation && (name == stationBase || tokens.contains(stationBase)) -> 950.0
+        tokens.any { it == q || it == qCompact } -> 800.0
+        nameCompact.startsWith(qCompact) -> 600.0
+        tokens.any { it.startsWith(qCompact) } -> 500.0
+        nameCompact.contains(qCompact) -> 300.0
+        tokens.any { it.contains(qCompact) } -> 150.0
+        stationBase != null && isStation && name.contains(stationBase) -> 150.0
+        else -> 50.0 // FTS などで当たったが、文字列としては一致が弱いもの
+    }
+}
+
+/** 場所の重要度による加点 (駅・地名・名所は上げ、バス停・種類不明は下げる)。 */
+@VisibleForTesting
+internal fun prominenceBonus(category: String): Double = when {
+    category == ADDRESS_RESULT_CATEGORY -> 120.0
+    category.startsWith("railway:station") || category.startsWith("public_transport:station") -> 200.0
+    category.startsWith("place:city") || category.startsWith("place:town") -> 180.0
+    category.startsWith("place:") -> 120.0
+    category.startsWith("tourism:attraction") || category.startsWith("tourism:museum") ||
+        category.startsWith("tourism:viewpoint") || category.startsWith("tourism:theme_park") ||
+        category.startsWith("tourism:zoo") || category.startsWith("tourism:aquarium") -> 120.0
+    category.startsWith("amenity:university") || category.startsWith("amenity:college") ||
+        category.startsWith("amenity:hospital") || category.startsWith("amenity:townhall") ||
+        category.startsWith("railway:halt") || category.startsWith("amenity:ferry_terminal") -> 80.0
+    else -> when (categoryPriority(category)) {
+        3 -> 40.0
+        5 -> -150.0
+        else -> 0.0
+    } + if (category == "named") -30.0 else 0.0
+}
+
+/** 距離による減点。1km で約 24、10km で約 83、50km で約 137。遠方の目的地も消えない程度に緩やか。 */
+@VisibleForTesting
+internal fun distancePenalty(distanceMeters: Double?): Double =
+    if (distanceMeters == null) 0.0 else 80.0 * kotlin.math.log10(1.0 + distanceMeters / 1000.0)
+
+/** 1 件の総合点。別名 ([queries] の 2 件目以降) での一致は少し下げる。 */
+@VisibleForTesting
+internal fun searchScore(result: SearchResult, queries: List<String>): Double {
+    val text = queries.withIndex().maxOf { (i, q) -> textMatchScore(result, q) * if (i == 0) 1.0 else 0.95 }
+    return text + prominenceBonus(result.category) - distancePenalty(result.distanceMeters)
+}
+
+/**
+ * 同じ名前で近い (既定 150m 以内) 結果を 1 件にまとめる。複数の出典 (OSM・Overture など) の
+ * 同じ場所や、駅の複数のホームが重なって並ぶのを防ぐ。[items] は良い順に並んでいること (先の方を残す)。
+ */
+@VisibleForTesting
+internal fun dedupeNearbySameName(items: List<SearchResult>, radiusM: Double = 150.0): List<SearchResult> {
+    val kept = ArrayList<SearchResult>(items.size)
+    for (r in items) {
+        val key = SearchNormalizer.normalize(r.name).replace(" ", "")
+        val dup = kept.any {
+            SearchNormalizer.normalize(it.name).replace(" ", "") == key &&
+                haversineMeters(it.latitude, it.longitude, r.latitude, r.longitude) <= radiusM
+        }
+        if (!dup) kept += r
+    }
+    return kept
+}
+
+/**
+ * 検索結果を、一致度・場所の重要度・距離の総合点で並べる (Google マップのように「関連が強く近いもの」を上に)。
+ * 別名 (略称・英字) も一致度の計算に使う。同名で近いものは 1 件にまとめる。
  */
 @VisibleForTesting
 internal fun rankSearchResults(
@@ -168,31 +278,114 @@ internal fun rankSearchResults(
     userLat: Double?,
     userLon: Double?,
 ): List<SearchResult> {
-    val trimmed = query.trim()
-    val stationBase = extractStationQuery(trimmed)
-
-    return items.sortedWith { a, b ->
-        // 1. クエリ完全一致 または 駅名一致（「広島駅」検索で駅名「広島」の鉄道駅）を最優先
-        val aExactMatch = a.name.equals(trimmed, ignoreCase = true) ||
-            (stationBase != null && a.name.equals(stationBase, ignoreCase = true) && a.category.startsWith("railway:station"))
-        val bExactMatch = b.name.equals(trimmed, ignoreCase = true) ||
-            (stationBase != null && b.name.equals(stationBase, ignoreCase = true) && b.category.startsWith("railway:station"))
-        if (aExactMatch != bExactMatch) {
-            return@sortedWith if (aExactMatch) -1 else 1
-        }
-
-        // 2. カテゴリ優先度 (鉄道駅=1 > 観光・店舗=3 > バス停=5)
-        val aCat = categoryPriority(a.category)
-        val bCat = categoryPriority(b.category)
-        if (aCat != bCat) {
-            return@sortedWith aCat.compareTo(bCat)
-        }
-
-        // 3. 距離（近い順）
-        val aDist = a.distanceMeters ?: Double.MAX_VALUE
-        val bDist = b.distanceMeters ?: Double.MAX_VALUE
-        aDist.compareTo(bDist)
+    val queries = SearchAliases.expand(query).ifEmpty { listOf(query) }
+    val withDistance = items.map { r ->
+        if (r.distanceMeters == null && userLat != null && userLon != null) {
+            r.copy(distanceMeters = haversineMeters(userLat, userLon, r.latitude, r.longitude))
+        } else r
     }
+    val sorted = withDistance
+        .map { it to searchScore(it, queries) }
+        .sortedWith(compareByDescending<Pair<SearchResult, Double>> { it.second }.thenBy { it.first.distanceMeters ?: Double.MAX_VALUE })
+        .map { it.first }
+    return dedupeNearbySameName(sorted)
+}
+
+private val placesColumnsCache = ConcurrentHashMap<String, Set<String>>()
+
+/** places テーブルの列名 (DB ごとにキャッシュ)。 */
+internal fun placesColumns(db: SQLiteDatabase): Set<String> {
+    fun read(): Set<String> = try {
+        db.rawQuery("PRAGMA table_info(places)", null).use { c ->
+            val idx = c.getColumnIndex("name")
+            buildSet { while (c.moveToNext()) if (idx >= 0) add(c.getString(idx)) }
+        }
+    } catch (e: Exception) {
+        emptySet()
+    }
+    val path = db.path ?: return read()
+    return placesColumnsCache.computeIfAbsent(path) { read() }
+}
+
+/**
+ * 距離に関係なく「一致の強いもの」を拾う: 名前の完全一致・前方一致、読み・別表記の完全一致。
+ * 距離順の LIMIT で遠くの正解 (隣の市の駅など) が落ちるのを防ぐ。件数は少数に抑える。
+ */
+private fun fetchStrongMatches(
+    db: SQLiteDatabase,
+    query: String,
+    hasSearchText: Boolean,
+    extraSelect: String,
+    categoryWherePlain: String,
+    categoryArgs: List<String>,
+    add: (android.database.Cursor) -> Unit,
+) {
+    val q = query.trim()
+    if (q.length < 2) return
+    val nq = SearchNormalizer.normalize(q)
+    val (where, args) = if (hasSearchText) {
+        "(name = ? OR name LIKE ? ESCAPE '\\' OR (' ' || search_text || ' ') LIKE ? ESCAPE '\\')" to
+            listOf(q, "${escapeLike(q)}%", "% ${escapeLike(nq)} %")
+    } else {
+        "(name = ? OR name LIKE ? ESCAPE '\\')" to listOf(q, "${escapeLike(q)}%")
+    }
+    try {
+        db.rawQuery(
+            """
+            SELECT name, category, lat, lon $extraSelect
+            FROM places
+            WHERE $where $categoryWherePlain
+            ORDER BY length(name)
+            LIMIT 40
+            """.trimIndent(),
+            (args + categoryArgs).toTypedArray(),
+        ).use { c -> while (c.moveToNext()) add(c) }
+    } catch (e: SQLiteException) {
+        Log.w("CycleMap", "strong match query failed: ${e.message}")
+    }
+}
+
+/** 住所らしい検索語か (数字・丁目・番地、または市区町村名を含む)。 */
+@VisibleForTesting
+internal fun looksLikeAddress(query: String): Boolean {
+    val q = query.trim()
+    return q.any { it.isDigit() || it in '０'..'９' } || Regex("(丁目|番地|番|号|市|区|町|村)").containsMatchIn(q)
+}
+
+/**
+ * 住所で探す。検索DB の address 列に検索語を含む地点を集め、最初に見つかった地点の近く (300m) の
+ * 平均位置を代表点として返す。住所らしくない語や、一致が無いときは null。
+ */
+private fun addressResult(db: SQLiteDatabase, query: String): SearchResult? {
+    if (!looksLikeAddress(query)) return null
+    val q = SearchNormalizer.normalize(query).replace(" ", "")
+    if (q.length < 2) return null
+    val rows: List<Triple<String, Double, Double>> = try {
+        db.rawQuery(
+            "SELECT address, lat, lon FROM places WHERE replace(address, ' ', '') LIKE ? ESCAPE '\\' LIMIT 60",
+            arrayOf("%${escapeLike(q)}%"),
+        ).use { c ->
+            val out = ArrayList<Triple<String, Double, Double>>()
+            while (c.moveToNext()) out += Triple(c.getString(0) ?: "", c.getDouble(1), c.getDouble(2))
+            out
+        }
+    } catch (e: SQLiteException) {
+        Log.w("CycleMap", "address query failed: ${e.message}")
+        return null
+    }
+    if (rows.isEmpty()) return null
+    val first = rows.first()
+    val near = rows.filter { haversineMeters(first.second, first.third, it.second, it.third) <= 300.0 }
+    // 表示名は、一致した住所のうち最も短いもの (= 検索語に最も近い表記)
+    val label = near.minBy { it.first.length }.first
+    return SearchResult(
+        name = label,
+        category = ADDRESS_RESULT_CATEGORY,
+        latitude = near.map { it.second }.average(),
+        longitude = near.map { it.third }.average(),
+        address = null,
+        searchText = q,
+    )
 }
 
 private val placesHasSearchTextCache = ConcurrentHashMap<String, Boolean>()
@@ -330,118 +523,101 @@ internal fun searchPlaces(
             // 現在地がある場合は距離順 (NEARBY_ORDER_BY) でソートしてから LIMIT を適用。
             // ※ bbox による範囲絞り込みは遠方目的地を壊さないため適用しないが、
             //    距離順ソートは名称検索にも適用することで近傍のチェーン店（セブン等）を確実に拾う。
+            //    ただし距離順の LIMIT だけだと、遠くの「名前が完全に一致する場所」(9km 先の広島駅など) が
+            //    近くの部分一致に押し出されるので、別途「一致の強いもの」を距離に関係なく拾う (fetchStrongMatches)。
             val orderArgs = if (userLat != null && userLon != null) {
                 nearbyOrderArgs(userLat, userLon)
             } else {
                 emptyList()
             }
             val orderBy = if (orderArgs.isNotEmpty()) NEARBY_ORDER_BY else ""
+            val columns = placesColumns(db)
+            val hasSearchText = "search_text" in columns
+            val extraSelect = (if ("address" in columns) ", address" else ", NULL") +
+                (if (hasSearchText) ", search_text" else ", NULL")
+            val extraSelectFts = (if ("address" in columns) ", p.address" else ", NULL") +
+                (if (hasSearchText) ", p.search_text" else ", NULL")
+            fun add(cursor: android.database.Cursor) {
+                val r = SearchResult(
+                    cursor.getString(0), cursor.getString(1), cursor.getDouble(2), cursor.getDouble(3),
+                    address = cursor.getString(4)?.takeIf { it.isNotBlank() },
+                    searchText = cursor.getString(5),
+                )
+                results.putIfAbsent("${r.name}:${r.latitude}:${r.longitude}", r)
+            }
 
             val ftsSupported = Fts5SupportDetector.isSupported(db)
-            var ftsSucceeded = false
-            if (ftsSupported) {
-                try {
-                    val ftsQuery = buildFtsQuery(trimmed)
-                    val catWhereForFts = categoryWhere // p.category を参照するWHERE句
+            // 略称・英字の別名 (スタバ → スターバックス など) も同じ手順で探す
+            for ((variantIndex, variant) in SearchAliases.expand(trimmed).withIndex()) {
+                val variantLimit = if (variantIndex == 0) limit else limit / 2
+                var ftsCount = 0
+                var ftsSucceeded = false
+                if (ftsSupported) {
+                    try {
+                        db.rawQuery(
+                            """
+                            SELECT p.name, p.category, p.lat, p.lon $extraSelectFts
+                            FROM places_fts f
+                            JOIN places p ON p.id = f.rowid
+                            WHERE places_fts MATCH ? $categoryWhere
+                            $orderBy
+                            LIMIT ?
+                            """.trimIndent(),
+                            (listOf(buildFtsQuery(variant)) + categoryArgs + orderArgs + listOf(variantLimit.toString())).toTypedArray(),
+                        ).use { cursor -> while (cursor.moveToNext()) { add(cursor); ftsCount++ } }
+                        ftsSucceeded = true
+                    } catch (e: SQLiteException) {
+                        // FTS5未対応デバイスまたはエラー → LIKE検索へフォールバック
+                        Log.w("CycleMap", "FTS5 query failed, falling back to LIKE search: ${e.message}")
+                    }
+                }
 
+                // FTS5未対応 or FTS5クエリ失敗 or 件数不足 → LIKE補完
+                if (!ftsSucceeded || ftsCount < variantLimit) {
+                    val remaining = if (ftsSucceeded) variantLimit - ftsCount else variantLimit
+                    val targetColumn = if (hasSearchText) "search_text" else "name"
+                    val likeQuery = if (hasSearchText) SearchNormalizer.normalize(variant) else variant
+                    // FTS5非対応時は複数単語をANDで繋ぎ、各単語の中間一致 (%word%) で検索する。
+                    val (textWhereClause, textArgs) = buildLikeTextConditions(likeQuery, targetColumn)
                     db.rawQuery(
                         """
-                        SELECT p.name, p.category, p.lat, p.lon
-                        FROM places_fts f
-                        JOIN places p ON p.id = f.rowid
-                        WHERE places_fts MATCH ? $catWhereForFts
+                        SELECT name, category, lat, lon $extraSelect
+                        FROM places
+                        WHERE ($textWhereClause) $categoryWherePlain
                         $orderBy
                         LIMIT ?
                         """.trimIndent(),
-                        (listOf(ftsQuery) + categoryArgs + orderArgs + listOf(limit.toString())).toTypedArray(),
-                    ).use { cursor ->
-                        while (cursor.moveToNext()) {
-                            val r = SearchResult(cursor.getString(0), cursor.getString(1), cursor.getDouble(2), cursor.getDouble(3))
-                            results["${r.name}:${r.latitude}:${r.longitude}"] = r
-                        }
-                    }
-                    ftsSucceeded = true
-                } catch (e: SQLiteException) {
-                    // FTS5未対応デバイスまたはエラー → LIKE検索へフォールバック
-                    Log.w("CycleMap", "FTS5 query failed, falling back to LIKE search: ${e.message}")
+                        (textArgs + categoryArgs + orderArgs + listOf(remaining.toString())).toTypedArray(),
+                    ).use { cursor -> while (cursor.moveToNext()) add(cursor) }
                 }
-            }
 
-            // FTS5未対応 or FTS5クエリ失敗 or 件数不足 → LIKE補完
-            if (!ftsSucceeded || results.size < limit) {
-                val remaining = if (ftsSucceeded) limit - results.size else limit
-                val hasSearchText = hasSearchTextColumn(db)
-                val targetColumn = if (hasSearchText) "search_text" else "name"
-                val likeQuery = if (hasSearchText) SearchNormalizer.normalize(trimmed) else trimmed
-
-                // FTS5非対応時は複数単語をANDで繋ぎ、各単語の中間一致 (%word%) で検索する。
-                val (textWhereClause, textArgs) = buildLikeTextConditions(likeQuery, targetColumn)
-
-                db.rawQuery(
-                    """
-                    SELECT name, category, lat, lon
-                    FROM places
-                    WHERE ($textWhereClause) $categoryWherePlain
-                    $orderBy
-                    LIMIT ?
-                    """.trimIndent(),
-                    (textArgs + categoryArgs + orderArgs + listOf(remaining.toString())).toTypedArray(),
-                ).use { cursor ->
-                    while (cursor.moveToNext()) {
-                        val r = SearchResult(cursor.getString(0), cursor.getString(1), cursor.getDouble(2), cursor.getDouble(3))
-                        results["${r.name}:${r.latitude}:${r.longitude}"] = r
-                    }
-                }
+                fetchStrongMatches(db, variant, hasSearchText, extraSelect, categoryWherePlain, categoryArgs, ::add)
             }
 
             // 「〜駅」検索時、OSM上で「広島」のように駅名のみで登録されている鉄道駅を救済
             // DEF-09: カテゴリが未指定（ALL）または鉄道駅（STATION）のときのみ救済を実行する
-            val stationBase = extractStationQuery(trimmed)
+            val stationBase = SearchAliases.expand(trimmed).firstNotNullOfOrNull { extractStationQuery(it) }
             if (stationBase != null && (category == SearchCategory.ALL || category == SearchCategory.STATION)) {
-                val stationWhereFts = "AND (p.category LIKE 'railway:station%' OR p.category LIKE 'public_transport:station%')"
                 val stationWherePlain = "AND (category LIKE 'railway:station%' OR category LIKE 'public_transport:station%')"
-                if (ftsSupported) {
-                    try {
-                        val stationFtsQuery = buildFtsQuery(stationBase)
-                        db.rawQuery(
-                            """
-                            SELECT p.name, p.category, p.lat, p.lon
-                            FROM places_fts f
-                            JOIN places p ON p.id = f.rowid
-                            WHERE places_fts MATCH ? $stationWhereFts
-                            $orderBy
-                            LIMIT 10
-                            """.trimIndent(),
-                            (listOf(stationFtsQuery) + orderArgs).toTypedArray(),
-                        ).use { cursor ->
-                            while (cursor.moveToNext()) {
-                                val r = SearchResult(cursor.getString(0), cursor.getString(1), cursor.getDouble(2), cursor.getDouble(3))
-                                results["${r.name}:${r.latitude}:${r.longitude}"] = r
-                            }
-                        }
-                    } catch (e: SQLiteException) {
-                        Log.w("CycleMap", "Station FTS query failed: ${e.message}")
-                    }
-                }
-                val hasSearchText = hasSearchTextColumn(db)
                 val targetColumn = if (hasSearchText) "search_text" else "name"
                 val stLikeQuery = if (hasSearchText) SearchNormalizer.normalize(stationBase) else stationBase
                 val (stTextWhereClause, stTextArgs) = buildLikeTextConditions(stLikeQuery, targetColumn)
                 db.rawQuery(
                     """
-                    SELECT name, category, lat, lon
+                    SELECT name, category, lat, lon $extraSelect
                     FROM places
                     WHERE ($stTextWhereClause) $stationWherePlain
                     $orderBy
                     LIMIT 10
                     """.trimIndent(),
                     (stTextArgs + orderArgs).toTypedArray(),
-                ).use { cursor ->
-                    while (cursor.moveToNext()) {
-                        val r = SearchResult(cursor.getString(0), cursor.getString(1), cursor.getDouble(2), cursor.getDouble(3))
-                        results["${r.name}:${r.latitude}:${r.longitude}"] = r
-                    }
-                }
+                ).use { cursor -> while (cursor.moveToNext()) add(cursor) }
+                fetchStrongMatches(db, stationBase, hasSearchText, extraSelect, stationWherePlain, emptyList(), ::add)
+            }
+
+            // 住所・地名での検索 (「袋町5-7」「中区袋町」など)。住所が一致した地点の代表点を 1 件出す。
+            if ("address" in columns && (category == SearchCategory.ALL)) {
+                addressResult(db, trimmed)?.let { r -> results.putIfAbsent("address:${r.name}", r) }
             }
         } else if (category != SearchCategory.ALL && category.categoryPrefixes.isNotEmpty()) {
             // クエリ未入力でカテゴリ選択中 → 近傍カテゴリ一覧を表示。

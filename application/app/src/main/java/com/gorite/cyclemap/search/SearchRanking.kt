@@ -88,6 +88,8 @@ object SearchRanking {
         val hasAddress: Boolean = false,
     )
 
+    private val LANDMARK_NAME_KEYWORDS = listOf("世界遺産", "国宝", "特別史跡", "特別名勝", "城跡", "大鳥居")
+
     private val MAJOR_BRAND_KEYWORDS = listOf(
         "セブン-イレブン", "セブンイレブン", "ローソン", "ファミリーマート", "デイリーヤマザキ", "ミニストップ", "ポプラ",
         "道の駅", "イオン", "ゆめタウン", "フジグラン", "マックスバリュ", "アルパーク", "アウトレット",
@@ -120,6 +122,13 @@ object SearchRanking {
             category.startsWith("railway:station") || category.startsWith("public_transport:station") -> 960
             category.startsWith("amenity:bus_station") || category.startsWith("amenity:ferry_terminal") -> 920
             category.startsWith("railway:halt") -> 890
+            category.startsWith("aeroway:aerodrome") -> 900
+            category.startsWith("historic:castle") -> 870
+            category.startsWith("natural:peak") || category.startsWith("natural:volcano") ||
+                category.startsWith("natural:waterfall") -> 800
+            category.startsWith("historic:") -> 740
+            category.startsWith("natural:") -> 700
+            category.startsWith("railway:tram_stop") -> 600
             category.startsWith("tourism:theme_park") || category.startsWith("tourism:aquarium") ||
                 category.startsWith("tourism:zoo") || category.startsWith("tourism:museum") ||
                 category.startsWith("tourism:attraction") || category.startsWith("tourism:viewpoint") -> 880
@@ -164,6 +173,8 @@ object SearchRanking {
         var bonus = 0
         if (osmType == "way") bonus += 45
         if (hasAddress) bonus += 30
+        // 世界遺産・国宝などの名所は、同じ種類の中でも優先して表示する (宮島で厳島神社より宝物館が出ていた)
+        if (LANDMARK_NAME_KEYWORDS.any { name.contains(it) }) bonus += 120
         if (name.contains("道の駅") || name.contains("サービスエリア") || name.contains("パーキングエリア")) {
             bonus += 110
         } else if (MAJOR_BRAND_KEYWORDS.any { name.contains(it) }) {

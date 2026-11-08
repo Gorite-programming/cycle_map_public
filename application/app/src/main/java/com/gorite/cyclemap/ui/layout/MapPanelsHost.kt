@@ -105,7 +105,7 @@ internal fun MapPanelsHost(
 
     var placeDetail by androidx.compose.runtime.remember(selectedPoiSpot) {
         val initial = selectedPoiSpot?.let { spot ->
-            val catLabel = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(spot.category)?.label ?: spot.category
+            val catLabel = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(spot.category)?.label ?: com.gorite.cyclemap.search.formatCategoryLabel(spot.category)
             com.gorite.cyclemap.contract.PlaceDetail(
                 id = "${spot.name}_${spot.latitude}_${spot.longitude}",
                 name = spot.name,
@@ -134,7 +134,7 @@ internal fun MapPanelsHost(
             }
         )
         val loaded = provider.getPlaceDetailNear(spot.name, spot.latitude, spot.longitude)
-        val catLabel = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(spot.category)?.label ?: spot.category
+        val catLabel = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(spot.category)?.label ?: com.gorite.cyclemap.search.formatCategoryLabel(spot.category)
         val loadedDist = loaded?.distanceMeters
         if (loaded != null) {
             placeDetail = loaded.copy(
@@ -147,6 +147,7 @@ internal fun MapPanelsHost(
     }
 
     if (showSpotPanel && selectedPoiSpot == null && placeDetail == null) {
+        androidx.activity.compose.BackHandler(onBack = onCloseSpotPanel)
         SpotPanelSheet(
             selectedCategory = spotCategory,
             onCategorySelect = onSpotCategoryChange,
@@ -194,6 +195,12 @@ internal fun MapPanelsHost(
 
     if (showSpotPanel && placeDetail != null) {
         val currentDetail = placeDetail!!
+        // 戻るボタンはアプリを閉じずに、まず場所のシートを閉じる
+        androidx.activity.compose.BackHandler {
+            placeDetail = null
+            onSelectPoiSpot(null)
+            onCloseSpotPanel()
+        }
         val isFav = favoritesList.any {
             kotlin.math.abs(it.latitude - currentDetail.lat) < 0.0001 &&
                 kotlin.math.abs(it.longitude - currentDetail.lon) < 0.0001

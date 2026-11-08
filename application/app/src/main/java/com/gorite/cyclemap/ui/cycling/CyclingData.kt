@@ -435,6 +435,7 @@ enum class PoiCategory(
         listOf("railway:station", "railway:halt", "public_transport:station", "amenity:bus_station", "amenity:ferry_terminal"),
         true, minZoom = 10.5, defaultOn = true),
     BUS_STOP("バス停", R.drawable.ic_poi_bus, "#0277BD", listOf("highway:bus_stop"), false, minZoom = 15.5),
+    TRAM("路面電車", R.drawable.ic_poi_train, "#0277BD", listOf("railway:tram_stop"), false, minZoom = 14.5, defaultOn = true),
     PARKING("駐車場", R.drawable.ic_lucide_square_parking, "#5F6368", listOf("amenity:parking"), false, minZoom = 15.0),
     FUEL("ガソリン", R.drawable.ic_lucide_fuel, "#F9AB00", listOf("amenity:fuel"), false, minZoom = 13.5, defaultOn = true),
     EV("充電", R.drawable.ic_poi_zap, "#2E7D32", listOf("amenity:charging_station"), false, minZoom = 14.0, defaultOn = true),
@@ -453,6 +454,7 @@ enum class PoiCategory(
     // 観光・休憩
     TOURISM("観光", R.drawable.ic_lucide_camera, "#0D9488", listOf("tourism:"), true, minZoom = 11.5, defaultOn = true),
     WORSHIP("神社・寺", R.drawable.ic_poi_torii, "#B45309", listOf("amenity:place_of_worship"), false, minZoom = 14.0, defaultOn = true),
+    LANDMARK("史跡・自然", R.drawable.ic_lucide_mountain, "#6D4C41", listOf("historic:", "natural:", "aeroway:aerodrome"), true, minZoom = 12.5, defaultOn = true),
     PARK("公園", R.drawable.ic_lucide_trees, "#137333", listOf("leisure:park"), false, minZoom = 13.0, defaultOn = true),
     BATH("温泉・銭湯", R.drawable.ic_poi_onsen, "#00897B", listOf("amenity:public_bath"), true, minZoom = 12.5, defaultOn = true),
     HOTEL("宿泊", R.drawable.ic_poi_bed, "#7B1FA2", listOf("tourism:hotel", "tourism:guest_house", "tourism:hostel", "tourism:motel", "tourism:resort"),
@@ -483,8 +485,14 @@ enum class PoiCategory(
             "FUEL", "PARK", "WATER", "BICYCLE", "BAKERY", "BATH",
         )
 
+        /** 版 2 のカテゴリ。版 3 で増えたもの (路面電車・史跡・自然) の判定に使う。 */
+        private val LEGACY_V2 = LEGACY_V1 + setOf(
+            "BUS_STOP", "EV", "BIKE_SERVICE", "SUPERMARKET", "BAR", "WORSHIP", "HOTEL", "CAMP", "INFO", "SPORTS",
+            "CLINIC", "PHARMACY", "POST", "BANK", "SCHOOL", "PUBLIC",
+        )
+
         /** 現在のカテゴリ体系の版。選択状態の保存と一緒に記録し、増えたときに [migrateSelection] を使う。 */
-        const val CATALOG_VERSION = 2
+        const val CATALOG_VERSION = 3
 
         /** サイクリスト向けの初期表示カテゴリ。 */
         fun defaults(): Set<PoiCategory> = entries.filter { it.defaultOn }.toSet()
@@ -495,11 +503,12 @@ enum class PoiCategory(
          */
         fun migrateSelection(saved: Set<PoiCategory>, fromVersion: Int): Set<PoiCategory> {
             if (fromVersion >= CATALOG_VERSION) return saved
-            val added = entries.filter { it.name !in LEGACY_V1 && it.defaultOn }
-            // 旧 HOSPITAL は診療所・歯科も含んでいたので、選んでいた人には診療所も引き継ぐ
-            val split = if (HOSPITAL in saved) setOf(CLINIC) else emptySet()
-            // 旧 STATION は駅・バス停だった
-            val bus = if (STATION in saved) setOf(BUS_STOP) else emptySet()
+            val known = if (fromVersion >= 2) LEGACY_V2 else LEGACY_V1
+            val added = entries.filter { it.name !in known && it.defaultOn }
+            // 旧 HOSPITAL は診療所・歯科も含んでいたので、選んでいた人には診療所も引き継ぐ (版 1 から)
+            val split = if (fromVersion < 2 && HOSPITAL in saved) setOf(CLINIC) else emptySet()
+            // 旧 STATION は駅・バス停だった (版 1 から)
+            val bus = if (fromVersion < 2 && STATION in saved) setOf(BUS_STOP) else emptySet()
             return saved + added + split + bus
         }
 

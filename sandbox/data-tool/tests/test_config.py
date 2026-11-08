@@ -1,3 +1,4 @@
+import pytest
 from tools.core import config
 
 
@@ -26,7 +27,10 @@ def test_source_priority_kokudo_suffix():
 
 
 def test_prefecture_for_point_hiroshima_city():
-    # 広島市中心部は広島と判定されること
+    # 広島市中心部は広島と判定されること。県境ポリゴン (git 管理外の data/) が無い環境 (CI など) では
+    # bbox だけの判定になり、重なる島根と区別できないので飛ばす
+    if not config.load_boundary_rings("hiroshima"):
+        pytest.skip("県境ポリゴンが無い (data/ は git 管理外)")
     assert config.prefecture_for_point(34.385, 132.455) == "hiroshima"
 
 

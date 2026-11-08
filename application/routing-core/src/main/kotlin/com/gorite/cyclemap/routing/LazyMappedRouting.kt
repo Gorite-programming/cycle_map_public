@@ -42,6 +42,29 @@ class LazyMappedRoadGraph private constructor(
     /** ノードごとの絶対標高 (0.1m 単位、不明は [UNKNOWN_ELEVATION])。索引の末尾に標高区間がある graph だけ持つ。 */
     internal var elevationsDecimeters: ShortArray? = null
 
+    /** 辺ごとの道路名の番号 (辺の通し番号順、無ければ -1) と、その名前の表。索引の末尾に道路名区間がある graph だけ持つ。 */
+    internal var edgeRoadNameIds: IntArray? = null
+    internal var roadNames: Array<String> = emptyArray()
+
+    /** 辺ごとの車線 (turn:lanes) の番号と、その文字列の表。索引の末尾に車線区間がある graph だけ持つ。 */
+    internal var edgeTurnLaneIds: IntArray? = null
+    internal var turnLaneTable: Array<String> = emptyArray()
+
+    /** 辺 (通し番号 [ordinal]) の進行方向の車線 (OSM の turn:lanes)。無ければ null。 */
+    fun turnLanesOfEdge(ordinal: Int): String? {
+        val id = edgeTurnLaneIds?.getOrNull(ordinal) ?: return null
+        return if (id < 0) null else turnLaneTable.getOrNull(id)
+    }
+
+    /** 道路名区間を持つ graph か。 */
+    val hasRoadNames: Boolean get() = edgeRoadNameIds != null
+
+    /** 辺 (通し番号 [ordinal]) の道路名 (「国道2号」「県道41号」、名前のある道はその名前)。無ければ null。 */
+    fun roadNameOfEdge(ordinal: Int): String? {
+        val id = edgeRoadNameIds?.getOrNull(ordinal) ?: return null
+        return if (id < 0) null else roadNames.getOrNull(id)
+    }
+
     /** 標高区間を持つ graph か。 */
     val hasElevations: Boolean get() = elevationsDecimeters != null
 
@@ -128,6 +151,10 @@ class LazyMappedRoadGraph private constructor(
         val roadTypeName: String,
         val distanceMeters: Double,
         val gradePercent: Float = Float.NaN,
+        /** 道路名 (graph が道路名区間を持つときだけ)。 */
+        val roadName: String? = null,
+        /** この辺の進行方向の車線 (OSM の turn:lanes)。graph が車線区間を持つときだけ。 */
+        val turnLanes: String? = null,
     )
 
     fun outgoingBranchCount(index: Int): Int {
@@ -145,7 +172,7 @@ class LazyMappedRoadGraph private constructor(
             position = record.nextOffset
             val target = edgeTargets[ordinal]
             if (target >= 0) {
-                result += JunctionBranch(target, record.typeName, record.distance, record.grade)
+                result += JunctionBranch(target, record.typeName, record.distance, record.grade, roadNameOfEdge(ordinal), turnLanesOfEdge(ordinal))
             }
             ordinal++
         }
@@ -396,7 +423,7 @@ class LazyMappedRoadGraph private constructor(
                     val edgeCount = input.readInt()
                     val targets = IntArray(edgeCount) { input.readInt() }
                     val graph = LazyMappedRoadGraph(channel, mapped, ids, lats, lons, starts, first, counts, targets, edgeCount)
-                    graph.elevationsDecimeters = readElevationSection(input, nodeCount)
+                    readTrailingSections(input, graph, nodeCount, edgeCount)
                     return graph
                 }
             } catch (t: Throwable) { channel.close(); throw t }
@@ -404,12 +431,46 @@ class LazyMappedRoadGraph private constructor(
         const val UNKNOWN_ELEVATION: Short = Short.MIN_VALUE
         private const val ELEVATION_SECTION_MAGIC = "CYCLEMAP_ELEVATION_V1"
 
-        /** 索引の末尾に標高区間があれば読む。無い (旧 graph)・壊れている・ノード数が合わないときは null。 */
-        private fun readElevationSection(input: DataInputStream, nodeCount: Int): ShortArray? = try {
-            if (input.readUTF() != ELEVATION_SECTION_MAGIC || input.readInt() != nodeCount) null
-            else ShortArray(nodeCount) { input.readShort() }
-        } catch (_: java.io.IOException) {
-            null
+        private const val ROAD_NAME_SECTION_MAGIC = "CYCLEMAP_ROADNAME_V1"
+        private const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
+
+        /** 文字列の表 + 辺ごとの番号 (-1 は無し) の区間を読む。件数が合わなければ null。 */
+        private fun readStringTableSection(input: DataInputStream, edgeCount: Int): Pair<Array<String>, IntArray>? {
+            val count = input.readInt()
+            if (count < 0) return null
+            val table = Array(count) { input.readUTF() }
+            if (input.readInt() != edgeCount) return null
+            return table to IntArray(edgeCount) { input.readInt() }
+        }
+
+        /**
+         * 索引の末尾の追加区間 (標高・道路名) を、目印 (UTF 文字列) ごとに順に読む。旧 graph は区間が無く、
+         * 知らない目印・壊れた区間・件数の不一致はそこで読むのをやめる (読めた区間だけ使う)。
+         */
+        private fun readTrailingSections(input: DataInputStream, graph: LazyMappedRoadGraph, nodeCount: Int, edgeCount: Int) {
+            try {
+                while (true) {
+                    when (input.readUTF()) {
+                        ELEVATION_SECTION_MAGIC -> {
+                            if (input.readInt() != nodeCount) return
+                            graph.elevationsDecimeters = ShortArray(nodeCount) { input.readShort() }
+                        }
+                        ROAD_NAME_SECTION_MAGIC -> {
+                            val (table, ids) = readStringTableSection(input, edgeCount) ?: return
+                            graph.roadNames = table
+                            graph.edgeRoadNameIds = ids
+                        }
+                        TURN_LANES_SECTION_MAGIC -> {
+                            val (table, ids) = readStringTableSection(input, edgeCount) ?: return
+                            graph.turnLaneTable = table
+                            graph.edgeTurnLaneIds = ids
+                        }
+                        else -> return
+                    }
+                }
+            } catch (_: java.io.IOException) {
+                // 末尾に達した (EOF) か、壊れている。読めた区間だけ使う
+            }
         }
 
         private fun roadTypeCode(type: String): Int = when (type) {

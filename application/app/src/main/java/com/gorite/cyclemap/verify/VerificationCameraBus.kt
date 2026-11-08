@@ -13,8 +13,9 @@ data class VerificationCameraRequest(
 )
 
 /**
- * 検証用: 実機のスクリーンショット比較などで、現在地に依存せず同じ地点・ズームを再現するための経路。
- * 発行側は debug ビルド専用の `CameraDebugReceiver` (src/debug) のみで、リリースには含まれない。
+ * 地図カメラを任意の地点・ズームへ動かす要求の経路。
+ * 発行側: debug ビルド専用の `CameraDebugReceiver` (src/debug、実機の検証用) と、
+ * 検索結果を選んだときにその場所へ地図を動かす `MapScreenScaffold`。
  * 購読側は `VectorMapView`。購読者がいなければ要求は捨てられる。
  */
 object VerificationCameraBus {

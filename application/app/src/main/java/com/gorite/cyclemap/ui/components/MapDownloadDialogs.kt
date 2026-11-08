@@ -22,7 +22,8 @@ internal fun MapDownloadDialogs(
     showDestinationSearch: Boolean,
     currentLocation: Location?,
     onDismissDestinationSearch: () -> Unit,
-    onDestinationSelected: (GeoPoint) -> Unit,
+    /** 検索結果を選んだとき: 地図をその場所へ動かし、場所の詳細を開く。 */
+    onSearchResultSelected: (com.gorite.cyclemap.contract.NearbySpot) -> Unit,
     pendingSelectedSpot: GeoPoint?,
     onAddWaypoint: (GeoPoint) -> Unit,
     onChangeDestination: (GeoPoint) -> Unit,
@@ -61,7 +62,15 @@ internal fun MapDownloadDialogs(
             liveLocation = currentLocation?.let { it.latitude to it.longitude },
             onDismiss = onDismissDestinationSearch,
             onResultSelected = { result ->
-                onDestinationSelected(GeoPoint(result.latitude, result.longitude))
+                onSearchResultSelected(
+                    com.gorite.cyclemap.contract.NearbySpot(
+                        name = result.name,
+                        category = result.category,
+                        latitude = result.latitude,
+                        longitude = result.longitude,
+                        distanceM = result.distanceMeters ?: 0.0,
+                    ),
+                )
             },
         )
     }

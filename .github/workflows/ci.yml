@@ -8,23 +8,23 @@ jobs:
   kotlin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      # ubuntu のランナーには Android SDK が入っている (ANDROID_HOME)。setup-android は不要で、失敗の原因だった
       - name: Unit tests
         working-directory: application
         run: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" > local.properties
           ./gradlew test --no-daemon
 
   data-tool:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: pytest
@@ -36,8 +36,8 @@ jobs:
   scripts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Style patch is idempotent
@@ -48,3 +48,7 @@ jobs:
         run: for f in scripts/*.sh; do bash -n "$f"; done
       - name: Python syntax
         run: python3 -m py_compile scripts/*.py build_prefectures.py
+      - name: Script tests
+        run: |
+          pip install pytest
+          python3 -m pytest -q scripts/tests

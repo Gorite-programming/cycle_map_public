@@ -409,9 +409,15 @@ internal fun MapScreenScaffold(
         },
         showDestinationSearch = state.showDestinationSearchState.value,
         onDismissDestinationSearch = { state.showDestinationSearchState.value = false },
-        onDestinationSelected = { spot ->
+        onSearchResultSelected = { spot ->
+            // Google マップと同じく、検索結果はまず場所の詳細を開く (経路はシートの「ここへ行く」から)
             state.showDestinationSearchState.value = false
-            handleSpotSelected(spot)
+            state.followLocationState.value = false
+            com.gorite.cyclemap.verify.VerificationCameraBus.post(
+                com.gorite.cyclemap.verify.VerificationCameraRequest(spot.latitude, spot.longitude, zoom = 16.5),
+            )
+            state.selectedPoiSpotState.value = spot
+            state.showSpotPanelState.value = true
         },
         pendingSelectedSpot = state.pendingSelectedSpotState.value,
         onAddWaypoint = { spot ->

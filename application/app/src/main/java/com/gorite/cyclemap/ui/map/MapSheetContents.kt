@@ -55,7 +55,10 @@ fun PlaceDetailContent(
         ?: com.gorite.cyclemap.ui.cycling.PoiCategory.entries.firstOrNull { it.label == detail.category }
     val catColor = poiCat?.let { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(it.colorHex)) }
         ?: MaterialTheme.colorScheme.primary
-    val catLabel = poiCat?.label ?: detail.category
+    // detail.category は OSM のタグ (amenity:cafe など) か、表示用に変換済みの日本語のどちらか
+    val catLabel = poiCat?.label ?: if (':' in detail.category || detail.category == "named" || detail.category == "address") {
+        com.gorite.cyclemap.search.formatCategoryLabel(detail.category)
+    } else detail.category
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
         Row(

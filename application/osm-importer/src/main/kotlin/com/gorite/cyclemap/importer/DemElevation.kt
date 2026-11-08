@@ -11,6 +11,12 @@ import kotlin.math.tan
 /** 索引ファイル (.graph.idx) の末尾に付ける、ノードごとの絶対標高の区間の目印。 */
 const val ELEVATION_SECTION_MAGIC = "CYCLEMAP_ELEVATION_V1"
 
+/** 索引の末尾 (標高区間の後) に付ける、辺ごとの道路名の区間の目印。 */
+const val ROAD_NAME_SECTION_MAGIC = "CYCLEMAP_ROADNAME_V1"
+
+/** 索引の末尾 (道路名区間の後) に付ける、辺ごとの車線 (turn:lanes) の区間の目印。 */
+const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
+
 /** 標高 (m) を 0.1m 単位の Short にする。不明 (null・NaN)・範囲外は Short.MIN_VALUE。 */
 fun encodeElevationDecimeters(meters: Float?): Short {
     if (meters == null || meters.isNaN()) return Short.MIN_VALUE

@@ -43,12 +43,37 @@ def category_for(tags):
     v = d.get("leisure")
     if v:
         return "leisure:%s" % v
+    # ここから下は、amenity/shop/tourism/leisure を持たない名所・史跡・寺社・自然・駅。
+    # 例: 厳島神社 (way) は heritage・landuse=religious・building=shrine だけで、以前は "named" に落ち、
+    # 地図にも出ず検索でも種類不明になっていた。
+    if d.get("heritage") or d.get("heritage:operator"):
+        return "tourism:attraction"
+    v = d.get("historic")
+    if v and v not in ("yes", "no"):
+        return "historic:%s" % v
+    if (d.get("building") in _WORSHIP_BUILDINGS or d.get("landuse") == "religious"
+            or (d.get("religion") and d.get("building"))):
+        return "amenity:place_of_worship"
+    v = d.get("natural")
+    if v in _NATURAL_LANDMARKS:
+        return "natural:%s" % v
+    v = d.get("railway")
+    if v in ("halt", "tram_stop"):
+        return "railway:%s" % v
+    if d.get("aeroway") == "aerodrome":
+        return "aeroway:aerodrome"
     if d.get("highway") == "bus_stop":
         return "highway:bus_stop"
     v = d.get("public_transport")
     if v:
         return "public_transport:%s" % v
+    if d.get("historic") == "yes":
+        return "historic:yes"
     return "named"
+
+
+_WORSHIP_BUILDINGS = {"shrine", "temple", "church", "cathedral", "chapel", "mosque", "synagogue"}
+_NATURAL_LANDMARKS = {"peak", "volcano", "waterfall", "cape", "beach", "bay", "spring", "cave_entrance", "hot_spring"}
 
 
 def address_from_tags(tags):

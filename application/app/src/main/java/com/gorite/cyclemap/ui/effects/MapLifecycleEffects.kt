@@ -12,6 +12,8 @@ import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -266,7 +268,28 @@ internal fun MapLifecycleEffects(
                 AddressDisplayController.ADDRESS_UNKNOWN
             }
         }
-        onLocationLabelChanged(resolvedLabel)
+        // 地図を動かして見ている間は、画面中心の地名を優先する (GPS の更新で上書きしない)
+        if (followLocation) onLocationLabelChanged(resolvedLabel)
+    }
+
+    // 現在地に追従していない (地図を動かして見ている) ときは、画面の中心の地名を出す (Google マップと同じ)。
+    // 追従に戻ったら、上の GPS 由来の表示に戻す。
+    val cameraCenter by com.gorite.cyclemap.ui.mapview.MapCameraCenter.center.collectAsState()
+    LaunchedEffect(followLocation, cameraCenter) {
+        if (followLocation) {
+            addressController.displayed.takeIf { it.isNotBlank() }?.let(onLocationLabelChanged)
+            return@LaunchedEffect
+        }
+        val (lat, lon) = cameraCenter ?: return@LaunchedEffect
+        delay(300L)
+        val selection = SearchDbSelector.select(lat, lon)
+        val label = withContext(Dispatchers.IO) {
+            val available = selection as? SearchDbSelection.Available ?: return@withContext null
+            val file = File(cycleMapDataDir(context), available.fileName)
+            if (!file.isFile) return@withContext null
+            SearchDbReverseGeocoder(file, available.prefectureName).lookup(lat, lon)?.formattedAddress
+        }
+        if (label != null) onLocationLabelChanged(label)
     }
 
     // Compass Orientation: 端末コンパスは地図回転にだけ使う。矢印の向きには使わない。

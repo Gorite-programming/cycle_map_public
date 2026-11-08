@@ -20,4 +20,6 @@ after=$(git diff -- application/app/src/main/assets/styles | shasum)
 echo "== shell / python syntax =="
 for f in scripts/*.sh; do bash -n "$f"; done
 python3 -m py_compile scripts/*.py build_prefectures.py
+echo "== script tests =="
+"$PY" -m pytest -q scripts/tests
 echo "ALL OK"
