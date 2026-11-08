@@ -76,6 +76,26 @@ fun elevationSourceLabel(profile: List<ElevationSample>): String {
 }
 
 /**
+ * 勾配を積み上げた相対標高を絶対標高に合わせるための、出発地の標高を求める。
+ * 経路上のノードの絶対標高 ([nodeElevations]、不明は null) と、勾配を積み上げた相対標高との差の平均を使う
+ * (1 点だけで決めるより、DEM のばらつきに強い)。絶対標高が 1 点も無ければ null。
+ */
+fun anchoredStartElevation(
+    segments: List<com.gorite.cyclemap.routing.RouteSegmentGrade>,
+    nodeElevations: List<Double?>,
+): Double? {
+    if (segments.isEmpty() || nodeElevations.size != segments.size + 1) return null
+    var relative = 0.0
+    var sum = 0.0
+    var count = 0
+    nodeElevations.forEachIndexed { i, absolute ->
+        if (absolute != null) { sum += absolute - relative; count++ }
+        if (i < segments.size) relative += segments[i].distanceMeters * (segments[i].gradePercent ?: 0.0) / 100.0
+    }
+    return if (count == 0) null else sum / count
+}
+
+/**
  * 経路の区間ごとの勾配を積み上げて標高プロファイルを作る (約 50m 間隔)。オフラインで使え、経路探索が見ている勾配と一致する。
  * 勾配不明の区間は平坦として扱う。[startElevationM] が null のときは、最も低い点を 0m とした相対標高にする。
  */

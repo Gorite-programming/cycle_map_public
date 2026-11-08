@@ -625,10 +625,9 @@ fun collectBicycleNetworkStats(file: File): BicycleNetworkStats {
 // Graph binary writer  (output format CYCLEMAP_GRAPH_V1 — unchanged)
 // ---------------------------------------------------------------------------
 
-class GraphBinaryWriter(private val demDir: File? = null) {
+class GraphBinaryWriter(private val elevations: Map<Long, Float>? = null) {
     fun write(graph: RoadGraph, output: File) {
-        // 標高タイルがあれば、辺ごとの勾配 (%) を書き込む。無ければ従来どおり勾配なし。
-        val elevations = demDir?.let { DemElevation(it).elevations(graph.nodes.values) }
+        // 標高 (ノード id → m) があれば、辺ごとの勾配 (%) を書き込む。無ければ従来どおり勾配なし。
         var gradeEdges = 0
         output.parentFile?.mkdirs()
         DataOutputStream(FileOutputStream(output)).use { out ->
@@ -799,9 +798,10 @@ fun main(args: Array<String>) {
 
     // Use the two-pass builder instead of the old PbfReader + OsmGraphBuilder
     val graph = TwoPassGraphBuilder(bbox).build(input)
-    GraphBinaryWriter(demDir).write(graph, output)
+    val elevations = demDir?.let { DemElevation(it).elevations(graph.nodes.values) }
+    GraphBinaryWriter(elevations).write(graph, output)
     val indexFile = File(output.path + ".idx")
-    writeGraphIndex(output, indexFile)
+    writeGraphIndex(output, indexFile, elevations)
 
     peak.stop()
     val edgeCount = graph.outgoing.values.sumOf { it.size }
@@ -816,15 +816,18 @@ fun main(args: Array<String>) {
 // Graph index writer  (output format CYCLEMAP_INDEX_V2 — unchanged)
 // ---------------------------------------------------------------------------
 
-private fun writeGraphIndex(graphFile: File, indexFile: File) {
+internal fun writeGraphIndex(graphFile: File, indexFile: File, elevations: Map<Long, Float>? = null) {
     DataInputStream(BufferedInputStream(FileInputStream(graphFile))).use { input ->
         val magicLength = input.readUnsignedShort()
         val magic = ByteArray(magicLength); input.readFully(magic)
         check(String(magic, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1")
         val nodeCount = input.readInt()
         val nodeIds = HashMap<Long, Int>(nodeCount * 2)
+        val nodeIdByIndex = LongArray(nodeCount)
         repeat(nodeCount) { index ->
-            nodeIds[input.readLong()] = index
+            val id = input.readLong()
+            nodeIds[id] = index
+            nodeIdByIndex[index] = id
             input.readDouble(); input.readDouble()
         }
         val edgeCount = input.readInt()
@@ -863,6 +866,13 @@ private fun writeGraphIndex(graphFile: File, indexFile: File) {
             counts.forEach(output::writeInt)
             output.writeInt(edgeCount)
             targets.forEach(output::writeInt)
+            // 末尾にノードごとの絶対標高 (0.1m 単位の Short、不明は Short.MIN_VALUE) を追記する。
+            // 旧版のローダーは索引の末尾の余りを読まないので、互換性は保たれる。
+            if (elevations != null) {
+                output.writeUTF(ELEVATION_SECTION_MAGIC)
+                output.writeInt(nodeCount)
+                for (i in 0 until nodeCount) output.writeShort(encodeElevationDecimeters(elevations[nodeIdByIndex[i]]).toInt())
+            }
         }
         println("index nodes=$nodeCount edges=$edgeCount output=${indexFile.absolutePath}")
     }

@@ -217,7 +217,7 @@ def detail_coverage(db_path):
         con.close()
 
 
-def check_pref(name, stage, prev):
+def check_pref(name, stage, prev, check_tiles=True):
     """県の検証。戻り値は (合格か, 所見のリスト, 数値の dict)。"""
     lower = name.lower()
     notes, facts, ok = [], {}, True
@@ -275,8 +275,10 @@ def check_pref(name, stage, prev):
                     fail("graph のサイズが前回比で異常: %d → %d" % (old_bytes, graph_bytes))
         except zipfile.BadZipFile:
             fail("ZIP を開けません")
-    # タイル
-    if not tiles.is_file():
+    # タイル (--skip tiles のときは検査しない。現行のタイルをそのまま使う)
+    if not check_tiles:
+        pass
+    elif not tiles.is_file():
         fail("タイルがありません: %s" % tiles)
     else:
         cli = shutil.which("pmtiles") or str(ROOT / "sandbox/vector_test/pipeline/pmtiles")
@@ -289,11 +291,13 @@ def check_pref(name, stage, prev):
 
 # ------------------------------- 昇格・記録 -------------------------------
 
-def promote(name, stage):
+def promote(name, stage, with_tiles=True):
     lower = name.lower()
     PACKAGES.mkdir(exist_ok=True)
-    for src, dest in ((stage / "packages" / ("%s.zip" % name), PACKAGES / ("%s.zip" % name)),
-                      (stage / "packages" / ("%s.pmtiles" % lower), PACKAGES / ("%s.pmtiles" % lower))):
+    pairs = [(stage / "packages" / ("%s.zip" % name), PACKAGES / ("%s.zip" % name))]
+    if with_tiles:
+        pairs.append((stage / "packages" / ("%s.pmtiles" % lower), PACKAGES / ("%s.pmtiles" % lower)))
+    for src, dest in pairs:
         tmp = dest.with_suffix(dest.suffix + ".new")
         shutil.copy2(src, tmp)
         os.replace(tmp, dest)
@@ -396,12 +400,12 @@ def main():
 
     results = {}
     for name in names:
-        ok, notes, facts = check_pref(name, stage, prev)
+        ok, notes, facts = check_pref(name, stage, prev, check_tiles="tiles" not in skip)
         results[name] = {"promoted": False, "notes": notes, "facts": facts, "ok": ok}
         print("[%s] %s: %s" % (name, "合格" if ok else "不合格", " / ".join(notes)), flush=True)
     for name, info in results.items():
         if info["ok"]:
-            promote(name, stage)
+            promote(name, stage, with_tiles="tiles" not in skip)
             info["promoted"] = True
         else:
             restore_search_db(name, prev)  # 検索DBも現行のものに戻す

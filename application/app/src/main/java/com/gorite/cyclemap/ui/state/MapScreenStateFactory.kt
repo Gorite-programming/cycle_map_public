@@ -25,7 +25,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gorite.cyclemap.data.AddressDisplayController
 import com.gorite.cyclemap.data.ElevationRepository
 import com.gorite.cyclemap.ui.cycling.ElevationSample
+import com.gorite.cyclemap.ui.cycling.anchoredStartElevation
 import com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile
+import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
 import com.gorite.cyclemap.routing.segmentGradesAlong
 import kotlin.concurrent.read
@@ -275,12 +277,14 @@ internal fun rememberMapScreenState(
             val graph = mappedGraphState.value
             val gradeProfile = if (graph != null) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    val segments = graphLock.read { graph.segmentGradesAlong(coords) }
+                    val (segments, nodeElevations) = graphLock.read {
+                        graph.segmentGradesAlong(coords) to graph.nodeElevationsAlong(coords)
+                    }
                     if (segments.any { it.gradePercent != null }) {
-                        buildGradeElevationProfile(
-                            segments,
-                            elevationRepository.getCachedElevation(coords.first().first, coords.first().second),
-                        )
+                        // 出発地の絶対標高: graph が持つノードの標高を優先し、無ければ端末に残っている標高タイル
+                        val start = anchoredStartElevation(segments, nodeElevations)
+                            ?: elevationRepository.getCachedElevation(coords.first().first, coords.first().second)
+                        buildGradeElevationProfile(segments, start)
                     } else emptyList()
                 }
             } else emptyList()

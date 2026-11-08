@@ -8,6 +8,16 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.tan
 
+/** 索引ファイル (.graph.idx) の末尾に付ける、ノードごとの絶対標高の区間の目印。 */
+const val ELEVATION_SECTION_MAGIC = "CYCLEMAP_ELEVATION_V1"
+
+/** 標高 (m) を 0.1m 単位の Short にする。不明 (null・NaN)・範囲外は Short.MIN_VALUE。 */
+fun encodeElevationDecimeters(meters: Float?): Short {
+    if (meters == null || meters.isNaN()) return Short.MIN_VALUE
+    val dm = Math.round(meters * 10.0f)
+    return if (dm <= Short.MIN_VALUE || dm > Short.MAX_VALUE) Short.MIN_VALUE else dm.toShort()
+}
+
 /**
  * 国土地理院の標高タイル (dem_png, z14, 約10m メッシュ) から、ノードの標高を引く。
  * タイルは `<dir>/<x>/<y>.png` (scripts/build_terrain.py のキャッシュ `work/terrain/dem14` と同じ配置)。

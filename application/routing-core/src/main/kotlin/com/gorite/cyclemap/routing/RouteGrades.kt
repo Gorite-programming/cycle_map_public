@@ -36,3 +36,19 @@ fun LazyMappedRoadGraph.segmentGradesAlong(
         }
     }
 }
+
+/**
+ * 経路の座標列の各点について、グラフのノードの絶対標高 (m) を返す。標高区間が無い graph、
+ * またはノードから [maxSnapMeters] より離れた点は null。
+ */
+fun LazyMappedRoadGraph.nodeElevationsAlong(
+    coordinates: List<Pair<Double, Double>>,
+    maxSnapMeters: Double = 5.0,
+): List<Double?> {
+    if (!hasElevations) return coordinates.map { null }
+    return coordinates.map { (lat, lon) ->
+        val index = nearestNodeIndex(lat, lon)
+        val node = nodeAt(index)
+        if (haversineMeters(lat, lon, node.latitude, node.longitude) <= maxSnapMeters) elevationMetersAt(index) else null
+    }
+}

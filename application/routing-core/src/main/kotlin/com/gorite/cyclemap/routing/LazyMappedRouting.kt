@@ -39,6 +39,18 @@ class LazyMappedRoadGraph private constructor(
 
     val nodeCount: Int get() = nodeIds.size
 
+    /** ノードごとの絶対標高 (0.1m 単位、不明は [UNKNOWN_ELEVATION])。索引の末尾に標高区間がある graph だけ持つ。 */
+    internal var elevationsDecimeters: ShortArray? = null
+
+    /** 標高区間を持つ graph か。 */
+    val hasElevations: Boolean get() = elevationsDecimeters != null
+
+    /** ノードの絶対標高 (m)。標高区間が無い・不明なら null。 */
+    fun elevationMetersAt(index: Int): Double? {
+        val v = elevationsDecimeters?.getOrNull(index) ?: return null
+        return if (v == UNKNOWN_ELEVATION) null else v / 10.0
+    }
+
     @Volatile
     var lastExpandedNodes: Int = 0
         private set
@@ -380,10 +392,23 @@ class LazyMappedRoadGraph private constructor(
                     val counts = IntArray(nodeCount) { input.readInt() }
                     val edgeCount = input.readInt()
                     val targets = IntArray(edgeCount) { input.readInt() }
-                    return LazyMappedRoadGraph(channel, mapped, ids, lats, lons, starts, first, counts, targets, edgeCount)
+                    val graph = LazyMappedRoadGraph(channel, mapped, ids, lats, lons, starts, first, counts, targets, edgeCount)
+                    graph.elevationsDecimeters = readElevationSection(input, nodeCount)
+                    return graph
                 }
             } catch (t: Throwable) { channel.close(); throw t }
         }
+        const val UNKNOWN_ELEVATION: Short = Short.MIN_VALUE
+        private const val ELEVATION_SECTION_MAGIC = "CYCLEMAP_ELEVATION_V1"
+
+        /** 索引の末尾に標高区間があれば読む。無い (旧 graph)・壊れている・ノード数が合わないときは null。 */
+        private fun readElevationSection(input: DataInputStream, nodeCount: Int): ShortArray? = try {
+            if (input.readUTF() != ELEVATION_SECTION_MAGIC || input.readInt() != nodeCount) null
+            else ShortArray(nodeCount) { input.readShort() }
+        } catch (_: java.io.IOException) {
+            null
+        }
+
         private fun roadTypeCode(type: String): Int = when (type) {
             "motorway" -> TYPE_MOTORWAY; "motorway_link" -> TYPE_MOTORWAY_LINK; "primary" -> TYPE_PRIMARY
             "secondary" -> TYPE_SECONDARY; "tertiary" -> TYPE_TERTIARY; "residential" -> TYPE_RESIDENTIAL

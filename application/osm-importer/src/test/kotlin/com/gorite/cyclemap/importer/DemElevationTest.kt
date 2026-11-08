@@ -4,6 +4,8 @@ import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.GraphNode
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.RoadGraph
+import com.gorite.cyclemap.routing.nodeElevationsAlong
+import com.gorite.cyclemap.routing.segmentGradesAlong
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -75,6 +77,15 @@ class DemElevationTest {
     }
 
     @Test
+    fun `標高の符号化は0_1m単位で、不明と範囲外は最小値`() {
+        assertEquals(1234.toShort(), encodeElevationDecimeters(123.4f))
+        assertEquals((-55).toShort(), encodeElevationDecimeters(-5.5f))
+        assertEquals(Short.MIN_VALUE, encodeElevationDecimeters(null))
+        assertEquals(Short.MIN_VALUE, encodeElevationDecimeters(Float.NaN))
+        assertEquals(Short.MIN_VALUE, encodeElevationDecimeters(5000f))
+    }
+
+    @Test
     fun `勾配は現実的な上限 30 パーセントに丸める`() {
         assertEquals(30.0, DemElevation.edgeGradePercent(20.0, 0f, 50f)!!, 1e-9)
         assertEquals(-30.0, DemElevation.edgeGradePercent(20.0, 50f, 0f)!!, 1e-9)
@@ -96,16 +107,30 @@ class DemElevationTest {
                 2L to mutableListOf(GraphEdge(2, 1, dist, "residential")),
             ),
         )
-        fun gradesOf(demDir: File?): List<Float> {
-            val out = File(dir, if (demDir == null) "plain.graph" else "dem.graph")
-            GraphBinaryWriter(demDir).write(graph, out)
-            // idx を作るのは main の役目。ここでは writeGraphIndex を呼べないので、直接ファイルを読み戻す代わりに
-            // 勾配の有無はサイズ差で確かめる (勾配ありの辺は 1 辺あたり 8 バイト増える)。
-            return listOf(out.length().toFloat())
+        fun write(withDem: Boolean): File {
+            val out = File(dir, if (withDem) "dem.graph" else "plain.graph")
+            val elevations = if (withDem) DemElevation(dir).elevations(graph.nodes.values) else null
+            GraphBinaryWriter(elevations).write(graph, out)
+            writeGraphIndex(out, File(out.path + ".idx"), elevations)
+            return out
         }
-        val plain = gradesOf(null)[0]
-        val withDem = gradesOf(dir)[0]
-        assertEquals(16f, withDem - plain, 0f) // 2 辺 x 8 バイト
+        val plain = write(false)
+        val withDem = write(true)
+        assertEquals(16L, withDem.length() - plain.length()) // 2 辺 x 勾配 8 バイト
+
+        // 標高区間つきの索引: 読み戻すとノードの絶対標高 (東へ行くほど高い斜面) が得られ、旧 graph には無い
+        LazyMappedRoadGraph.load(withDem).use { g ->
+            assertTrue(g.hasElevations)
+            val ia = g.nearestNodeIndex(a.latitude, a.longitude)
+            val ib = g.nearestNodeIndex(b.latitude, b.longitude)
+            assertTrue(g.elevationMetersAt(ib)!! > g.elevationMetersAt(ia)!!)
+            assertEquals(2, g.nodeElevationsAlong(listOf(a.latitude to a.longitude, b.latitude to b.longitude)).count { it != null })
+            assertEquals(1, g.segmentGradesAlong(listOf(a.latitude to a.longitude, b.latitude to b.longitude)).size)
+        }
+        LazyMappedRoadGraph.load(plain).use { g ->
+            assertTrue(!g.hasElevations)
+            assertNull(g.elevationMetersAt(0))
+        }
         dir.deleteRecursively()
     }
 }
