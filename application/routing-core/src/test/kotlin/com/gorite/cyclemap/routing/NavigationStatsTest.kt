@@ -36,6 +36,21 @@ class NavigationStatsTest {
     }
 
     @Test
+    fun ignoresSlowInstantSpeedBeforeAverageIsReady() {
+        // 発進前・GPSの揺れ (時速2km=0.55m/s) で残り316mが約9分と出ないよう、既定の巡航速度 (15km/h) を使う
+        val stats = computeNavigationStats(
+            progress = progress(fromStart = 0.0, total = 316.0),
+            smoothedSpeedMps = 2.0 / 3.6,
+            navStartElapsedRealtimeMs = 0L,
+            nowElapsedRealtimeMs = 3_000L,
+            nowEpochMillis = 0L,
+        )
+        assertNotNull(stats)
+        assertEquals(15_000.0 / 3_600.0, stats.effectiveSpeedMps, 1e-9)
+        assertTrue(stats.durationRemainingSeconds < 100.0)
+    }
+
+    @Test
     fun usesInstantSpeedOnlyBeforeAverageIsReady() {
         // 経過10秒未満は平均が未確定のため瞬間速度を使う
         val stats = computeNavigationStats(

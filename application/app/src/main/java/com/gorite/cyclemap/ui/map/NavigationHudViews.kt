@@ -358,7 +358,7 @@ fun LandscapeNavHudBar(
     }
 }
 
-private fun turnTypeToDrawableRes(turn: TurnType): Int {
+internal fun turnTypeToDrawableRes(turn: TurnType): Int {
     return when (turn) {
         TurnType.Straight -> R.drawable.ic_ms_straight
         TurnType.Left -> R.drawable.ic_ms_turn_left

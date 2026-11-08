@@ -35,6 +35,8 @@ data class NavigationStats(
  * @param defaultSpeedMps 速度が得られない場合のフォールバック (自転車の巡航速度)。
  * @param minAverageElapsedSeconds この経過秒数未満では平均を使わない。
  * @param minAverageSpeedMps 平均がこの速度未満の場合は停止・渋滞とみなしフォールバックする。
+ * @param minInstantSpeedMps 平均が未確定の序盤に瞬間速度を採用する下限。これ未満は GPS の揺れや発進前とみなし、
+ *   既定の巡航速度を使う (停止中に数km/hと出てETAが数倍に跳ねるのを防ぐ)。
  * @param maxAverageSpeedMps 平均の上限 (GPSジャンプ由来の異常値を抑える)。
  * @param lastEffectiveSpeedMps 直近の有効実効速度 (停止中のETA急変動防止用)。
  */
@@ -48,6 +50,7 @@ fun computeNavigationStats(
     defaultSpeedMps: Double = 15_000.0 / 3_600.0,
     minAverageElapsedSeconds: Double = 10.0,
     minAverageSpeedMps: Double = 1.0,
+    minInstantSpeedMps: Double = 2.0,
     maxAverageSpeedMps: Double = 60_000.0 / 3_600.0,
     lastEffectiveSpeedMps: Double? = null,
 ): NavigationStats? {
@@ -67,7 +70,7 @@ fun computeNavigationStats(
             lastEffectiveSpeedMps.coerceIn(minAverageSpeedMps, maxAverageSpeedMps)
         averageSpeed.isFinite() && averageSpeed >= minAverageSpeedMps ->
             averageSpeed.coerceAtMost(maxAverageSpeedMps)
-        smoothedSpeedMps > 0.5 -> smoothedSpeedMps.coerceAtMost(maxAverageSpeedMps)
+        smoothedSpeedMps >= minInstantSpeedMps -> smoothedSpeedMps.coerceAtMost(maxAverageSpeedMps)
         lastEffectiveSpeedMps != null && lastEffectiveSpeedMps >= minAverageSpeedMps ->
             lastEffectiveSpeedMps.coerceIn(minAverageSpeedMps, maxAverageSpeedMps)
         else -> defaultSpeedMps

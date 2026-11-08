@@ -201,7 +201,7 @@ internal fun MapViewsContainer(
                             if (isLandscape) 50.dp else (systemInsets.calculateTopPadding() + 210.dp)
                         } else 0.dp,
                         bottom = if (isNavigationActive) {
-                            if (isLandscape) 64.dp else (systemInsets.calculateBottomPadding() + 105.dp)
+                            if (isLandscape) 64.dp else (systemInsets.calculateBottomPadding() + 330.dp) // 縦画面: 数値パネル (約340dp) の上に自車位置が見えるように
                         } else 0.dp,
                     ),
                     onTiltChanged = onTiltChanged,

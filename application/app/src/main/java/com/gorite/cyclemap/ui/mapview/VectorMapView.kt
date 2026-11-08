@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +38,8 @@ import com.gorite.cyclemap.ui.cycling.NearbySpot
 import com.gorite.cyclemap.ui.cycling.PoiCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraPosition
@@ -106,6 +109,12 @@ internal fun VectorMapView(
     val currentOnPoiSpotDeselect by rememberUpdatedState(onPoiSpotDeselect)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnUserPan by rememberUpdatedState(onUserPan)
+    val currentBearingForMarker by rememberUpdatedState(bearing)
+    val currentFollowLocation by rememberUpdatedState(followLocation)
+    val currentGpsStatus by rememberUpdatedState(gpsStatus)
+    // 案内中の現在地マーカー・カメラを、GPSの更新間 (約1秒) でも毎フレーム滑らかに動かす
+    val locationGlide = remember { LocationGlide() }
+    val markerBearingFollower = remember { AngleFollower(timeConstantSec = 0.12f) }
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var currentTilt by remember { mutableDoubleStateOf(0.0) }
@@ -376,6 +385,8 @@ internal fun VectorMapView(
         // 現在地および案内矢印の更新反映 (GPS状態連動)
         LaunchedEffect(currentLocation, bearing, isNavigationActive, gpsStatus, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
+            // 案内中は下のフレームループが毎フレーム更新するので、ここでは更新しない
+            if (isNavigationActive) return@LaunchedEffect
             map.getStyle { style ->
                 updateLocationPoint(style, currentLocation, bearing, isNavigationActive, gpsStatus)
             }
@@ -414,6 +425,59 @@ internal fun VectorMapView(
             }
         }
 
+        // GPSの新しい位置をグライド計算へ渡す
+        LaunchedEffect(currentLocation) {
+            val loc = currentLocation
+            if (loc == null) {
+                locationGlide.reset()
+            } else {
+                locationGlide.onFix(
+                    loc.latitude, loc.longitude, speedMps, currentBearingForMarker,
+                    android.os.SystemClock.elapsedRealtime(),
+                )
+            }
+        }
+
+        // 案内中: 現在地マーカーと追従カメラを毎フレーム、補間した位置で動かす。
+        // 位置・向きが変わらない間は更新をやめ、100msごとの確認に落とす (停車中のバッテリー保護)。
+        LaunchedEffect(isNavigationActive, mapLibreMap) {
+            val map = mapLibreMap ?: return@LaunchedEffect
+            if (!isNavigationActive) return@LaunchedEffect
+            var lastNanos = 0L
+            var lastLat = Double.NaN
+            var lastLon = Double.NaN
+            var lastBearing = Float.NaN
+            while (isActive) {
+                var idle = false
+                withFrameNanos { nanos ->
+                    val dt = if (lastNanos == 0L) 1f / 60f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+                    lastNanos = nanos
+                    val pos = locationGlide.position(android.os.SystemClock.elapsedRealtime())
+                    val style = map.style
+                    if (pos == null || style == null) {
+                        idle = true
+                        return@withFrameNanos
+                    }
+                    val targetBearing = currentBearingForMarker?.takeIf { it.isFinite() }
+                    val shownBearing = targetBearing?.let { markerBearingFollower.step(it, dt) }
+                    val moved = pos.latitude != lastLat || pos.longitude != lastLon
+                    val turned = shownBearing != null && shownBearing != lastBearing
+                    if (!moved && !turned) {
+                        idle = true
+                        return@withFrameNanos
+                    }
+                    lastLat = pos.latitude
+                    lastLon = pos.longitude
+                    lastBearing = shownBearing ?: Float.NaN
+                    updateLocationPoint(style, GeoPoint(pos.latitude, pos.longitude), shownBearing, true, currentGpsStatus)
+                    if (moved && currentFollowLocation) {
+                        map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(pos.latitude, pos.longitude)))
+                    }
+                }
+                if (idle) delay(100L)
+            }
+        }
+
         // 現在地追従（停止時・低速巡航時のデバウンス制御、MED-08: 乖離時復帰・トグル直後復帰）
         LaunchedEffect(currentLocation, followLocation, speedMps, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
@@ -425,6 +489,9 @@ internal fun VectorMapView(
 
             val followStateJustEnabled = !lastFollowLocation && followLocation
             lastFollowLocation = followLocation
+
+            // 案内中のカメラ追従は下のフレームループ (滑らかな現在地に毎フレーム追従) が行う
+            if (isNavigationActive) return@LaunchedEffect
 
             val camTarget = map.cameraPosition.target
             val targetDist = if (camTarget != null) {

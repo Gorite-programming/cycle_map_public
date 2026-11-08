@@ -353,9 +353,11 @@ internal fun CompassUpdates(
 // ---------------------------------------------------------------------------
 
 /**
- * MapView の回転 (mapOrientation) を画面リフレッシュレート (60Hz/120Hz) に完全同期して
- * 滑らかに補間 (Smooth Damping) するコントローラー。
- * センサーの微小な揺れやステップ状のがたつきを解消し、ヌルヌルと回転させる。
+ * MapView の回転 (mapOrientation) を滑らかに追従させるコントローラー。
+ *
+ * センサーは約16〜60msごとに目標の向きを更新する。そのたびにアニメーションを作り直すと
+ * 「止まっては動く」途切れが出るため、目標だけを更新し、画面の描画フレーム (Choreographer) ごとに
+ * 現在の向きを目標へ指数的に近づける。目標に着いたらフレーム購読を止める (バッテリー保護)。
  */
 internal class MapOrientationAnimator(
     private val getMapView: () -> MapView?,
@@ -363,78 +365,93 @@ internal class MapOrientationAnimator(
     private val isVectorActive: () -> Boolean = { false },
     private val onOrientationUpdated: () -> Unit,
 ) {
-    private var currentAnimator: ValueAnimator? = null
-    private var lastTargetHeading: Float = 0f
-    private var currentOrientation: Float = 0f
+    private val follower = com.gorite.cyclemap.ui.mapview.AngleFollower(timeConstantSec = 0.12f)
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var targetHeading: Float = Float.NaN
+    private var running = false
+    private var lastFrameNanos = 0L
+    private val frameCallback = android.view.Choreographer.FrameCallback { nanos -> onFrame(nanos) }
 
-    fun rotateTo(newHeading: Float, animated: Boolean = true) {
+    /** 指で回している最中は、センサー側の回転を止めて操作を優先する。 */
+    private fun userGestureInProgress(): Boolean {
+        val vectorView = getVectorMap() ?: return false
+        if (!isVectorActive()) return false
+        val gestures = vectorView.gesturesManager ?: return false
+        return gestures.shoveGestureDetector.isInProgress ||
+            gestures.rotateGestureDetector.isInProgress ||
+            gestures.standardScaleGestureDetector.isInProgress ||
+            gestures.moveGestureDetector.isInProgress
+    }
+
+    /** 地図がいま実際に向いている方位 (度)。取得できなければ null。 */
+    private fun actualHeading(): Float? {
         val view = getMapView()
         val vectorView = getVectorMap()
-        if (view == null && vectorView == null) return
-
-        val isVector = isVectorActive() && vectorView != null
-        if (isVector) {
-            val gestures = vectorView!!.gesturesManager
-            val userGestureInProgress = gestures?.let {
-                it.shoveGestureDetector.isInProgress ||
-                    it.rotateGestureDetector.isInProgress ||
-                    it.standardScaleGestureDetector.isInProgress ||
-                    it.moveGestureDetector.isInProgress
-            } == true
-            if (userGestureInProgress) {
-                currentAnimator?.cancel()
-                return
-            }
+        return when {
+            isVectorActive() && vectorView != null -> vectorView.cameraPosition.bearing.toFloat()
+            view != null -> -view.mapOrientation
+            vectorView != null -> vectorView.cameraPosition.bearing.toFloat()
+            else -> null
         }
-        val currentHeading = if (isVector) {
-            vectorView!!.cameraPosition.bearing.toFloat()
-        } else if (view != null) {
-            -view.mapOrientation
-        } else if (vectorView != null) {
-            vectorView.cameraPosition.bearing.toFloat()
-        } else {
-            currentOrientation
-        }
-        val delta = ((newHeading - currentHeading + 540f) % 360f) - 180f
-        val absDelta = kotlin.math.abs(delta)
+    }
 
-        // 0.3度未満の微小ジッターは破棄
-        if (absDelta < 0.3f) return
-
-        lastTargetHeading = newHeading
-
-        fun applyHeading(heading: Float) {
-            val norm = ((heading % 360f) + 360f) % 360f
-            currentOrientation = norm
-            view?.setMapOrientation(-norm)
-            vectorView?.let { vMap ->
-                vMap.cameraPosition = org.maplibre.android.camera.CameraPosition.Builder(vMap.cameraPosition)
-                    .bearing(norm.toDouble())
-                    .build()
-            }
-            onOrientationUpdated()
-        }
-
-        if (!animated) {
-            currentAnimator?.cancel()
-            applyHeading(newHeading)
+    fun rotateTo(newHeading: Float, animated: Boolean = true) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mainHandler.post { rotateTo(newHeading, animated) }
             return
         }
-
-        currentAnimator?.cancel()
-        val start = currentHeading
-        val target = currentHeading + delta
-
-        currentAnimator = ValueAnimator.ofFloat(start, target).apply {
-            // 角度差に応じたアニメーション時間 (80ms〜180ms)
-            duration = (80L + (absDelta * 1.5f).toLong()).coerceIn(80L, 180L)
-            interpolator = DecelerateInterpolator(1.3f)
-            addUpdateListener { anim ->
-                val v = anim.animatedValue as Float
-                applyHeading(v)
-            }
-            start()
+        if (getMapView() == null && getVectorMap() == null) return
+        if (userGestureInProgress()) {
+            stop()
+            return
         }
+        val target = com.gorite.cyclemap.ui.mapview.Angles.normalize(newHeading)
+        if (!animated) {
+            stop()
+            follower.snap(target)
+            applyHeading(target)
+            return
+        }
+        targetHeading = target
+        if (running) return
+        // 止まっている間にユーザーが地図を回したかもしれないので、実際の向きから再開する
+        actualHeading()?.let { follower.snap(it) }
+        if (follower.isSettled(target) || kotlin.math.abs(com.gorite.cyclemap.ui.mapview.Angles.shortestDelta(follower.current, target)) < 0.3f) return
+        running = true
+        lastFrameNanos = 0L
+        android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private fun onFrame(nanos: Long) {
+        if (!running) return
+        if (userGestureInProgress()) {
+            stop()
+            return
+        }
+        val dt = if (lastFrameNanos == 0L) 1f / 60f else ((nanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+        lastFrameNanos = nanos
+        applyHeading(follower.step(targetHeading, dt))
+        if (follower.isSettled(targetHeading)) {
+            stop()
+        } else {
+            android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
+        }
+    }
+
+    private fun applyHeading(heading: Float) {
+        val norm = com.gorite.cyclemap.ui.mapview.Angles.normalize(heading)
+        getMapView()?.setMapOrientation(-norm)
+        getVectorMap()?.let { vMap ->
+            vMap.cameraPosition = org.maplibre.android.camera.CameraPosition.Builder(vMap.cameraPosition)
+                .bearing(norm.toDouble())
+                .build()
+        }
+        onOrientationUpdated()
+    }
+
+    private fun stop() {
+        if (running) android.view.Choreographer.getInstance().removeFrameCallback(frameCallback)
+        running = false
     }
 
     fun reset(animated: Boolean = true) {
@@ -442,6 +459,7 @@ internal class MapOrientationAnimator(
     }
 
     fun cancel() {
-        currentAnimator?.cancel()
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) stop()
+        else mainHandler.post { stop() }
     }
 }

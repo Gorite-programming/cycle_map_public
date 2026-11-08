@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import com.gorite.cyclemap.routing.NavigationStats
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RoutePreference
@@ -99,8 +100,37 @@ internal fun BoxScope.MapBottomOverlays(
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
 ) {
-    if (isNavigationActive && routeSummary != null) {
-        // アクティブナビ案内フッター (GoogleNavFooterView)
+    if (isNavigationActive && routeSummary != null && !isLandscape) {
+        // 縦画面: 数値パネル (速度・残り・勾配・先の標高・到着・電池)
+        val navProfile = if (realElevProfile.isNotEmpty()) realElevProfile else remember(routeSummary, navigationRoute) {
+            buildRouteElevationProfile(navigationRoute.map { it.latitude to it.longitude }, routeSummary.distanceMeters)
+        }
+        val progressM = navigationProgress?.distanceFromStartMeters ?: 0.0
+        val remainingM = navStats?.remainingMeters ?: (routeSummary.distanceMeters - progressM).coerceAtLeast(0.0)
+        val panelData = remember(navProfile, progressM, remainingM, speedKmh.roundToInt(), navStats?.etaEpochMillis, navStats?.durationRemainingSeconds) {
+            com.gorite.cyclemap.ui.map.buildNavPanelData(
+                speedKmh = speedKmh,
+                remainingMeters = remainingM,
+                profile = navProfile,
+                progressM = progressM,
+                // 案内開始直後などで統計が未算出のときも、標準の巡航速度 (15km/h) で見込みを出す
+                etaEpochMillis = navStats?.etaEpochMillis ?: (System.currentTimeMillis() + (remainingM / PRE_START_ASSUMED_SPEED_MPS * 1000.0).toLong()),
+                remainingSeconds = navStats?.durationRemainingSeconds?.takeIf { it.isFinite() } ?: (remainingM / PRE_START_ASSUMED_SPEED_MPS),
+            )
+        }
+        com.gorite.cyclemap.ui.map.NavBottomPanelC(
+            data = panelData,
+            batteryPercent = com.gorite.cyclemap.ui.map.rememberBatteryPercent(),
+            isMuted = isVoiceMuted,
+            onToggleMute = onToggleMute,
+            onStopNavigation = onStopNavigation,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(2f),
+            bottomInset = systemInsets.calculateBottomPadding(),
+        )
+    } else if (isNavigationActive && routeSummary != null) {
+        // 横画面: コンパクトなフッター (GoogleNavFooterView)
         com.gorite.cyclemap.ui.map.GoogleNavFooterView(
             eta = navStats?.let {
                 val nowMs = System.currentTimeMillis()
@@ -216,7 +246,7 @@ internal fun BoxScope.MapBottomOverlays(
                             elapsedS = 0.0,
                             remainingS = summary.distanceMeters / PRE_START_ASSUMED_SPEED_MPS,
                             averageKmh = PRE_START_ASSUMED_SPEED_MPS * 3.6,
-                            elevationGainM = elevationGain(elevProfile, 0.0),
+                            elevationGainM = elevationGain(elevProfile, summary.distanceMeters),
                             currentElevationM = elevationAt(elevProfile, 0.0),
                             gradePct = gradeAt(elevProfile, 0.0),
                             forwardGradePct = forwardGradeAt(elevProfile, 0.0),

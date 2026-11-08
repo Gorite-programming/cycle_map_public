@@ -105,16 +105,20 @@ internal fun BoxScope.MapControlsOverlay(
             )
         }
     }
+    // ベクター地図のズームは毎フレーム moveCamera で進める (案内中の追従カメラに打ち切られないため)
+    val zoomAnimator = androidx.compose.runtime.remember(vectorMap) {
+        com.gorite.cyclemap.ui.mapview.MapZoomAnimator { vectorMap }
+    }
     val onZoomInAction: () -> Unit = {
         if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
-            vectorMap?.easeCamera(org.maplibre.android.camera.CameraUpdateFactory.zoomIn())
+            zoomAnimator.zoomBy(1.0)
         } else {
             mapView?.controller?.zoomIn(150L)
         }
     }
     val onZoomOutAction: () -> Unit = {
         if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
-            vectorMap?.easeCamera(org.maplibre.android.camera.CameraUpdateFactory.zoomOut())
+            zoomAnimator.zoomBy(-1.0)
         } else {
             mapView?.controller?.zoomOut(150L)
         }
@@ -250,7 +254,7 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = effectiveTopPadding + 150.dp, end = 14.dp)
+                .padding(top = effectiveTopPadding + 104.dp, end = 14.dp)
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
