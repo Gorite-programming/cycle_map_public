@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import duckdb
 
 from .. import config, masterdb
+from ..contact import normalize_phone, normalize_website
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,9 @@ def fetch_overture_places_for_bbox(
         addresses[1].postcode AS postcode,
         bbox.xmin AS lon,
         bbox.ymin AS lat,
-        confidence
+        confidence,
+        phones[1] AS phone,
+        websites[1] AS website
     FROM read_parquet('{s3_path}', filename=true, hive_partitioning=1)
     WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
       AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
@@ -227,6 +230,8 @@ def fetch_overture_places_for_bbox(
             lon,
             lat,
             confidence,
+            phone,
+            website,
         ) = r
 
         name_str = (name or "").strip()
@@ -255,6 +260,11 @@ def fetch_overture_places_for_bbox(
             "priority": config.source_priority("overture"),
             "imported_at": imported_at,
             "kana": None,
+            # Overture は営業時間・車椅子を持たない。電話・Web は OSM が無いときの補完に使う
+            "hours": None,
+            "phone": normalize_phone(phone),
+            "website": normalize_website(website),
+            "wheelchair": None,
         }
         results.append(row)
 

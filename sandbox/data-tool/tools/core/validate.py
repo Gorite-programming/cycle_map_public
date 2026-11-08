@@ -8,7 +8,8 @@ import os
 import sqlite3
 
 EXPECTED_HEAD = ["id", "osm_type", "osm_id", "name", "category", "lat", "lon"]
-ALLOWED_TAIL = ["address", "source", "kana", "search_text"]
+ALLOWED_TAIL = ["address", "source", "kana", "search_text",
+                "opening_hours", "phone", "website", "wheelchair"]
 META_KEYS = ("schema_version", "created_at", "prefecture", "bbox",
              "source_summary", "row_count", "tool_version")
 

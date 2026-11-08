@@ -5,12 +5,15 @@
 - name が空の要素は取り込まない。
 - Way の座標はノード座標の平均 (現行同様。改善しない)。
 - addr:* タグがあれば address を組み立てる (任意)。
+- opening_hours / phone / website / wheelchair があれば取り込む (contact.py で正規化)。
 """
 
 import osmium
 
 from .. import config, masterdb
 from .. import overlay as overlay_mod
+from ..contact import (normalize_hours, normalize_phone, normalize_website,
+                       normalize_wheelchair)
 from ..kana import tag_reading
 
 
@@ -93,6 +96,13 @@ class _PoiHandler(osmium.SimpleHandler):
             "priority": config.source_priority("osm"),
             # 読みタグ (name:ja-Hira 優先、なければ name:ja_rm)。無ければ None
             "kana": tag_reading(d),
+            # 詳細情報 (営業時間・電話・Web・車椅子)。無い・解釈できないものは None
+            "hours": normalize_hours(d.get("opening_hours")),
+            "phone": normalize_phone(
+                d.get("phone") or d.get("contact:phone") or d.get("contact:mobile")),
+            "website": normalize_website(
+                d.get("website") or d.get("contact:website") or d.get("url")),
+            "wheelchair": normalize_wheelchair(d.get("wheelchair")),
         })
 
     def node(self, n):

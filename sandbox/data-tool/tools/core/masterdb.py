@@ -24,9 +24,16 @@ CREATE TABLE IF NOT EXISTS poi (
     priority     INTEGER NOT NULL,
     imported_at  TEXT NOT NULL,
     merged_into  INTEGER,
-    kana         TEXT                -- 読み (OSMタグ由来。第2段階で追加)
+    kana         TEXT,               -- 読み (OSMタグ由来。第2段階で追加)
+    hours        TEXT,               -- 営業時間 (OSM opening_hours 形式の文字列)
+    phone        TEXT,               -- 電話 (国内表記)
+    website      TEXT,               -- Web (http/https)
+    wheelchair   TEXT                -- 車椅子 (yes / limited / no)
 );
 """
+
+# 場所の詳細情報の列 (poi → 検索DB の places.opening_hours/phone/website/wheelchair)
+DETAIL_COLUMNS = ("hours", "phone", "website", "wheelchair")
 
 POI_INDEXES = [
     "CREATE INDEX IF NOT EXISTS poi_pref_cat ON poi(prefecture, category);",
@@ -73,6 +80,10 @@ def _migrate(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(poi)")}
     if "kana" not in cols:
         conn.execute("ALTER TABLE poi ADD COLUMN kana TEXT;")
+    # 詳細情報の列 (旧 master.db には無い)
+    for col in DETAIL_COLUMNS:
+        if col not in cols:
+            conn.execute("ALTER TABLE poi ADD COLUMN %s TEXT;" % col)
 
 
 def insert_pois(conn, rows):
@@ -81,8 +92,9 @@ def insert_pois(conn, rows):
     conn.executemany(
         """INSERT INTO poi
            (name, category, lat, lon, address, prefecture,
-            source, source_id, priority, imported_at, merged_into, kana)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)""",
+            source, source_id, priority, imported_at, merged_into, kana,
+            hours, phone, website, wheelchair)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)""",
         [
             (
                 r["name"],
@@ -96,6 +108,10 @@ def insert_pois(conn, rows):
                 r.get("priority", config.source_priority(r["source"])),
                 r.get("imported_at", utcnow()),
                 r.get("kana"),
+                r.get("hours"),
+                r.get("phone"),
+                r.get("website"),
+                r.get("wheelchair"),
             )
             for r in rows
         ],

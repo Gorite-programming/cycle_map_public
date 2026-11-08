@@ -101,7 +101,9 @@ def test_search_text_matches_fts_content(tmp_path, tmp_db):
     conn = sqlite3.connect("file:%s?mode=ro" % out, uri=True)
     try:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(places)")]
-        assert cols[-1] == "search_text"
+        # search_text は検索用の末尾カラム。その後ろに場所の詳細情報 (opening_hours 等) が続く
+        assert cols[cols.index("search_text") + 1:] == [
+            "opening_hours", "phone", "website", "wheelchair"]
         name, search_text = conn.execute(
             "SELECT name, search_text FROM places WHERE id = 2").fetchone()
         assert name == "セブンイレブン広島店"  # 表示名は不変

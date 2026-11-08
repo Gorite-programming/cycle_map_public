@@ -262,6 +262,12 @@ def apply_merge(conn, winner_uid: int, loser_uid: int, auto_commit: bool = True)
         updates.append("address = ?")
         params.append(loser["address"])
 
+    # 1b. 詳細情報の補完 (営業時間・電話・Web・車椅子): 勝者側が空で敗者側にあればコピー
+    for col in masterdb.DETAIL_COLUMNS:
+        if not winner.get(col) and loser.get(col):
+            updates.append("%s = ?" % col)
+            params.append(loser[col])
+
     # 2. 名称補完: 勝者側が汎用名で、敗者側に具体的な店舗名がある場合は詳細名を適用
     w_name = winner["name"]
     l_name = loser["name"]

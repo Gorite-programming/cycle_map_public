@@ -43,7 +43,12 @@ CREATE TABLE places (
     kana     TEXT,
     -- ↓ 第3段階追記: LIKEフォールバック用 (Android標準SQLiteにFTS5が無い端末向け)。
     -- FTSに投入する文字列と全く同じ内容。表示には使わない
-    search_text TEXT
+    search_text TEXT,
+    -- ↓ 場所の詳細情報 (アプリは PRAGMA table_info で列の有無を見て、あれば表示する)
+    opening_hours TEXT,
+    phone        TEXT,
+    website      TEXT,
+    wheelchair   TEXT
 );
 """
 
@@ -147,13 +152,16 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
                 i, osm_type, osm_id, r["name"], r["category"],
                 r["lat"], r["lon"], r.get("address"),
                 r.get("source"), kana, fts_name,
+                r.get("hours"), r.get("phone"), r.get("website"),
+                r.get("wheelchair"),
             ))
             fts_records.append((i, fts_name, r["category"]))
         conn.executemany(
             """INSERT INTO places
                (id, osm_type, osm_id, name, category, lat, lon,
-                address, source, kana, search_text)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                address, source, kana, search_text,
+                opening_hours, phone, website, wheelchair)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             records,
         )
         for stmt in PLACES_INDEXES:
@@ -214,6 +222,12 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
         "use_pykakasi": use_pykakasi,
         "kana_tag_rows": n_kana_tag,
         "kana_pykakasi_rows": n_kana_pykakasi,
+        "detail_rows": {
+            "hours": sum(1 for r in rows if r.get("hours")),
+            "phone": sum(1 for r in rows if r.get("phone")),
+            "website": sum(1 for r in rows if r.get("website")),
+            "wheelchair": sum(1 for r in rows if r.get("wheelchair")),
+        },
     }
 
 

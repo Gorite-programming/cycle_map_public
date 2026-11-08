@@ -8,7 +8,7 @@ import json
 import os
 
 TOOL_VERSION = "0.1.0"
-SEARCH_SCHEMA_VERSION = "1"
+SEARCH_SCHEMA_VERSION = "2"  # 2: opening_hours / phone / website / wheelchair 列を追加
 
 BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
