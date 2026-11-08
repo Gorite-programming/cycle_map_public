@@ -8,6 +8,7 @@ import com.gorite.cyclemap.routing.CyclingCostModel
 import com.gorite.cyclemap.routing.EdgeCostModel
 import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
+import com.gorite.cyclemap.routing.segmentGradesAlong
 import com.gorite.cyclemap.routing.PenaltyMultiRouteFinder
 import com.gorite.cyclemap.routing.RoadGraph
 import com.gorite.cyclemap.routing.TravelCostModelFactory
@@ -104,7 +105,7 @@ class RealRoutePlanner(
             dateTime = now
         )
 
-        val primaryElevGain = calculateElevationGain(primaryResult.coordinates, primaryDistance)
+        val primaryElevGain = calculateElevationGain(lazyGraph, primaryResult.coordinates, primaryDistance)
 
         val primaryOption = RouteOption(
             id = "route_primary",
@@ -152,7 +153,7 @@ class RealRoutePlanner(
                     mode = mode,
                     dateTime = now
                 )
-                val altElevGain = calculateElevationGain(altResult.coordinates, altDistance)
+                val altElevGain = calculateElevationGain(lazyGraph, altResult.coordinates, altDistance)
                 options.add(
                     RouteOption(
                         id = "route_alternative",
@@ -244,9 +245,15 @@ class RealRoutePlanner(
         }
     }
 
-    private fun calculateElevationGain(coordinates: List<Pair<Double, Double>>, totalDistanceM: Double): Double {
+    /** 経路沿いの辺の勾配から獲得標高を求める (画面の標高プロファイルと同じ計算)。勾配が無い旧 graph では 0。 */
+    private fun calculateElevationGain(
+        lazyGraph: LazyMappedRoadGraph,
+        coordinates: List<Pair<Double, Double>>,
+        totalDistanceM: Double,
+    ): Double {
         if (coordinates.size < 2 || totalDistanceM <= 0.0) return 0.0
-        val profile = com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile(coordinates, totalDistanceM)
+        val segments = lazyGraph.segmentGradesAlong(coordinates)
+        val profile = com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null)
         return com.gorite.cyclemap.ui.cycling.elevationGain(profile, totalDistanceM) ?: 0.0
     }
 

@@ -25,7 +25,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gorite.cyclemap.data.AddressDisplayController
 import com.gorite.cyclemap.data.ElevationRepository
 import com.gorite.cyclemap.ui.cycling.ElevationSample
+import com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile
 import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
+import com.gorite.cyclemap.routing.segmentGradesAlong
+import kotlin.concurrent.read
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.Prefecture
 import com.gorite.cyclemap.data.RoutingGraphSelection
@@ -50,6 +53,7 @@ import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.tracking.LocationTrackingService
 import com.gorite.cyclemap.tracking.TrackingStateController
 import com.gorite.cyclemap.ui.cycling.CyclingTab
+import com.gorite.cyclemap.ui.cycling.ElevationSource
 import com.gorite.cyclemap.ui.cycling.GoogleNavTab
 import com.gorite.cyclemap.ui.cycling.GpxHistoryEntry
 import com.gorite.cyclemap.ui.cycling.NearbySpot
@@ -261,15 +265,30 @@ internal fun rememberMapScreenState(
 
     val elevationRepository = remember(context) { ElevationRepository.getInstance(context) }
     val realElevProfileState = remember { mutableStateOf<List<ElevationSample>>(emptyList()) }
-    LaunchedEffect(routeSummaryState.value, navigationRouteState.value) {
+    LaunchedEffect(routeSummaryState.value, navigationRouteState.value, mappedGraphState.value) {
         val summary = routeSummaryState.value
         val navRoute = navigationRouteState.value
         if (summary != null && navRoute.isNotEmpty()) {
             val coords = navRoute.map { it.latitude to it.longitude }
-            val initial = buildRouteElevationProfile(coords, summary.distanceMeters)
-            realElevProfileState.value = initial
+            // オフラインで使える本命: 経路沿いの辺の勾配 (osm-importer が標高タイルから書き込んだ値) を積み上げる。
+            // 勾配の入っていない旧 graph のときだけ、従来の推定 (実際の標高ではない) に戻す。
+            val graph = mappedGraphState.value
+            val gradeProfile = if (graph != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    val segments = graphLock.read { graph.segmentGradesAlong(coords) }
+                    if (segments.any { it.gradePercent != null }) {
+                        buildGradeElevationProfile(
+                            segments,
+                            elevationRepository.getCachedElevation(coords.first().first, coords.first().second),
+                        )
+                    } else emptyList()
+                }
+            } else emptyList()
+            realElevProfileState.value = gradeProfile.ifEmpty { buildRouteElevationProfile(coords, summary.distanceMeters) }
+            // 標高タイルが端末にあれば (またはネット接続で取得できれば) 絶対標高の実測で置き換える。
+            // 一部しか実測で埋まらない場合は、架空値が混ざるので置き換えない。
             val real = elevationRepository.getRouteElevationProfile(coords, summary.distanceMeters)
-            if (real.isNotEmpty()) {
+            if (real.isNotEmpty() && real.all { it.source == ElevationSource.GSI_DEM }) {
                 realElevProfileState.value = real
             }
         } else {

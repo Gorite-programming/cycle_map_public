@@ -55,6 +55,10 @@ data class ElevationSample(
 
 enum class ElevationSource {
     GSI_DEM,
+    /** 経路沿いの辺の勾配 (osm-importer が標高タイルから書き込んだ値) を積み上げた標高。出発地の絶対標高が分かる。 */
+    GRAPH_GRADE,
+    /** 同上だが出発地の絶対標高が不明で、経路上の最も低い点を 0m とした相対標高。登り量・勾配は正しい。 */
+    GRAPH_GRADE_RELATIVE,
     ESTIMATED,
 }
 
@@ -64,8 +68,40 @@ fun elevationSourceLabel(profile: List<ElevationSample>): String {
     return when {
         sources.isEmpty() -> "標高未取得"
         sources == setOf(ElevationSource.GSI_DEM) -> "DEM実測"
+        sources == setOf(ElevationSource.GRAPH_GRADE) -> "勾配算出"
+        sources == setOf(ElevationSource.GRAPH_GRADE_RELATIVE) -> "勾配算出・相対"
         sources == setOf(ElevationSource.ESTIMATED) -> "推定"
         else -> "一部推定"
+    }
+}
+
+/**
+ * 経路の区間ごとの勾配を積み上げて標高プロファイルを作る (約 50m 間隔)。オフラインで使え、経路探索が見ている勾配と一致する。
+ * 勾配不明の区間は平坦として扱う。[startElevationM] が null のときは、最も低い点を 0m とした相対標高にする。
+ */
+fun buildGradeElevationProfile(
+    segments: List<com.gorite.cyclemap.routing.RouteSegmentGrade>,
+    startElevationM: Double?,
+): List<ElevationSample> {
+    val total = segments.sumOf { it.distanceMeters }
+    if (segments.isEmpty() || total <= 0.0) return emptyList()
+    val dist = DoubleArray(segments.size + 1)
+    val elev = DoubleArray(segments.size + 1)
+    segments.forEachIndexed { i, seg ->
+        dist[i + 1] = dist[i] + seg.distanceMeters
+        elev[i + 1] = elev[i] + seg.distanceMeters * (seg.gradePercent ?: 0.0) / 100.0
+    }
+    val shift = if (startElevationM != null) startElevationM else -(elev.minOrNull() ?: 0.0)
+    val source = if (startElevationM != null) ElevationSource.GRAPH_GRADE else ElevationSource.GRAPH_GRADE_RELATIVE
+    val sampleCount = (total / 50.0).roundToInt().coerceIn(30, 300)
+    val step = total / sampleCount
+    var seg = 0
+    return (0..sampleCount).map { n ->
+        val d = n * step
+        while (seg < segments.size - 1 && dist[seg + 1] < d) seg++
+        val span = dist[seg + 1] - dist[seg]
+        val f = if (span > 0.0) ((d - dist[seg]) / span).coerceIn(0.0, 1.0) else 0.0
+        ElevationSample(d, elev[seg] + (elev[seg + 1] - elev[seg]) * f + shift, source)
     }
 }
 
