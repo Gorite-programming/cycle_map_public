@@ -71,7 +71,7 @@ OSM PBF (Geofabrik) ──osmium extract(行政界, complete_ways)──▶ 県�
 
 ## 動作環境・ツールチェイン
 
-- 対象: Android 13 以上(minSdk 33 / targetSdk・compileSdk 35)。実機検証は Samsung Galaxy S21。
+- 対象: Android 13 以上(minSdk 33 / targetSdk・compileSdk 35)。実機検証は Samsung Galaxy S26(SC-51G / Android 17)。
 - Kotlin 2.0.21、AGP 8.10.1、Java 11 ターゲット。Gradle は JDK 17 または 21 で実行します(Windows では Android Studio 付属の JDK 21 を使い、システムの Java 25 は Gradle 8.11.1 非対応です)。
 - ビルド可能な環境: macOS / Windows / Linux。Khadas Edge 2(ARM64 SBC)へのビルドオフロード環境があります(詳細は [AGENTS.md](AGENTS.md))。
 - `application/local.properties` の `sdk.dir` はマシン固有です。コミットせず、Android Studio の初回起動で生成するか手動で記載します。

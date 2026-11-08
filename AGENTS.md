@@ -10,7 +10,7 @@
   - `osm-importer/` — JVM CLI(`OsmImporterKt`):OSM `.pbf` → 独自バイナリ `.graph` + サイドカー `.graph.idx`。
 - `Archives/` — 過去系統アーカイブ(`Archives/application/`, `Archives/test/`)。
 - ルートパイプライン:`build_prefectures.py`(中国5県:鳥取・島根・岡山・広島・山口)→県ごとに `<name>.osm.pbf` + `<name>.search.db` + `<name>.graph` / `.idx` + `manifest.json` + `LICENSE.txt` → `packages/<name>.zip`。`sandbox/data-tool/out/` にあるOverture+国交省+OSM統合検索DBをスキーマ検証（PRAGMA integrity_check、必須列、インデックス、件数）の上で自動取り込み。`build_search_db.py` はフォールバック用（`application/osm-importer/build_search_db.py`）。`boundaries/` は行政界ポリゴン(SHA-256 検証付きで自動ダウンロード)。
-- `scripts/push_data.sh` — 実機（Galaxy S21等）へのオフラインデータ一括転送・SHA-256整合性検証スクリプト（`--dry-run` 対応）。
+- `scripts/push_data.sh` — 実機（Galaxy S26等）へのオフラインデータ一括転送・SHA-256整合性検証スクリプト（`--dry-run` 対応）。
 - `sandbox/data-tool/` — 検索DB生成ツール(Python + Streamlit)。以前は独立Gitだったが現在は `cycle_map` リポジトリに統合済み。OSM PBFを道路基盤とし、POI（コンビニ・飲食店・病院・観光施設等）は Overture Maps Foundation (Placesテーマ、CDLA-Permissive-2.0) および 国土数値情報（医療機関第3.0版・学校第2.0版、PDL1.0）を統合・重複排除（同一敷地・同一住所マージ）して高精度化するパイプライン。表記ゆれ対応（ひらがな・カタカナ・ローマ字）も実装済み。ライセンス表記・出典規定の詳細は `application/DISTRIBUTION_NOTES.md` およびアプリ内「地図情報・ライセンス」ダイアログを参照。**重要**: Android 標準 SQLite は多くの実機で FTS5 非対応(`no such module: fts5`)のため、検索DBは `places.search_text` 列(LIKE検索用、表示名の `name` 列とは別)も保持して互換性を確保している(アプリ側の対応は `Fts5SupportDetector.kt`)。
 - 大容量データ(コミット・移動禁止):`data/japan-latest.osm.pbf`(約2.5 GB。ルート直下の `japan-latest.osm.pbf` はシンボリックリンク)、`work/` 中間生成物、`venv/`。
 
@@ -42,7 +42,7 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work             # 
 - `build_prefectures.py` の不変条件:`osmium extract --polygon <boundary> --strategy complete_ways` を使う。importer 呼び出しは `--bbox none`。ZIP 内容は `<name>.search.db` + `<name>.graph` + `<name>.graph.idx` + `manifest.json` + `LICENSE.txt` の5点。有効な ZIP があれば `--force` なしではスキップ。失敗時の作業ディレクトリはデバッグ用に残す。
 - `CyclingCostModel` は `motorway` を除外。最小倍率 0.90 は A\* ヒューリスティックの下限 — JVM 側と `LazyMappedRoadGraph` で同期を保つ。
 - `LazyMappedRouting` は `Int` オフセットで読むため、2 GiB 超の `.graph` はロード時に明示エラーで拒否する(県別グラフは収まる)。`nearestNodeIndex` は空間グリッドを使い、見つからない場合のみ線形走査にフォールバックする。既知バグ集（旧系統の改修履歴）は `Archives/application/bugs.md` — 修正前に必ず確認すること。ただし Critical/High の大半はコミット `3a6faf2` で修正済みのため、着手前に `git -C application log --oneline` と現行コードで再確認する(盲目的な再修正を避ける)。
-- 実機手順:Samsung S21 + `adb push`、機内モードで検証。山口 z15–z16 全域タイル(約8.9万枚、1 GB 超)は見送り — 全域取得ではなく経路回廊のみ取得する方針。
+- 実機手順:Samsung Galaxy S26(SC-51G) + `adb push`、機内モードで検証。山口 z15–z16 全域タイル(約8.9万枚、1 GB 超)は見送り — 全域取得ではなく経路回廊のみ取得する方針。
 
 ## 開発体制・Git運用ポリシー（全エージェント共通）
 
