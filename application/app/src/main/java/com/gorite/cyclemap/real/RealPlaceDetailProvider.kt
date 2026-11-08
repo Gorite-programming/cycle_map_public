@@ -28,7 +28,13 @@ class RealPlaceDetailProvider(
     // DBファイルパスごとの列存在キャッシュ
     private val columnSupportCache = ConcurrentHashMap<String, Set<String>>()
 
-    override suspend fun getPlaceDetail(placeId: String): PlaceDetail? = withContext(Dispatchers.IO) {
+    override suspend fun getPlaceDetail(placeId: String): PlaceDetail? = getPlaceDetailNear(placeId, null, null)
+
+    /**
+     * [placeId] が名称のとき、同名の地点 (チェーン店など) が複数あれば
+     * ([nearLat], [nearLon]) に最も近いものを返す。座標が無い場合は従来通り先頭の1件。
+     */
+    suspend fun getPlaceDetailNear(placeId: String, nearLat: Double?, nearLon: Double?): PlaceDetail? = withContext(Dispatchers.IO) {
         val dbFile = searchDbFileProvider() ?: return@withContext null
         if (!dbFile.exists() || !dbFile.canRead()) return@withContext null
 
@@ -53,13 +59,20 @@ class RealPlaceDetailProvider(
                 }.joinToString(", ")
 
                 val isRowId = placeId.toLongOrNull() != null
-                val query = if (isRowId) {
-                    "SELECT $selectFields FROM places WHERE rowid = ? LIMIT 1"
+                val useProximity = !isRowId && nearLat != null && nearLon != null
+                val query = when {
+                    isRowId -> "SELECT $selectFields FROM places WHERE rowid = ? LIMIT 1"
+                    useProximity -> "SELECT $selectFields FROM places WHERE name = ? " +
+                        "ORDER BY (lat - ?) * (lat - ?) + (lon - ?) * (lon - ?) LIMIT 1"
+                    else -> "SELECT $selectFields FROM places WHERE name = ? LIMIT 1"
+                }
+                val queryArgs = if (useProximity) {
+                    arrayOf(placeId, nearLat.toString(), nearLat.toString(), nearLon.toString(), nearLon.toString())
                 } else {
-                    "SELECT $selectFields FROM places WHERE name = ? LIMIT 1"
+                    arrayOf(placeId)
                 }
 
-                db.rawQuery(query, arrayOf(placeId)).use { cursor ->
+                db.rawQuery(query, queryArgs).use { cursor ->
                     if (!cursor.moveToNext()) return@withContext null
 
                     fun colString(colName: String): String? {

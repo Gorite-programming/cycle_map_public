@@ -260,18 +260,24 @@ internal fun buildFtsQuery(trimmed: String): String {
         .joinToString(" ") { "\"${it.replace("\"", "\"\"")}\"*" }
 }
 
+/** LIKE のワイルドカード (% _) とエスケープ文字 (\\) をリテラルとして扱うためのエスケープ。ESCAPE '\\' とセットで使う。 */
+@VisibleForTesting
+internal fun escapeLike(raw: String): String =
+    raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 @VisibleForTesting
 internal fun buildLikeTextConditions(trimmed: String, targetColumn: String): Pair<String, List<String>> {
     val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+    val clause = "$targetColumn LIKE ? ESCAPE '\\'"
     val whereClause = if (words.isEmpty()) {
-        "$targetColumn LIKE ?"
+        clause
     } else {
-        words.joinToString(" AND ") { "$targetColumn LIKE ?" }
+        words.joinToString(" AND ") { clause }
     }
     val args = if (words.isEmpty()) {
-        listOf("%$trimmed%")
+        listOf("%${escapeLike(trimmed)}%")
     } else {
-        words.map { "%$it%" }
+        words.map { "%${escapeLike(it)}%" }
     }
     return whereClause to args
 }

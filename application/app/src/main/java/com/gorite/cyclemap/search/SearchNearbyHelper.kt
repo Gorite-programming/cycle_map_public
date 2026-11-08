@@ -90,7 +90,7 @@ internal fun searchNearbyQuickSpots(
     val orderNearby = NEARBY_ORDER_BY
 
     val categoryClauses = categoryKeys.joinToString(" OR ") { "category LIKE ?" }
-    val nameClause = if (!nameFilter.isNullOrBlank()) " AND name LIKE ?" else ""
+    val nameClause = if (!nameFilter.isNullOrBlank()) " AND name LIKE ? ESCAPE '\\'" else ""
     val sql = """
         SELECT name, category, lat, lon
         FROM places
@@ -110,7 +110,7 @@ internal fun searchNearbyQuickSpots(
     args.add((centerLon + lonDelta).toString())
     categoryKeys.forEach { args.add("$it%") }
     if (!nameFilter.isNullOrBlank()) {
-        args.add("%$nameFilter%")
+        args.add("%${escapeLike(nameFilter)}%")
     }
     args.addAll(nearbyOrderArgs(centerLat, centerLon))
     args.add((limit * 3).toString())

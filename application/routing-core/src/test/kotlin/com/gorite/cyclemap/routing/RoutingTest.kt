@@ -65,6 +65,15 @@ class RoutingTest {
     }
 
     @Test
+    fun cyclingCostModel_downhillPenaltyIsContinuousAtMinusFourPercent() {
+        // -4% 前後でコストが跳ねない (LazyMappedRoadGraph.gradePenalty と同じ式)。
+        // 道種別 residential (1.20) で下限クランプの影響を避けて比較する。
+        val atMinus4 = CyclingCostModel.cost(GraphEdge(1, 2, 100.0, "residential", gradePercent = -4.0))!!
+        val justBelow = CyclingCostModel.cost(GraphEdge(1, 2, 100.0, "residential", gradePercent = -4.01))!!
+        assertEquals(atMinus4, justBelow, 0.5)
+    }
+
+    @Test
     fun cyclingCostModel_asymmetricGradePenaltyAndMinimumClamp() {
         val flatPrimary = GraphEdge(1, 2, 100.0, "primary", gradePercent = 0.0)
         val uphillPrimary = GraphEdge(1, 2, 100.0, "primary", gradePercent = 5.0)

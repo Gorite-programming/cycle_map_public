@@ -133,7 +133,7 @@ internal fun MapPanelsHost(
                 resolveSearchDbFile(localContext, spot.latitude, spot.longitude)
             }
         )
-        val loaded = provider.getPlaceDetail(spot.name)
+        val loaded = provider.getPlaceDetailNear(spot.name, spot.latitude, spot.longitude)
         val catLabel = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(spot.category)?.label ?: spot.category
         val loadedDist = loaded?.distanceMeters
         if (loaded != null) {

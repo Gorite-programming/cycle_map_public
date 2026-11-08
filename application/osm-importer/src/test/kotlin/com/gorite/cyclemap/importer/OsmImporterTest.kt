@@ -15,6 +15,23 @@ class OsmImporterTest {
     }
 
     @Test
+    fun `access filtering excludes ways cyclists cannot use`() {
+        // 階段・工事中・歩行者専用道は bicycle の明示許可がない限り通さない
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "steps")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "steps", "bicycle" to "yes")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "construction")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "footway")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "pedestrian")))
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "footway", "bicycle" to "yes")))
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "pedestrian", "bicycle" to "designated")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "path", "bicycle" to "dismount")))
+        // 自動車専用道路
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "trunk", "motorroad" to "yes")))
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "trunk")))
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "cycleway")))
+    }
+
+    @Test
     fun `graph keeps highway and applies one way direction`() {
         val nodes = mapOf(
             1L to GraphNode(1L, 34.0, 131.0),

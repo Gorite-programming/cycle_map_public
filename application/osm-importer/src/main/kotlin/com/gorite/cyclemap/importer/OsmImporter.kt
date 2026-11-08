@@ -50,12 +50,31 @@ data class SearchPlace(
 object BicycleAccessFilter {
     private val explicitlyDenied = setOf("no", "private", "emergency")
 
+    /** 自転車での通行を明示的に認めるタグ値。 */
+    private val bicycleAllowedValues = setOf("yes", "designated", "permissive")
+
+    /** 自転車では通れない・通行できない状態の道種別 (bicycle タグがあっても除外)。 */
+    private val unusableHighways = setOf(
+        "steps", "construction", "proposed", "abandoned", "corridor", "elevator",
+        "raceway", "bus_guideway", "platform", "services", "rest_area", "escape", "via_ferrata",
+    )
+
+    /** 既定では歩行者専用。bicycle=yes/designated/permissive の明示がある場合のみ通す。 */
+    private val footOnlyHighways = setOf("footway", "pedestrian")
+
     /** Extraction stage: only decide whether bicycles may use the way. */
     fun isAllowed(tags: Map<String, String>): Boolean {
-        if (tags["highway"].isNullOrBlank()) return false
-        if (tags["bicycle"] in explicitlyDenied) return false
+        val highway = tags["highway"]
+        if (highway.isNullOrBlank()) return false
+        val bicycle = tags["bicycle"]
+        if (bicycle in explicitlyDenied || bicycle == "dismount") return false
         if (tags["access"] in explicitlyDenied) return false
         if (tags["vehicle"] in explicitlyDenied) return false
+        if (highway in unusableHighways) return false
+        val bicycleExplicitlyAllowed = bicycle in bicycleAllowedValues
+        if (highway in footOnlyHighways && !bicycleExplicitlyAllowed) return false
+        // 自動車専用道路 (motorroad=yes) は自転車通行不可。bicycle の明示許可がある場合のみ通す。
+        if (tags["motorroad"] == "yes" && !bicycleExplicitlyAllowed) return false
         return true
     }
 }

@@ -81,7 +81,8 @@ object CyclingCostModel : EdgeCostModel {
     private fun calculateGradePenalty(grade: Double): Double = when {
         grade >= 0.0 -> 1.0 + (grade * 0.02) + (grade * grade * 0.002) // 緩やかな上りは+2%、急勾配は二次関数的に増加
         grade >= -4.0 -> (1.0 + grade * 0.02).coerceAtLeast(0.95) // 緩やかな下りは軽快（最大-5%）
-        else -> 1.0 + kotlin.math.abs(grade + 4.0) * 0.03 // -4%を超える急坂下りはブレーキ減速・危険度ペナルティ
+        // -4%を超える急坂下りは減速ペナルティ(-4%で0.95から滑らかに接続)。LazyMappedRoadGraph.gradePenalty と同期を保つこと
+        else -> 0.95 + kotlin.math.abs(grade + 4.0) * 0.03
     }
 
     override fun minimumCostMultiplier(): Double = 0.90

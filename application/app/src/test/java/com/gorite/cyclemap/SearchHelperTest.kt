@@ -27,7 +27,7 @@ class SearchHelperTest {
     @Test
     fun buildLikeTextConditions_withSearchTextColumn_singleWord() {
         val (whereClause, args) = buildLikeTextConditions("せぶん", "search_text")
-        assertEquals("search_text LIKE ?", whereClause)
+        assertEquals("search_text LIKE ? ESCAPE '\\'", whereClause)
         assertEquals(listOf("%せぶん%"), args)
     }
 
@@ -35,7 +35,7 @@ class SearchHelperTest {
     fun buildLikeTextConditions_withSearchTextColumn_multiWordAndMatching() {
         // FTS5非対応時の複数単語AND結合 & 中間一致 (%word%)
         val (whereClause, args) = buildLikeTextConditions("せぶん いれぶん", "search_text")
-        assertEquals("search_text LIKE ? AND search_text LIKE ?", whereClause)
+        assertEquals("search_text LIKE ? ESCAPE '\\' AND search_text LIKE ? ESCAPE '\\'", whereClause)
         assertEquals(listOf("%せぶん%", "%いれぶん%"), args)
     }
 
@@ -43,8 +43,16 @@ class SearchHelperTest {
     fun buildLikeTextConditions_withLegacyNameColumn_multiWord() {
         // レガシーDB (search_textカラムなし) での name 検索
         val (whereClause, args) = buildLikeTextConditions("ローソン 広島", "name")
-        assertEquals("name LIKE ? AND name LIKE ?", whereClause)
+        assertEquals("name LIKE ? ESCAPE '\\' AND name LIKE ? ESCAPE '\\'", whereClause)
         assertEquals(listOf("%ローソン%", "%広島%"), args)
+    }
+
+    @Test
+    fun buildLikeTextConditions_escapesWildcardsInUserInput() {
+        // % と _ はリテラル扱い (全件一致を防ぐ)
+        val (_, args) = buildLikeTextConditions("100%_a", "name")
+        assertEquals(listOf("%100\\%\\_a%"), args)
+        assertEquals("a\\\\b", escapeLike("a\\b"))
     }
 
     @Test

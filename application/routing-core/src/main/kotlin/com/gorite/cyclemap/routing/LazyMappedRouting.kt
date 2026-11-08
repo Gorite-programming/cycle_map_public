@@ -257,11 +257,9 @@ class LazyMappedRoadGraph private constructor(
         val typeStartL = p + 24
         val typeStartI = typeStartL.toInt()
         val length = mapped.getShort(typeStartI).toInt() and 0xffff
+        // 絶対位置のgetのみ使う: 共有バッファのpositionを変えず、辺ごとのduplicate()割り当ても避ける
         val road = ByteArray(length)
-        // Use a duplicate to avoid mutating the shared buffer's position
-        val slice = mapped.duplicate()
-        slice.position(typeStartI + 2)
-        slice.get(road)
+        for (i in 0 until length) road[i] = mapped.get(typeStartI + 2 + i)
         val typeName = String(road, Charsets.UTF_8)
         val type = roadTypeCode(typeName)
         val onewayFlagOffset = typeStartL + 2 + length      // points at the oneway byte
@@ -363,6 +361,10 @@ class LazyMappedRoadGraph private constructor(
             require(indexFile.isFile) { "Missing graph index: ${indexFile.absolutePath}" }
             val channel = RandomAccessFile(file, "r").channel
             try {
+                // readEdge は Int の絶対位置で読むため、2GiB 超は全体 mmap できない。不明瞭な例外ではなく明示的に失敗させる
+                require(channel.size() <= Int.MAX_VALUE) {
+                    "Graph file is larger than 2 GiB and cannot be mapped: ${file.absolutePath} (${channel.size()} bytes)"
+                }
                 val mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.BIG_ENDIAN)
                 val headerLength = mapped.short.toInt() and 0xffff
                 val header = ByteArray(headerLength); mapped.get(header)
