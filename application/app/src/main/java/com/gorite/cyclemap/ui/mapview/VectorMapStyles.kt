@@ -7,7 +7,9 @@ import java.io.File
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.BlurMaskFilter
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -41,6 +43,84 @@ internal fun drawableToBitmap(context: Context, drawableId: Int, sizePx: Int, ti
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
     }
+}
+
+/** 案内中の現在地矢印の色 (進行方向の左半分 / 右半分)。GPS 状態で変える (弱い: 淡い青、途絶: 赤)。 */
+internal fun navigationArrowColors(gpsStatus: GpsSignalStatus): Pair<Int, Int> {
+    // android.graphics.Color を使わず整数で組む (JVM のユニットテストで検証するため)
+    fun rgb(r: Int, g: Int, b: Int) = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    return when (gpsStatus) {
+        GpsSignalStatus.HEALTHY -> rgb(94, 155, 250) to rgb(26, 115, 232)
+        GpsSignalStatus.WEAK -> rgb(168, 199, 250) to rgb(123, 170, 247)
+        GpsSignalStatus.LOST -> rgb(242, 139, 130) to rgb(217, 48, 37)
+    }
+}
+
+/** 現在地マーカーのアイコン名。案内中 (arrow) も GPS 状態ごとに別の画像を使う。 */
+internal fun locationIconName(mode: String, gpsStatus: GpsSignalStatus): String {
+    val suffix = gpsStatus.name.lowercase()
+    return when (mode) {
+        "arrow" -> "cyclemap-nav-arrow-$suffix"
+        "beam" -> "cyclemap-location-beam-$suffix"
+        else -> "cyclemap-location-dot-$suffix"
+    }
+}
+
+/**
+ * 案内中の現在地矢印: 進行方向 (上) を向く青い矢じり。白い縁取りと影つきで、左右で明るさを変えて立体感を出す。
+ * 地図の回転に合わせて回すので、画像は常に真上向きに描く。
+ */
+internal fun createNavigationArrowBitmap(
+    context: Context,
+    gpsStatus: GpsSignalStatus = GpsSignalStatus.HEALTHY,
+): Bitmap {
+    val density = context.resources.displayMetrics.density
+    val sizePx = (64 * density).toInt()
+    val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val w = sizePx.toFloat()
+    // 矢じりの頂点 (画像内の割合)。先端が上、後ろ中央が凹む
+    val tip = 0.50f to 0.12f
+    val right = 0.80f to 0.84f
+    val notch = 0.50f to 0.68f
+    val left = 0.20f to 0.84f
+    fun path(points: List<Pair<Float, Float>>) = Path().apply {
+        points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * w, y * w) else lineTo(x * w, y * w) }
+        close()
+    }
+    val whole = path(listOf(tip, right, notch, left))
+    val leftHalf = path(listOf(tip, notch, left))
+    val rightHalf = path(listOf(tip, right, notch))
+    val (leftColor, rightColor) = navigationArrowColors(gpsStatus)
+
+    // 影
+    canvas.save()
+    canvas.translate(0f, 2f * density)
+    canvas.drawPath(whole, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = 6f * density
+        strokeJoin = Paint.Join.ROUND
+        color = Color.argb(90, 0, 0, 0)
+        maskFilter = BlurMaskFilter(3f * density, BlurMaskFilter.Blur.NORMAL)
+    })
+    canvas.restore()
+    // 白い縁取り (角を丸める)
+    canvas.drawPath(whole, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = 6f * density
+        strokeJoin = Paint.Join.ROUND
+        color = Color.WHITE
+    })
+    // 塗り: 左半分は明るく、右半分は濃く
+    canvas.drawPath(leftHalf, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        shader = LinearGradient(0f, tip.second * w, 0f, left.second * w, leftColor, rightColor, Shader.TileMode.CLAMP)
+    })
+    canvas.drawPath(rightHalf, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = rightColor
+    })
+    return bitmap
 }
 
 /**
@@ -157,9 +237,11 @@ internal fun setupRouteLayers(context: Context, style: Style) {
     if (style.getImage("cyclemap-location-beam-icon") == null) {
         style.addImage("cyclemap-location-beam-icon", createGoogleLocationPuckBitmap(context, true))
     }
-    if (style.getImage("cyclemap-nav-arrow-icon") == null) {
-        val navigationPuck = drawableToBitmap(context, R.drawable.ic_google_location_puck, 108)
-        style.addImage("cyclemap-nav-arrow-icon", navigationPuck)
+    for (status in GpsSignalStatus.entries) {
+        val arrowId = locationIconName("arrow", status)
+        if (style.getImage(arrowId) == null) {
+            style.addImage(arrowId, createNavigationArrowBitmap(context, status))
+        }
     }
 
     if (style.getSource("cyclemap-alt-route-source") == null) {
@@ -285,7 +367,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         // 3. ナビ案内時
         style.addLayer(SymbolLayer("cyclemap-location-arrow", "cyclemap-location-source").apply {
             setProperties(
-                PropertyFactory.iconImage("cyclemap-nav-arrow-icon"),
+                PropertyFactory.iconImage(Expression.get("icon")),
                 PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
                 PropertyFactory.iconRotate(Expression.get("bearing")),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
@@ -356,12 +438,7 @@ internal fun updateLocationPoint(
         hasBearing -> "beam"
         else -> "dot"
     }
-    val suffix = gpsStatus.name.lowercase()
-    val iconName = when (mode) {
-        "arrow" -> "cyclemap-nav-arrow-icon"
-        "beam" -> "cyclemap-location-beam-$suffix"
-        else -> "cyclemap-location-dot-$suffix"
-    }
+    val iconName = locationIconName(mode, gpsStatus)
     val feature = Feature.fromGeometry(point).apply {
         addStringProperty("mode", mode)
         addStringProperty("icon", iconName)
