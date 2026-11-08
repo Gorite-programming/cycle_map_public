@@ -51,8 +51,8 @@ android {
         applicationId = "com.gorite.cyclemap.test"
         minSdk = 33
         targetSdk = 35
-        versionCode = 4
-        versionName = "α0.9.2-unified"
+        versionCode = 5
+        versionName = "α0.9.3-unified"
 
         buildConfigField("String", "GIT_HASH", "\"${getGitCommitHash()}\"")
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTimeJst()}\"")
