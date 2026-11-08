@@ -433,6 +433,8 @@ internal fun MapScreen(
                 )
             }
             Log.i("CycleMapRoute", "GUIDANCE_STATE isNavigationActive=true routeDisplayed=true")
+            // 案内中に見せるのは案内する 1 本だけ。代替ルート (灰色) は消す
+            state.calculatedRouteOptionsState.value = emptyList()
             state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StartNavigation)
         } else {
             Log.e("CycleMapRoute", "ROUTE_FAILURE reason=start-with-empty-route")
@@ -462,6 +464,7 @@ internal fun MapScreen(
                 state.waypointsState.value = emptyList()
                 state.routeSummaryState.value = null
                 state.destinationState.value = null
+                state.calculatedRouteOptionsState.value = emptyList() // 灰色の代替ルートも消す
                 state.navigationRouteState.value = emptyList()
                 state.navigationManeuversState.value = emptyList()
                 state.navigationInstructionsState.value = emptyList()
