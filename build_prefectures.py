@@ -584,7 +584,20 @@ def main() -> int:
     ap.add_argument("--keep-work", action="store_true", help="Keep intermediate files after success")
     ap.add_argument("--no-boundary-download", action="store_true", help="Fail instead of downloading missing boundary GeoJSON")
     ap.add_argument("--legacy-osm-search-db", action="store_true", help="Fallback to legacy OSM-only search DB if integrated DB is missing")
+    ap.add_argument("--source-pbf", type=Path, help="OSM PBF to extract the prefectures from (default: japan-latest.osm.pbf). A regional file such as Geofabrik's chugoku-latest works too")
+    ap.add_argument("--output-dir", type=Path, help="Where to write <name>.zip (default: packages/). Use a staging directory to leave existing packages untouched")
+    ap.add_argument("--work-dir", type=Path, help="Intermediate files directory (default: work/)")
     args = ap.parse_args()
+
+    # 既定値を上書きする (process() はモジュールの設定値を参照する)
+    global SOURCE_PBF, OUTPUT_DIR, WORK_DIR
+    if args.source_pbf:
+        SOURCE_PBF = args.source_pbf
+    if args.output_dir:
+        OUTPUT_DIR = args.output_dir
+    if args.work_dir:
+        WORK_DIR = args.work_dir
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     if not SOURCE_PBF.is_file():
         raise FileNotFoundError(f"Source PBF not found: {SOURCE_PBF}")

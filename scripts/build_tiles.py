@@ -91,8 +91,9 @@ def is_valid(cli, path):
     return subprocess.run([cli, "verify", str(path)], capture_output=True).returncode == 0
 
 
-def build_one(cli, name, build, force, dry_run):
-    out = OUTPUT_DIR / ("%s.pmtiles" % name.lower())
+def build_one(cli, name, build, force, dry_run, output_dir=None):
+    output_dir = output_dir or OUTPUT_DIR
+    out = output_dir / ("%s.pmtiles" % name.lower())
     if not force and is_valid(cli, out):
         print("[%s] SKIP: 有効なファイルがあります: %s" % (name, out))
         return True
@@ -103,7 +104,7 @@ def build_one(cli, name, build, force, dry_run):
     print("[%s] $ %s" % (name, " ".join(cmd)))
     if dry_run:
         return True
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     tmp.unlink(missing_ok=True)  # pmtiles extract は既存の出力先を上書きしない
     rc = subprocess.run(cmd).returncode
     if rc != 0 or not is_valid(cli, tmp):
@@ -121,6 +122,7 @@ def main():
     ap.add_argument("--build", help="Protomaps のビルド日 YYYYMMDD (省略時は最新)")
     ap.add_argument("--force", action="store_true", help="有効なファイルがあっても作り直す")
     ap.add_argument("--dry-run", action="store_true", help="実行内容を表示するだけ")
+    ap.add_argument("--out", type=Path, help="出力先 (既定: packages/)。ステージング用")
     args = ap.parse_args()
 
     names = PREFECTURES
@@ -134,7 +136,7 @@ def main():
     cli = find_pmtiles_cli()
     build = args.build or latest_build()
     print("Protomaps ビルド: %s / 対象: %s" % (build, ",".join(names)))
-    results = [build_one(cli, n, build, args.force, args.dry_run) for n in names]
+    results = [build_one(cli, n, build, args.force, args.dry_run, args.out) for n in names]
     return 0 if all(results) else 1
 
 
