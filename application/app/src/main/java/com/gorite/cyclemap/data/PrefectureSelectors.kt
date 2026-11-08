@@ -187,7 +187,7 @@ sealed interface TileSourceSelection {
 object TileSourceSelector {
     private val SUPPORTED_PMTILES = mapOf(
         "yamaguchi" to "yamaguchi.pmtiles",
-        "hiroshima" to "Hiroshima_osm.pmtiles",
+        "hiroshima" to "hiroshima.pmtiles",  // 旧名 Hiroshima_osm.pmtiles は resolveTileFile の互換候補で解決する
         "okayama" to "okayama.pmtiles",
         "shimane" to "shimane.pmtiles",
         "tottori" to "tottori.pmtiles"

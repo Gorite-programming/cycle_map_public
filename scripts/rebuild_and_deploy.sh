@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# scripts/rebuild_and_deploy.sh - 検索DB再生成 → 県別ZIP作成 → 実機転送 を一括実行
+# scripts/rebuild_and_deploy.sh - 検索DB再生成 → 県別ZIP作成 → 地図タイル取得 → 実機転送 を一括実行
 # =============================================================================
 #
 # 段階:
 #   1. db       sandbox/data-tool/rebuild_all.py   検索DBを再生成 (out/<県>.search.db)
 #   2. package  build_prefectures.py --force       graph 生成 + packages/<県>.zip
-#   3. push     scripts/push_data.sh               実機へ転送 + SHA-256検証
+#   3. tiles    scripts/build_tiles.py             ベクタータイルを取得 (packages/<県>.pmtiles, 要ネット接続)
+#   4. push     scripts/push_data.sh               実機へ転送 + SHA-256検証
 #
 # 使い方:
 #   scripts/rebuild_and_deploy.sh --dry-run               # 全段階の予定を表示
@@ -28,12 +29,12 @@ DRY_RUN=false
 DB_ARGS=()
 
 usage() {
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
     cat <<EOF
 
 オプション:
   --pref a,b,..            対象の県 (小文字ID。既定: 5県すべて)
-  --skip db,package,push   省く段階 (カンマ区切り)
+  --skip db,package,tiles,push   省く段階 (カンマ区切り)
   --dry-run                実行せず予定だけ表示 (db と push は各スクリプトの dry-run)
   --extract-from PBF       db 段階: 日本全体PBFから県別PBFを切り出し直す
   --overture-release REL   db 段階: Overture の版 ('latest' 可)
@@ -67,8 +68,8 @@ if [[ -n "$SKIP" ]]; then
     IFS=',' read -r -a SKIP_IDS <<< "$SKIP"
     for s in "${SKIP_IDS[@]}"; do
         case "$s" in
-            db|package|push) ;;
-            *) echo "不明な --skip 段階: ${s} (db,package,push のいずれか)" >&2; exit 2 ;;
+            db|package|tiles|push) ;;
+            *) echo "不明な --skip 段階: ${s} (db,package,tiles,push のいずれか)" >&2; exit 2 ;;
         esac
     done
 fi
@@ -134,7 +135,14 @@ if ! skipped package; then
     fi
 fi
 
-# --- 3. 実機転送 -------------------------------------------------------------
+# --- 3. ベクタータイル取得 ---------------------------------------------------
+if ! skipped tiles; then
+    stage tiles "ベクタータイル取得 (${ONLY_ARG})"
+    TILE_FLAG=(); $DRY_RUN && TILE_FLAG=(--dry-run)
+    python3 scripts/build_tiles.py --only "$ONLY_ARG" ${TILE_FLAG[@]+"${TILE_FLAG[@]}"}
+fi
+
+# --- 4. 実機転送 -------------------------------------------------------------
 if ! skipped push; then
     stage push "実機へ転送 (${ONLY_ARG})"
     PUSH_FLAG=(); $DRY_RUN && PUSH_FLAG=(--dry-run)

@@ -17,7 +17,36 @@ class TileSourceSelectorTest {
         // Hiroshima City ~ 34.385, 132.455
         val hiro = TileSourceSelector.select(34.385, 132.455)
         assertTrue(hiro is TileSourceSelection.Available)
-        assertEquals("Hiroshima_osm.pmtiles", (hiro as TileSourceSelection.Available).fileName)
+        assertEquals("hiroshima.pmtiles", (hiro as TileSourceSelection.Available).fileName)
+    }
+
+    @Test
+    fun selectsPmtilesForAllFiveChugokuPrefectures() {
+        val cases = listOf(
+            Triple(35.50, 134.23, "tottori.pmtiles"),   // 鳥取市
+            Triple(35.47, 133.05, "shimane.pmtiles"),   // 松江市
+            Triple(34.66, 133.92, "okayama.pmtiles"),   // 岡山市
+            Triple(34.39, 132.46, "hiroshima.pmtiles"), // 広島市
+            Triple(34.19, 131.47, "yamaguchi.pmtiles"), // 山口市
+        )
+        for ((lat, lon, expected) in cases) {
+            val selection = TileSourceSelector.select(lat, lon)
+            assertTrue("$expected at ($lat,$lon): $selection", selection is TileSourceSelection.Available)
+            assertEquals(expected, (selection as TileSourceSelection.Available).fileName)
+        }
+    }
+
+    @Test
+    fun legacyHiroshimaOsmFileNameStillResolves() {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "cyclemap_tile_legacy_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        try {
+            File(tempDir, "Hiroshima_osm.pmtiles").writeText("legacy hiroshima tiles")
+            val resolved = TileSourceSelector.resolveTileForLocation(tempDir, 34.385, 132.455)
+            assertTrue(resolved != null && resolved.name.equals("Hiroshima_osm.pmtiles", ignoreCase = true))
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 
     @Test
@@ -48,7 +77,7 @@ class TileSourceSelectorTest {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "cyclemap_tile_test_${System.currentTimeMillis()}")
         tempDir.mkdirs()
         try {
-            File(tempDir, "Hiroshima_osm.pmtiles").writeText("Hiroshima tiles")
+            File(tempDir, "hiroshima.pmtiles").writeText("Hiroshima tiles")
 
             val missingYamaguchi = TileSourceSelector.resolveTileForLocation(tempDir, 34.185, 131.471)
             val unsupportedTokyo = TileSourceSelector.resolveTileForLocation(tempDir, 35.68, 139.76)

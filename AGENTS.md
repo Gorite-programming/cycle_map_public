@@ -10,7 +10,8 @@
   - `osm-importer/` — JVM CLI(`OsmImporterKt`):OSM `.pbf` → 独自バイナリ `.graph` + サイドカー `.graph.idx`。
 - `Archives/` — 過去系統アーカイブ(`Archives/application/`, `Archives/test/`)。
 - ルートパイプライン:`build_prefectures.py`(中国5県:鳥取・島根・岡山・広島・山口)→県ごとに `<name>.osm.pbf` + `<name>.search.db` + `<name>.graph` / `.idx` + `manifest.json` + `LICENSE.txt` → `packages/<name>.zip`。`sandbox/data-tool/out/` にあるOverture+国交省+OSM統合検索DBをスキーマ検証（PRAGMA integrity_check、必須列、インデックス、件数）の上で自動取り込み。`build_search_db.py` はフォールバック用（`application/osm-importer/build_search_db.py`）。`boundaries/` は行政界ポリゴン(SHA-256 検証付きで自動ダウンロード)。
-- `scripts/push_data.sh` — 実機（Galaxy S26等）へのオフラインデータ一括転送・SHA-256整合性検証スクリプト（`--dry-run` 対応）。
+- `scripts/build_tiles.py` — 県別ベクタータイル(Protomaps Basemap v4 スキーマ、既存スタイルと同一)を Protomaps の公開ビルド(`build.protomaps.com`)から `pmtiles extract --bbox`(県境の外接矩形+0.02°)で取得し `packages/<県小文字>.pmtiles` に置く。ネット接続が必要。ZIP の5点不変条件とは別成果物で、`TileSourceSelector`(`PrefectureSelectors.kt`)が探すファイル名と一致する(旧 `Hiroshima_osm.pmtiles` も互換候補で解決)。
+- `scripts/push_data.sh` — 実機（Galaxy S26等）へのオフラインデータ一括転送・SHA-256整合性検証スクリプト（`--dry-run` / `--tiles-only` / `--db-only` 対応。タイルは `packages/<県小文字>.pmtiles` を転送）。
 - `sandbox/data-tool/` — 検索DB生成ツール(Python + Streamlit)。以前は独立Gitだったが現在は `cycle_map` リポジトリに統合済み。OSM PBFを道路基盤とし、POI（コンビニ・飲食店・病院・観光施設等）は Overture Maps Foundation (Placesテーマ、CDLA-Permissive-2.0) および 国土数値情報（医療機関第3.0版・学校第2.0版、PDL1.0）を統合・重複排除（同一敷地・同一住所マージ）して高精度化するパイプライン。表記ゆれ対応（ひらがな・カタカナ・ローマ字）も実装済み。ライセンス表記・出典規定の詳細は `application/DISTRIBUTION_NOTES.md` およびアプリ内「地図情報・ライセンス」ダイアログを参照。**重要**: Android 標準 SQLite は多くの実機で FTS5 非対応(`no such module: fts5`)のため、検索DBは `places.search_text` 列(LIKE検索用、表示名の `name` 列とは別)も保持して互換性を確保している(アプリ側の対応は `Fts5SupportDetector.kt`)。
 - 大容量データ(コミット・移動禁止):`data/japan-latest.osm.pbf`(約2.5 GB。ルート直下の `japan-latest.osm.pbf` はシンボリックリンク)、`work/` 中間生成物、`venv/`。
 

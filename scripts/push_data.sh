@@ -11,6 +11,7 @@
 #   - <Prefecture>.search.db (Overture + MLIT + OSM integrated POI search database)
 #   - <Prefecture>.graph     (OSM routing graph)
 #   - <Prefecture>.graph.idx (Routing graph node index)
+#   - <prefecture>.pmtiles   (Offline vector map tiles; built by scripts/build_tiles.py)
 #
 # =============================================================================
 set -euo pipefail
@@ -22,6 +23,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 DRY_RUN=false
 DB_ONLY=false
+TILES_ONLY=false
 TARGET_PREF=""
 
 ALL_PREFS=("Tottori" "Shimane" "Okayama" "Hiroshima" "Yamaguchi")
@@ -34,7 +36,8 @@ Deploy CycleMap offline data (*.search.db, *.graph, *.graph.idx) to an Android d
 
 Options:
   --dry-run       Show transfer plan and local hashes without making any changes
-  --db-only       Transfer only search.db files (skip routing graph files)
+  --db-only       Transfer only search.db files (skip routing graph and map tile files)
+  --tiles-only    Transfer only vector map tiles (packages/<prefecture>.pmtiles)
   --pref <name>   Transfer single prefecture (e.g. Yamaguchi, Hiroshima, Okayama, Shimane, Tottori)
   -h, --help      Show this help message
 EOF
@@ -49,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --db-only)
             DB_ONLY=true
+            shift
+            ;;
+        --tiles-only)
+            TILES_ONLY=true
             shift
             ;;
         --pref)
@@ -95,8 +102,15 @@ else:
 echo "=== CycleMap Data Deployment ==="
 echo "Destination: ${DEST_DIR}"
 echo "Mode: $(if [[ "$DRY_RUN" == true ]]; then echo "DRY RUN (no device changes)"; else echo "LIVE DEPLOY"; fi)"
+if [[ "$DB_ONLY" == true && "$TILES_ONLY" == true ]]; then
+    echo "ERROR: --db-only and --tiles-only cannot be combined." >&2
+    exit 2
+fi
 if [[ "$DB_ONLY" == true ]]; then
     echo "Filter: search.db only"
+fi
+if [[ "$TILES_ONLY" == true ]]; then
+    echo "Filter: vector map tiles only"
 fi
 
 if [[ -n "$TARGET_PREF" ]]; then
@@ -147,25 +161,27 @@ for pref in "${PREFS[@]}"; do
     pref_lower="$(tr '[:upper:]' '[:lower:]' <<< "$pref")"
     echo ">> Prefecture: ${pref}"
 
+    # Files to transfer for this prefecture
+    files_to_push=()
+
     # 1. Search DB (prefer sandbox/data-tool/out, fallback to packages zip)
     db_src="${ROOT_DIR}/sandbox/data-tool/out/${pref_lower}.search.db"
     db_staged="${TMP_STAGE}/${pref}.search.db"
-    if [[ -f "$db_src" ]]; then
-        cp -f "$db_src" "$db_staged"
-    elif [[ -f "${ROOT_DIR}/packages/${pref}.zip" ]]; then
-        unzip -p "${ROOT_DIR}/packages/${pref}.zip" "${pref}.search.db" > "$db_staged"
-    else
-        echo "WARNING: No search.db found for ${pref}" >&2
-    fi
-
-    # Files to transfer for this prefecture
-    files_to_push=()
-    if [[ -f "$db_staged" ]]; then
-        files_to_push+=("$db_staged")
+    if [[ "$TILES_ONLY" == false ]]; then
+        if [[ -f "$db_src" ]]; then
+            cp -f "$db_src" "$db_staged"
+        elif [[ -f "${ROOT_DIR}/packages/${pref}.zip" ]]; then
+            unzip -p "${ROOT_DIR}/packages/${pref}.zip" "${pref}.search.db" > "$db_staged"
+        else
+            echo "WARNING: No search.db found for ${pref}" >&2
+        fi
+        if [[ -f "$db_staged" ]]; then
+            files_to_push+=("$db_staged")
+        fi
     fi
 
     # 2. Graph & Graph Index (from packages zip or work)
-    if [[ "$DB_ONLY" == false ]]; then
+    if [[ "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
         zip_file="${ROOT_DIR}/packages/${pref}.zip"
         graph_staged="${TMP_STAGE}/${pref}.graph"
         idx_staged="${TMP_STAGE}/${pref}.graph.idx"
@@ -186,6 +202,16 @@ for pref in "${PREFS[@]}"; do
         fi
         if [[ -s "$idx_staged" ]]; then
             files_to_push+=("$idx_staged")
+        fi
+    fi
+
+    # 3. Vector map tiles (packages/<prefecture>.pmtiles, transferred as-is; not staged/copied)
+    if [[ "$DB_ONLY" == false ]]; then
+        tiles_src="${ROOT_DIR}/packages/${pref_lower}.pmtiles"
+        if [[ -s "$tiles_src" ]]; then
+            files_to_push+=("$tiles_src")
+        else
+            echo "WARNING: No vector tiles found for ${pref} (run scripts/build_tiles.py)" >&2
         fi
     fi
 
