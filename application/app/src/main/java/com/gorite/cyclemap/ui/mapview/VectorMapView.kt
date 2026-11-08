@@ -32,6 +32,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gorite.cyclemap.data.TileSourceSelection
 import com.gorite.cyclemap.data.TileSourceSelector
+import com.gorite.cyclemap.data.findPrefectureName
+import com.gorite.cyclemap.verify.VerificationCameraBus
 import com.gorite.cyclemap.power.CameraMotionPolicy
 import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.ui.cycling.NearbySpot
@@ -392,22 +394,62 @@ internal fun VectorMapView(
             }
         }
 
+        // スタイルの完全再構築 (昼夜切替・県のタイル切替で共用)。pmtilesPath のタイルを source に据え、各レイヤーを張り直す
+        suspend fun rebuildStyle(map: MapLibreMap, pmtilesPath: String, night: Boolean) {
+            val finalStyleJson = withContext(Dispatchers.IO) {
+                buildVectorStyleJson(context, night, pmtilesPath)
+            }
+            activePmtilesPath = pmtilesPath
+            offlineDataMissing = false
+            map.setStyle(Style.Builder().fromJson(finalStyleJson)) { style ->
+                lastLoadedNightMode = night
+                map.uiSettings.isCompassEnabled = false
+                setupRouteLayers(context, style)
+                setupDynamicPoiLayers(context, style, night)
+                updateRouteLine(style, routePoints, alternativeRoutes, destination)
+                updateLocationPoint(style, currentLocation, bearing, isNavigationActive, gpsStatus)
+                triggerPoisRef?.invoke()
+            }
+        }
+
         // 昼夜連動ナイトモードの動的切替反映 (完全スタイル再構築)
         LaunchedEffect(isNightMode, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val pPath = activePmtilesPath ?: return@LaunchedEffect
             if (lastLoadedNightMode == isNightMode) return@LaunchedEffect
-            val finalStyleJson = withContext(Dispatchers.IO) {
-                buildVectorStyleJson(context, isNightMode, pPath)
-            }
-            map.setStyle(Style.Builder().fromJson(finalStyleJson)) { style ->
-                lastLoadedNightMode = isNightMode
-                map.uiSettings.isCompassEnabled = false
-                setupRouteLayers(context, style)
-                setupDynamicPoiLayers(context, style, isNightMode)
-                updateRouteLine(style, routePoints, alternativeRoutes, destination)
-                updateLocationPoint(style, currentLocation, bearing, isNavigationActive, gpsStatus)
-                triggerPoisRef?.invoke()
+            rebuildStyle(map, pPath, isNightMode)
+        }
+
+        // 現在地の県が変わったら、その県のタイルへ切り替える (県境をまたぐ走行・起動時に未導入だった県の後入れでも地図が空にならない)。
+        // 該当県のタイルが端末に無い間は、いま表示中のタイルを維持する。
+        val locationPrefecture = currentLocation?.let { findPrefectureName(it.latitude, it.longitude) }
+        LaunchedEffect(locationPrefecture, mapLibreMap) {
+            val map = mapLibreMap ?: return@LaunchedEffect
+            val loc = currentLocation ?: return@LaunchedEffect
+            val path = resolveOfflinePmtilesPath(context, loc.latitude, loc.longitude) ?: return@LaunchedEffect
+            if (path == activePmtilesPath) return@LaunchedEffect
+            rebuildStyle(map, path, isNightMode)
+        }
+
+        // 検証フック (debug ビルドの CameraDebugReceiver のみが発行): 任意の地点・ズームへカメラを動かす。
+        // 追従を解除し、その地点の県のタイルへ切り替える。
+        LaunchedEffect(mapLibreMap) {
+            val map = mapLibreMap ?: return@LaunchedEffect
+            VerificationCameraBus.requests.collect { request ->
+                currentOnUserPan()
+                resolveOfflinePmtilesPath(context, request.latitude, request.longitude)
+                    ?.takeIf { it != activePmtilesPath }
+                    ?.let { rebuildStyle(map, it, isNightMode) }
+                map.moveCamera(
+                    CameraUpdateFactory.newCameraPosition(
+                        CameraPosition.Builder()
+                            .target(LatLng(request.latitude, request.longitude))
+                            .zoom(request.zoom)
+                            .tilt(request.tilt)
+                            .bearing(request.bearing)
+                            .build(),
+                    ),
+                )
             }
         }
 

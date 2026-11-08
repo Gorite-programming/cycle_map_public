@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Git policy (important)
 
-Never run `git add` / `git commit` / `git push` on your own. Report a summary, diff and test results, then wait for the human (Gorite) to approve. Run `git pull` before starting work, since development is synced between Windows and Mac via GitHub.
+Claude Code may decide on its own when to `git add` / `git commit` / `git push` (permission granted by Gorite on 2026-11-08; recorded in `AGENTS.md`). This covers ordinary commits and pushes only: destructive operations such as `push --force`, history rewriting or branch deletion still need explicit approval each time. Always report what was committed and pushed. The permission applies only when Claude Code operates; other agents must still wait for approval. Run `git pull` before starting work, since development is synced between Windows and Mac via GitHub.
 
 ## What this is
 

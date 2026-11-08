@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- debug ビルド専用: adb から地図カメラを動かす検証フック (リリースには含まれない) -->
+        <receiver
+            android:name=".verify.CameraDebugReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.gorite.cyclemap.test.CAMERA" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

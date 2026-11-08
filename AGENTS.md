@@ -53,9 +53,10 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work             # 
   - Windows 環境と MacBook 環境の双方で作業を進めるため、GitHub（`Gorite-programming/cycle_map`）を経由して同期を行っています。
   - 作業着手前や時間が空いた場合は、必ず `git pull` を実行して最新のコード・状況を取り込んでください。
   - 作業完了・コミット後は、別マシンや別エージェントへ速やかに引き継げるよう定期的に `git push` を行います。
-- **Git操作は完全承認制**:
+- **Git操作は完全承認制(Claude Code のみ例外あり)**:
   - `git commit` / `git push` を含むGit反映操作は、人間（Gorite）の明示的な承認を得てから人間自身が実行する（または明示的な指示のもとで行う）。
-  - Antigravity / OpenCode / Kiro / その他のエージェントは、コード変更後に勝手に `git add`・`git commit`・`git push` を行わない。
+  - **例外: Claude Code が操作している場合に限り、`git add` / `git commit` / `git push` を自律的に判断して行ってよい**(2026-11-08 Gorite 許可)。ただし通常のコミット・プッシュに限り、`push --force`・履歴の書き換え・ブランチ削除などの破壊的操作は対象外で、都度承認を得る。実施した場合は、何をコミット・プッシュしたかを必ず報告する。リリース用 APK はクリーンな HEAD からビルドし、ハッシュは台帳に別コミットで記録する(下記「ビルド・リリース運用ルール」)。
+  - Antigravity / OpenCode / Kiro / その他のエージェント(Claude Code 以外)は、コード変更後に勝手に `git add`・`git commit`・`git push` を行わない。
   - 各作業の完了時は、変更内容の要約・diff・テスト結果を報告し、コミットやプッシュについての指示を待つ。
   - 「コミットしないでください」という指示が無くても、これがデフォルトの動作とする。
 
