@@ -214,20 +214,16 @@ internal fun VectorMapView(
 
                             val center = targetMap.cameraPosition.target ?: return
                             val zoom = targetMap.cameraPosition.zoom
-                            val minZoomSpan = (360.0 / Math.pow(2.0, zoom.coerceIn(5.0, 20.0))).coerceIn(0.008, 2.0)
-                            val bounds = targetMap.projection.visibleRegion.latLngBounds
-                            val rawLatSpan = bounds.latitudeNorth - bounds.latitudeSouth
-                            val rawLonSpan = bounds.longitudeEast - bounds.longitudeWest
-                            val latSpan = rawLatSpan.coerceAtLeast(minZoomSpan)
-                            val lonSpan = rawLonSpan.coerceAtLeast(minZoomSpan)
-
-                            // 初回レイアウト前等で visibleRegion が未確定な場合でも center 基準で確実に範囲を確保
-                            val halfLat = latSpan * 0.60
-                            val halfLon = lonSpan * 0.60
-                            val minLat = if (rawLatSpan >= 0.002) bounds.latitudeSouth - rawLatSpan * 0.20 else center.latitude - halfLat
-                            val maxLat = if (rawLatSpan >= 0.002) bounds.latitudeNorth + rawLatSpan * 0.20 else center.latitude + halfLat
-                            val minLon = if (rawLonSpan >= 0.002) bounds.longitudeWest - rawLonSpan * 0.20 else center.longitude - halfLon
-                            val maxLon = if (rawLonSpan >= 0.002) bounds.longitudeEast + rawLonSpan * 0.20 else center.longitude + halfLon
+                            val vb = targetMap.projection.visibleRegion.latLngBounds
+                            val fb = poiFetchBounds(
+                                centerLat = center.latitude, centerLon = center.longitude, zoom = zoom,
+                                south = vb.latitudeSouth, north = vb.latitudeNorth,
+                                west = vb.longitudeWest, east = vb.longitudeEast,
+                            )
+                            val minLat = fb.minLat
+                            val maxLat = fb.maxLat
+                            val minLon = fb.minLon
+                            val maxLon = fb.maxLon
 
                             val dbFile = resolveSearchDbFile(context, center.latitude, center.longitude) ?: return
                             // 倍率に応じてカテゴリを絞る (低ズームは駅・観光・病院などの主要施設だけ)
@@ -295,9 +291,8 @@ internal fun VectorMapView(
                             val target = map.cameraPosition.target
                             val zoom = map.cameraPosition.zoom
                             val last = lastPoiFetchCenter
-                            if (last != null && target != null &&
-                                CameraMotionPolicy.distanceMeters(last.latitude, last.longitude, target.latitude, target.longitude) < 20.0 &&
-                                kotlin.math.abs(zoom - lastPoiFetchZoom) < 0.2
+                            if (shouldSkipPoiRefetch(last?.latitude, last?.longitude, lastPoiFetchZoom,
+                                    target?.latitude, target?.longitude, zoom)
                             ) {
                                 return@addOnCameraIdleListener
                             }
