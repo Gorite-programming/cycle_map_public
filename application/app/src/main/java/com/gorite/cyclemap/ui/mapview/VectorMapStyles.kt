@@ -433,7 +433,13 @@ internal fun updateGpxTrack(
 /**
  * 標準地図と完全同一の Googleマップ風しずく型ピン画像をスタイルに登録する
  */
+/** 動的 POI ピンをこのレイヤーの直下に入れる (先に見つかったもの)。ベーススタイルの地名ラベルのレイヤー ID。 */
+private val DYNAMIC_POI_ANCHOR_LAYERS = listOf("places_subplace", "places_region", "places_locality")
+
 internal fun setupDynamicPoiLayers(context: Context, style: Style, isNightMode: Boolean = false) {
+    // 国道・県道の標識画像 (スタイルの roads_shields が参照)
+    registerRoadShieldImages(context, style)
+
     // 全13カテゴリのしずく型ピン画像をスタイルに登録
     for (category in PoiCategory.entries) {
         val key = "poi-pin-${category.name}"
@@ -485,11 +491,14 @@ internal fun setupDynamicPoiLayers(context: Context, style: Style, isNightMode: 
             )
         }
 
+        // シンボルは上のレイヤーほどラベル配置の優先度が高い。ピンを最上段に置くと、下にある地名・駅名が
+        // 押しのけられて出なくなるため、地名ラベル (places_*) の1つ下に入れて「地名 > ピン > 道路名」の順にする。
         val poiPinLayer = style.getLayer("cyclemap-poi-pin")
-        if (poiPinLayer != null) {
-            style.addLayerBelow(poiSymbolLayer, "cyclemap-poi-pin")
-        } else {
-            style.addLayer(poiSymbolLayer)
+        val anchorBelow = DYNAMIC_POI_ANCHOR_LAYERS.firstOrNull { style.getLayer(it) != null }
+        when {
+            anchorBelow != null -> style.addLayerBelow(poiSymbolLayer, anchorBelow)
+            poiPinLayer != null -> style.addLayerBelow(poiSymbolLayer, "cyclemap-poi-pin")
+            else -> style.addLayer(poiSymbolLayer)
         }
     }
 }

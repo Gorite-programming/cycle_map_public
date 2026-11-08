@@ -1740,7 +1740,7 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#9AA0A6",
+        "line-color": "#7C838B",
         "line-width": [
           "interpolate",
           [
@@ -1789,10 +1789,10 @@
         "line-join": "miter"
       },
       "paint": {
-        "line-color": "#8A939E",
+        "line-color": "#FFFFFF",
         "line-dasharray": [
-          0.3,
-          0.7
+          2,
+          2
         ],
         "line-width": [
           "interpolate",
@@ -1806,11 +1806,11 @@
           6,
           0.3,
           12,
-          1.2,
-          14,
-          2.0,
+          1.0,
+          15,
+          1.7,
           18,
-          3.2
+          2.8
         ]
       }
     },
@@ -1842,7 +1842,7 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#9AA0A6",
+        "line-color": "#4B5058",
         "line-width": [
           "interpolate",
           [
@@ -1853,13 +1853,13 @@
             "zoom"
           ],
           6,
-          0.2,
+          0.5,
           12,
-          0.8,
+          1.8,
           15,
-          1.2,
+          3.0,
           18,
-          2
+          5.0
         ]
       }
     },
@@ -2462,7 +2462,7 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#9AA0A6",
+        "line-color": "#7C838B",
         "line-width": [
           "interpolate",
           [
@@ -2515,10 +2515,10 @@
         "line-join": "miter"
       },
       "paint": {
-        "line-color": "#8A939E",
+        "line-color": "#FFFFFF",
         "line-dasharray": [
-          0.3,
-          0.7
+          2,
+          2
         ],
         "line-width": [
           "interpolate",
@@ -2532,11 +2532,11 @@
           6,
           0.3,
           12,
-          1.2,
-          14,
-          2.0,
+          1.0,
+          15,
+          1.7,
           18,
-          3.2
+          2.8
         ]
       }
     },
@@ -2572,7 +2572,7 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#9AA0A6",
+        "line-color": "#4B5058",
         "line-width": [
           "interpolate",
           [
@@ -2583,13 +2583,13 @@
             "zoom"
           ],
           6,
-          0.2,
+          0.5,
           12,
-          0.8,
+          1.8,
           15,
-          1.2,
+          3.0,
           18,
-          2
+          5.0
         ]
       }
     },
@@ -8555,18 +8555,12 @@
       "filter": [
         "all",
         [
-          "in",
+          "==",
           [
             "get",
             "kind"
           ],
-          [
-            "literal",
-            [
-              "highway",
-              "major_road"
-            ]
-          ]
+          "major_road"
         ],
         [
           "has",
@@ -8581,7 +8575,7 @@
               "shield_text"
             ]
           ],
-          5
+          4
         ]
       ],
       "layout": {
@@ -8591,10 +8585,10 @@
             "get",
             "network"
           ],
-          "US:I",
+          "JP:national",
           [
             "concat",
-            "US:I-",
+            "jp-national-",
             [
               "length",
               [
@@ -8604,10 +8598,10 @@
             ],
             "char"
           ],
-          "NL:S-road",
+          "JP:prefectural",
           [
             "concat",
-            "NL:S-road-",
+            "jp-prefectural-",
             [
               "length",
               [
@@ -8637,14 +8631,15 @@
         "text-font": [
           "Noto Sans Regular"
         ],
-        "text-size": 8,
-        "icon-size": 0.8,
+        "text-size": 10,
+        "icon-size": 1,
         "symbol-placement": "line",
         "icon-rotation-alignment": "viewport",
-        "text-rotation-alignment": "viewport"
+        "text-rotation-alignment": "viewport",
+        "symbol-spacing": 300
       },
       "paint": {
-        "text-color": "#938a8d"
+        "text-color": "#FFFFFF"
       }
     },
     {
@@ -9851,24 +9846,17 @@
               "bench",
               "aerodrome",
               "station",
-              "bus_stop",
               "ferry_terminal",
               "stadium",
               "university",
               "library",
               "school",
               "animal",
-              "toilets",
-              "drinking_water",
               "post_office",
               "building",
               "townhall",
-              "restaurant",
-              "fast_food",
-              "cafe",
               "bar",
               "supermarket",
-              "convenience",
               "books",
               "beauty",
               "electronics",
