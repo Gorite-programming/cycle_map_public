@@ -3,8 +3,8 @@
 **CycleMap** は、電波の届かない山間部やロングライドでも単体で動作する、Android 向けの**オフライン特化・自転車専用ナビ**です。地図描画、自転車向けコストモデルによる経路探索、施設(POI)のあいまい検索をすべて端末内で完結します。データは APK に同梱せず、事前生成したデータパッケージを端末に配置して使います。
 
 - 現在の対象エリア: 中国5県(鳥取・島根・岡山・広島・山口)
-- 最新バージョン: **α0.9.2-unified**(Git `ecf9c3c`、経路探索・検索・地点詳細の不具合 6 件修正、APK SHA-256 先頭12桁 `e3c0ba0a8a45`)
-- 1つ前のビルド: **α0.9.1-unified**(Git `412c933`、APK SHA-256 先頭12桁 `61d50d3df55c`)
+- 最新バージョン: **α0.9.3-unified**(Git `1af1cc6`、案内画面C案への刷新と現在地・回転・ズームの滑らか化、APK SHA-256 先頭12桁 `3891fb304afc`)
+- 1つ前のビルド: **α0.9.2-unified**(Git `ecf9c3c`、APK SHA-256 先頭12桁 `e3c0ba0a8a45`)
 - ビルド台帳: [VERSIONS.md](VERSIONS.md) / [GitHub Releases](https://github.com/Gorite-programming/cycle_map/releases)
 
 ---
