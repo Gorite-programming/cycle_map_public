@@ -163,10 +163,12 @@ internal fun buildVectorStyleJson(context: Context, isNightMode: Boolean, pmtile
         "asset://sprites/" + (if (isNightMode) "dark" else "light")
     }
 
-    return baseJson
+    val resolved = baseJson
         .replace("__LOCAL_PMTILES__", "pmtiles://file://$pmtilesPath")
         .replace("__LOCAL_GLYPHS__", glyphsUri)
         .replace("__LOCAL_SPRITES__", spritesUri)
+    // 等高線・陰影起伏 (県の地形ファイルがある場合だけ差し込む)
+    return injectTerrain(resolved, isNightMode, terrainFilesFor(pmtilesPath))
 }
 
 internal fun sanitizeMapLibreGlyphText(raw: String): String {
@@ -194,6 +196,30 @@ internal fun sanitizeMapLibreGlyphText(raw: String): String {
     return sb.toString()
 }
 
+/** この倍率で地図に出すピンの最大数。低ズームでは主要施設だけにして、画面がピンで埋まらないようにする。 */
+internal fun poiFeatureLimitForZoom(zoom: Double): Int = when {
+    zoom < 10.5 -> 0
+    zoom < 12.0 -> 25
+    zoom < 13.0 -> 45
+    zoom < 14.0 -> 70
+    zoom < 15.0 -> 110
+    zoom < 16.0 -> 160
+    else -> 220
+}
+
+/** ピンに施設名を添えるか。引くほど有名な施設 (駅・大きな観光地) だけ、寄るほど多くの施設に名前を出す。 */
+internal fun poiLabelVisible(zoom: Double, prominence: Int): Boolean = when {
+    zoom >= 17.0 -> true
+    zoom >= 16.0 -> prominence >= 600
+    zoom >= 15.0 -> prominence >= 800
+    zoom >= 13.5 -> prominence >= 880
+    else -> false
+}
+
+/** 選択中のカテゴリのうち、この倍率でピンを出すものの検索プレフィックス。 */
+internal fun poiPrefixesForZoom(selected: Collection<PoiCategory>, zoom: Double): List<String> =
+    selected.filter { it.minZoom <= zoom }.flatMap { it.prefixes }
+
 internal fun createPoiFeatures(spots: List<NearbySpot>, zoom: Double, isNightMode: Boolean): List<Feature> {
     return spots.asSequence()
         .sortedByDescending {
@@ -203,13 +229,7 @@ internal fun createPoiFeatures(spots: List<NearbySpot>, zoom: Double, isNightMod
             val cat = PoiCategory.forCategory(spot.category) ?: return@mapNotNull null
             val feature = Feature.fromGeometry(Point.fromLngLat(spot.longitude, spot.latitude))
             val prominence = com.gorite.cyclemap.search.SearchRanking.computePoiProminenceScore(spot.name, spot.category)
-            val showLabel = when {
-                zoom >= 18.0 -> true
-                zoom >= 16.0 -> prominence >= 700
-                zoom >= 14.5 -> prominence >= 1000
-                zoom >= 13.0 -> prominence >= 1300
-                else -> false
-            }
+            val showLabel = poiLabelVisible(zoom, prominence)
             val displayName = if (showLabel) sanitizeMapLibreGlyphText(spot.name) else ""
             feature.addStringProperty("name", displayName)
             feature.addStringProperty("rawName", spot.name)
@@ -220,7 +240,7 @@ internal fun createPoiFeatures(spots: List<NearbySpot>, zoom: Double, isNightMod
             val hexColor = String.format(Locale.US, "#%06X", 0xFFFFFF and labelColor.toArgb())
             feature.addStringProperty("textColor", hexColor)
             feature
-        }.take(75).toList()
+        }.take(poiFeatureLimitForZoom(zoom)).toList()
 }
 
 internal fun updateBuildingExtrusion(style: Style, shouldExtrude: Boolean, isNightMode: Boolean) {

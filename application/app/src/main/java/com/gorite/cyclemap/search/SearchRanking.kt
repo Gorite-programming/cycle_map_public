@@ -139,6 +139,21 @@ object SearchRanking {
             category.startsWith("amenity:clinic") || category.startsWith("amenity:doctors") ||
                 category.startsWith("amenity:dentist") -> 580
             category.startsWith("amenity:parking") -> 540
+            category.startsWith("shop:supermarket") || category.startsWith("shop:department_store") ||
+                category.startsWith("shop:mall") -> 700
+            category.startsWith("amenity:bicycle_rental") -> 660
+            category.startsWith("amenity:charging_station") -> 640
+            category.startsWith("leisure:stadium") || category.startsWith("leisure:sports_centre") ||
+                category.startsWith("leisure:golf_course") || category.startsWith("tourism:alpine_hut") -> 640
+            category.startsWith("amenity:place_of_worship") -> 600
+            category.startsWith("amenity:pharmacy") || category.startsWith("shop:chemist") ||
+                category.startsWith("amenity:bar") || category.startsWith("amenity:pub") -> 560
+            category.startsWith("amenity:townhall") || category.startsWith("amenity:library") ||
+                category.startsWith("amenity:police") || category.startsWith("amenity:fire_station") ||
+                category.startsWith("amenity:school") || category.startsWith("amenity:college") ||
+                category.startsWith("amenity:university") -> 540
+            category.startsWith("amenity:post_office") || category.startsWith("amenity:bank") ||
+                category.startsWith("amenity:atm") -> 520
             category.startsWith("tourism:information") || category.startsWith("tourism:artwork") ||
                 category.startsWith("tourism:gallery") || category.startsWith("tourism:picnic_site") -> 320
             category.startsWith("highway:bus_stop") || category.startsWith("amenity:bus") -> 250

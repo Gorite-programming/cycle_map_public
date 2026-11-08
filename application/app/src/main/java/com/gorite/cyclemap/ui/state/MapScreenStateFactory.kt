@@ -185,15 +185,21 @@ internal fun rememberMapScreenState(
     }
     val poiSelectedState = remember {
         val saved = prefs.getStringSet("poi_selected", null)
+        val savedVersion = prefs.getInt("poi_catalog_version", 1)
         val initial = if (saved != null) {
-            saved.mapNotNull { name -> try { PoiCategory.valueOf(name) } catch (_: Exception) { null } }.toSet()
+            val parsed = saved.mapNotNull { name -> try { PoiCategory.valueOf(name) } catch (_: Exception) { null } }.toSet()
+            // カテゴリ体系が増えた版では、旧版の選択を尊重しつつ新規の初期表示カテゴリを足す
+            PoiCategory.migrateSelection(parsed, savedVersion)
         } else {
             PoiCategory.defaults()
         }
         mutableStateOf(if (initial.isEmpty()) PoiCategory.defaults() else initial)
     }
     LaunchedEffect(poiSelectedState.value) {
-        prefs.edit().putStringSet("poi_selected", poiSelectedState.value.map { it.name }.toSet()).apply()
+        prefs.edit()
+            .putStringSet("poi_selected", poiSelectedState.value.map { it.name }.toSet())
+            .putInt("poi_catalog_version", PoiCategory.CATALOG_VERSION)
+            .apply()
     }
     val poiRefreshTickState = remember { mutableIntStateOf(0) }
     val currentZoomLevelState = remember { mutableDoubleStateOf(15.0) }

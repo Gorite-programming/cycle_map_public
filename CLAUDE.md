@@ -35,6 +35,8 @@ JAVA_OPTS="-Xmx6g" osm-importer/build/install/osm-importer/bin/osm-importer --bb
 # From the repo root. Always use venv/bin/python (system python has no osmium); the `osmium` CLI must be on PATH.
 venv/bin/python build_prefectures.py --only Yamaguchi --keep-work     # add --force to rebuild
 venv/bin/python application/osm-importer/build_search_db.py --bbox none <in.osm.pbf> <out.search.db>
+venv/bin/python scripts/build_terrain.py --only Yamaguchi             # contours + hillshade from GSI DEM -> packages/<name>.{contours,hillshade}.pmtiles (downloads ~2k tiles/prefecture, cached in work/terrain)
+python3 scripts/patch_map_style.py                                    # re-apply CycleMap's own tweaks to the bundled Protomaps styles (idempotent)
 python3 scripts/build_tiles.py --only Yamaguchi                       # vector tiles -> packages/<name>.pmtiles (needs network; pmtiles CLI in sandbox/vector_test/pipeline/)
 ./scripts/push_data.sh --dry-run                                      # then without the flag: adb push + SHA-256 verification (--tiles-only / --db-only)
 ```

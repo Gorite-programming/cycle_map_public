@@ -230,7 +230,15 @@ internal fun VectorMapView(
                             val maxLon = if (rawLonSpan >= 0.002) bounds.longitudeEast + rawLonSpan * 0.20 else center.longitude + halfLon
 
                             val dbFile = resolveSearchDbFile(context, center.latitude, center.longitude) ?: return
-                            val categoryPrefixes = currentPoiSelected.flatMap { it.prefixes }
+                            // 倍率に応じてカテゴリを絞る (低ズームは駅・観光・病院などの主要施設だけ)
+                            val categoryPrefixes = poiPrefixesForZoom(currentPoiSelected, zoom)
+                            if (categoryPrefixes.isEmpty()) {
+                                targetMap.getStyle { style ->
+                                    style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
+                                        ?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                                }
+                                return
+                            }
 
                             fetchPoisJob?.cancel()
                             fetchPoisJob = coroutineScope.launch(Dispatchers.IO) {

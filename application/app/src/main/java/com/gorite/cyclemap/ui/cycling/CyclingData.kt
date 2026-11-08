@@ -313,8 +313,10 @@ enum class CyclingTab(
 // ---------------------------------------------------------------------------
 
 /**
- * POIカテゴリ。iconRes は Lucide 由来 VectorDrawable。
+ * POIカテゴリ。iconRes は Lucide 由来 (または同じ線画スタイルで描いた) VectorDrawable。
  * [important] はズームアウト時 (z14) でも表示する重要カテゴリ。
+ * [minZoom] は地図にピンを出し始めるズーム (MapLibre の値)。低ズームでは主要施設だけを出して画面が埋まらないようにする。
+ * [defaultOn] は初期状態で表示するか (設定で切り替えられる)。
  */
 enum class PoiCategory(
     val label: String,
@@ -322,30 +324,90 @@ enum class PoiCategory(
     val colorHex: String,
     val prefixes: List<String>,
     val important: Boolean,
+    val minZoom: Double = 14.0,
+    val defaultOn: Boolean = false,
 ) {
-    CONVENIENCE("コンビニ", R.drawable.ic_lucide_store, "#1A73E8", listOf("shop:convenience"), false),
-    TOILET("トイレ", R.drawable.ic_lucide_toilet, "#00838F", listOf("amenity:toilets"), false),
-    STATION("駅・バス停", R.drawable.ic_lucide_train_front, "#0284C7", listOf("railway:station", "public_transport", "amenity:bus", "highway:bus_stop"), true),
-    FOOD("飲食", R.drawable.ic_lucide_utensils, "#EA580C", listOf("amenity:restaurant", "amenity:cafe", "amenity:fast_food"), false),
-    TOURISM("観光・休憩", R.drawable.ic_lucide_camera, "#0D9488", listOf("tourism:"), true),
-    PARKING("駐車場", R.drawable.ic_lucide_square_parking, "#5F6368", listOf("amenity:parking"), false),
-    HOSPITAL("病院", R.drawable.ic_lucide_hospital, "#D93025", listOf("amenity:hospital", "amenity:clinic", "amenity:doctors", "amenity:dentist"), false),
-    FUEL("ガソリン", R.drawable.ic_lucide_fuel, "#F9AB00", listOf("amenity:fuel"), false),
-    PARK("公園", R.drawable.ic_lucide_trees, "#137333", listOf("leisure:park"), false),
-    WATER("給水", R.drawable.ic_lucide_droplets, "#00ACC1", listOf("amenity:drinking_water"), false),
-    BICYCLE("自転車店", R.drawable.ic_lucide_wrench, "#0288D1", listOf("shop:bicycle"), true),
-    BAKERY("パン屋", R.drawable.ic_lucide_store, "#E65100", listOf("shop:bakery"), false),
-    BATH("温泉・銭湯", R.drawable.ic_lucide_droplets, "#00897B", listOf("amenity:public_bath"), true),
+    // 交通
+    STATION("駅・港", R.drawable.ic_lucide_train_front, "#0284C7",
+        listOf("railway:station", "railway:halt", "public_transport:station", "amenity:bus_station", "amenity:ferry_terminal"),
+        true, minZoom = 10.5, defaultOn = true),
+    BUS_STOP("バス停", R.drawable.ic_poi_bus, "#0277BD", listOf("highway:bus_stop"), false, minZoom = 15.5),
+    PARKING("駐車場", R.drawable.ic_lucide_square_parking, "#5F6368", listOf("amenity:parking"), false, minZoom = 15.0),
+    FUEL("ガソリン", R.drawable.ic_lucide_fuel, "#F9AB00", listOf("amenity:fuel"), false, minZoom = 13.5, defaultOn = true),
+    EV("充電", R.drawable.ic_poi_zap, "#2E7D32", listOf("amenity:charging_station"), false, minZoom = 14.0, defaultOn = true),
+    // 自転車
+    BICYCLE("自転車店", R.drawable.ic_lucide_wrench, "#0288D1", listOf("shop:bicycle"), true, minZoom = 12.5, defaultOn = true),
+    BIKE_SERVICE("レンタル・駐輪", R.drawable.ic_poi_bike, "#0288D1",
+        listOf("amenity:bicycle_rental", "amenity:bicycle_parking", "amenity:bicycle_repair_station"),
+        false, minZoom = 14.0, defaultOn = true),
+    // 食・買い物
+    CONVENIENCE("コンビニ", R.drawable.ic_lucide_store, "#1A73E8", listOf("shop:convenience"), false, minZoom = 13.5, defaultOn = true),
+    SUPERMARKET("スーパー・商業施設", R.drawable.ic_poi_cart, "#1A73E8",
+        listOf("shop:supermarket", "shop:department_store", "shop:mall"), false, minZoom = 14.0, defaultOn = true),
+    FOOD("飲食", R.drawable.ic_lucide_utensils, "#EA580C", listOf("amenity:restaurant", "amenity:cafe", "amenity:fast_food"), false, minZoom = 14.5, defaultOn = true),
+    BAKERY("パン屋", R.drawable.ic_lucide_store, "#E65100", listOf("shop:bakery"), false, minZoom = 15.0, defaultOn = true),
+    BAR("バー・居酒屋", R.drawable.ic_poi_glass, "#C2410C", listOf("amenity:bar", "amenity:pub"), false, minZoom = 15.5),
+    // 観光・休憩
+    TOURISM("観光", R.drawable.ic_lucide_camera, "#0D9488", listOf("tourism:"), true, minZoom = 11.5, defaultOn = true),
+    WORSHIP("神社・寺", R.drawable.ic_poi_torii, "#B45309", listOf("amenity:place_of_worship"), false, minZoom = 14.0, defaultOn = true),
+    PARK("公園", R.drawable.ic_lucide_trees, "#137333", listOf("leisure:park"), false, minZoom = 13.0, defaultOn = true),
+    BATH("温泉・銭湯", R.drawable.ic_lucide_droplets, "#00897B", listOf("amenity:public_bath"), true, minZoom = 12.5, defaultOn = true),
+    HOTEL("宿泊", R.drawable.ic_poi_bed, "#7B1FA2", listOf("tourism:hotel", "tourism:guest_house", "tourism:hostel", "tourism:motel", "tourism:resort"),
+        false, minZoom = 13.5, defaultOn = true),
+    CAMP("キャンプ・山小屋", R.drawable.ic_poi_tent, "#2E7D32", listOf("tourism:camp_site", "tourism:alpine_hut", "tourism:wilderness_hut"),
+        false, minZoom = 12.0, defaultOn = true),
+    INFO("観光案内", R.drawable.ic_lucide_info, "#0D9488", listOf("tourism:information"), false, minZoom = 15.5),
+    SPORTS("スポーツ施設", R.drawable.ic_poi_trophy, "#2E7D32",
+        listOf("leisure:stadium", "leisure:sports_centre", "leisure:swimming_pool", "leisure:golf_course"), false, minZoom = 13.5, defaultOn = true),
+    // 生活インフラ
+    TOILET("トイレ", R.drawable.ic_lucide_toilet, "#00838F", listOf("amenity:toilets"), false, minZoom = 14.0, defaultOn = true),
+    WATER("給水", R.drawable.ic_lucide_droplets, "#00ACC1", listOf("amenity:drinking_water"), false, minZoom = 14.5, defaultOn = true),
+    HOSPITAL("病院", R.drawable.ic_lucide_hospital, "#D93025", listOf("amenity:hospital"), false, minZoom = 12.5, defaultOn = true),
+    CLINIC("診療所・歯科", R.drawable.ic_poi_clinic, "#D93025", listOf("amenity:clinic", "amenity:doctors", "amenity:dentist"), false, minZoom = 15.5),
+    PHARMACY("薬局", R.drawable.ic_poi_pill, "#D93025", listOf("amenity:pharmacy", "shop:chemist"), false, minZoom = 15.0),
+    POST("郵便局", R.drawable.ic_poi_mail, "#C62828", listOf("amenity:post_office"), false, minZoom = 15.0),
+    BANK("銀行・ATM", R.drawable.ic_poi_bank, "#455A64", listOf("amenity:bank", "amenity:atm"), false, minZoom = 15.0),
+    SCHOOL("学校", R.drawable.ic_poi_school, "#5F6368", listOf("amenity:school", "amenity:college", "amenity:university"), false, minZoom = 14.5),
+    PUBLIC("公共施設", R.drawable.ic_poi_building, "#5F6368",
+        listOf("amenity:townhall", "amenity:police", "amenity:fire_station", "amenity:library", "amenity:public_building"),
+        false, minZoom = 14.5, defaultOn = true),
     ;
 
     companion object {
-        /** サイクリスト向けデフォルト選択 (トイレ・コンビニ・駅・飲食・観光・自転車店)。 */
-        fun defaults(): Set<PoiCategory> =
-            setOf(CONVENIENCE, TOILET, STATION, FOOD, TOURISM, BICYCLE)
+        /** 旧版 (v1) のカテゴリ。保存済みの選択を新版へ移すときの「新規追加分」の判定に使う。 */
+        private val LEGACY_V1 = setOf(
+            "CONVENIENCE", "TOILET", "STATION", "FOOD", "TOURISM", "PARKING", "HOSPITAL",
+            "FUEL", "PARK", "WATER", "BICYCLE", "BAKERY", "BATH",
+        )
 
-        /** OSMカテゴリ文字列から最も近い分類を返す。 */
+        /** 現在のカテゴリ体系の版。選択状態の保存と一緒に記録し、増えたときに [migrateSelection] を使う。 */
+        const val CATALOG_VERSION = 2
+
+        /** サイクリスト向けの初期表示カテゴリ。 */
+        fun defaults(): Set<PoiCategory> = entries.filter { it.defaultOn }.toSet()
+
+        /**
+         * 保存済みの選択 [saved] (カテゴリ体系の版 [fromVersion]) を現行版へ移す。
+         * 旧版を使っていた人の選択は尊重しつつ、新しく増えたカテゴリのうち初期表示のものだけを足す。
+         */
+        fun migrateSelection(saved: Set<PoiCategory>, fromVersion: Int): Set<PoiCategory> {
+            if (fromVersion >= CATALOG_VERSION) return saved
+            val added = entries.filter { it.name !in LEGACY_V1 && it.defaultOn }
+            // 旧 HOSPITAL は診療所・歯科も含んでいたので、選んでいた人には診療所も引き継ぐ
+            val split = if (HOSPITAL in saved) setOf(CLINIC) else emptySet()
+            // 旧 STATION は駅・バス停だった
+            val bus = if (STATION in saved) setOf(BUS_STOP) else emptySet()
+            return saved + added + split + bus
+        }
+
+        /** 各プレフィックスと担当カテゴリ。最も長く一致するものを採るため、並び順に依存しない。 */
+        private val prefixTable: List<Pair<String, PoiCategory>> by lazy {
+            entries.flatMap { cat -> cat.prefixes.map { it to cat } }
+        }
+
+        /** OSMカテゴリ文字列から最も近い分類を返す (最長一致)。 */
         fun forCategory(category: String): PoiCategory? =
-            entries.firstOrNull { cat -> cat.prefixes.any { category.startsWith(it) } }
+            prefixTable.filter { (prefix, _) -> category.startsWith(prefix) }.maxByOrNull { it.first.length }?.second
     }
 }
 

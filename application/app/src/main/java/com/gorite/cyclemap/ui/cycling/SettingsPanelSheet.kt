@@ -148,7 +148,7 @@ fun SettingsPanelSheet(
                     Text(label, modifier = Modifier.padding(start = 8.dp))
                 }
             }
-            SettingSwitch("POI表示 (ズーム14以上)", poiVisible, onPoiVisible)
+            SettingSwitch("POI表示 (ズームに応じて自動で絞り込み)", poiVisible, onPoiVisible)
             if (poiVisible) {
                 Text(
                     "表示カテゴリ (タップで切替)",

@@ -12,6 +12,7 @@
 #   - <Prefecture>.graph     (OSM routing graph)
 #   - <Prefecture>.graph.idx (Routing graph node index)
 #   - <prefecture>.pmtiles   (Offline vector map tiles; built by scripts/build_tiles.py)
+#   - <prefecture>.contours.pmtiles / <prefecture>.hillshade.pmtiles (terrain overlays; built by scripts/build_terrain.py)
 #
 # =============================================================================
 set -euo pipefail
@@ -213,6 +214,15 @@ for pref in "${PREFS[@]}"; do
         else
             echo "WARNING: No vector tiles found for ${pref} (run scripts/build_tiles.py)" >&2
         fi
+        # Terrain overlays (contours / hillshade; built by scripts/build_terrain.py). Optional: the app skips them when absent.
+        for kind in contours hillshade; do
+            terrain_src="${ROOT_DIR}/packages/${pref_lower}.${kind}.pmtiles"
+            if [[ -s "$terrain_src" ]]; then
+                files_to_push+=("$terrain_src")
+            else
+                echo "NOTE: No ${kind} terrain tiles for ${pref} (run scripts/build_terrain.py)" >&2
+            fi
+        done
     fi
 
     for local_path in "${files_to_push[@]}"; do

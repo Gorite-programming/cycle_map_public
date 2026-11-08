@@ -177,7 +177,7 @@ internal fun searchPoisInBounds(
         """.trimIndent()
     }
 
-    val zoomFilterSql = if (zoom < 16.0) {
+    val zoomFilterSql = if (zoom < 15.5) {
         """
         AND category NOT LIKE 'highway:bus_stop%'
         AND category NOT LIKE 'tourism:information%'
@@ -223,7 +223,6 @@ internal fun searchPoisInBounds(
                 WHERE lat BETWEEN ? AND ?
                   AND lon BETWEEN ? AND ?
                   $catWhere
-                  AND category NOT LIKE 'amenity:place_of_worship%'
                   AND category NOT LIKE 'public_transport:stop_position%'
                   AND category NOT LIKE 'public_transport:platform%'
                   $zoomFilterSql
@@ -241,7 +240,6 @@ internal fun searchPoisInBounds(
                     WHERE lat BETWEEN ? AND ?
                       AND lon BETWEEN ? AND ?
                       $catWhere
-                      AND category NOT LIKE 'amenity:place_of_worship%'
                       AND category NOT LIKE 'public_transport:stop_position%'
                       AND category NOT LIKE 'public_transport:platform%'
                       $zoomFilterSql
