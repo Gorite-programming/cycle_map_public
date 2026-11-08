@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -102,7 +103,7 @@ private val NAV_LIGHT = NavPalette(
 
 @Composable
 internal fun rememberNavPalette(): NavPalette {
-    val dark = MaterialTheme.colorScheme.background.red < 0.25f
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     return if (dark) NAV_DARK else NAV_LIGHT
 }
 
@@ -125,10 +126,12 @@ internal data class NavNextHint(val turnType: TurnType, val distanceMeters: Doub
 /** 距離を「数字 + 単位」に分ける。読み取りやすさのため近いほど細かく、遠いほど粗く丸める。 */
 internal fun splitDistance(meters: Double): Pair<String, String> {
     val m = meters.coerceAtLeast(0.0)
+    // 50m刻みに丸めた結果が 1000 になる (975m以上) ときは km 表示にそろえる
+    val roundedMeters = ((m / 50.0).roundToInt() * 50)
     return when {
         m < 100.0 -> (((m / 10.0).roundToInt() * 10).coerceAtLeast(10)).toString() to "m"
-        m < 1000.0 -> ((m / 50.0).roundToInt() * 50).toString() to "m"
-        else -> String.format("%.1f", m / 1000.0) to "km"
+        roundedMeters < 1000 -> roundedMeters.toString() to "m"
+        else -> String.format(java.util.Locale.US, "%.1f", m / 1000.0) to "km"
     }
 }
 

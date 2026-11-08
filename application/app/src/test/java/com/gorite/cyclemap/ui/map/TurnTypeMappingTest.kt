@@ -63,5 +63,8 @@ class TurnTypeMappingTest {
         assertEquals("10" to "m", splitDistance(3.0))
         assertEquals("250" to "m", splitDistance(237.0))
         assertEquals("1.2" to "km", splitDistance(1_240.0))
+        assertEquals("950" to "m", splitDistance(974.0))
+        assertEquals("1.0" to "km", splitDistance(975.0))
+        assertEquals("1.0" to "km", splitDistance(999.0))
     }
 }

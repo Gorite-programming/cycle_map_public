@@ -164,11 +164,20 @@ def extract_pbf(log, japan_pbf, pref_id, dry_run, progress=None):
     boundary = os.path.join(config.BOUNDARIES_DIR, pref["boundary"])
     dest = config.default_pbf_path(pref_id)
     tmp = dest + ".tmp"
-    run(log, ["osmium", "extract", "--polygon", boundary,
-              "--strategy", "complete_ways", "--overwrite",
-              "--output-format", "pbf", japan_pbf, "--output", tmp],
-        dry_run, progress, "%s: OSM切り出し" % pref_id)
+    try:
+        run(log, ["osmium", "extract", "--polygon", boundary,
+                  "--strategy", "complete_ways", "--overwrite",
+                  "--output-format", "pbf", japan_pbf, "--output", tmp],
+            dry_run, progress, "%s: OSM切り出し" % pref_id)
+    except StepFailed:
+        # 失敗時に中途半端な一時ファイルを残さない (既存の県別PBFには触れない)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
     if not dry_run:
+        # 直前の県別PBFを 1 世代だけ退避してから置き換える
+        if os.path.exists(dest):
+            os.replace(dest, dest + ".prev")
         os.replace(tmp, dest)
         log.line("    extract: %s (データ時刻 %s)" % (dest, pbf_timestamp(dest)))
 
@@ -233,18 +242,22 @@ def describe_db(path):
     """生成DBの要約 (件数・ソース内訳・住所/読みの充足率)。"""
     if not os.path.exists(path):
         return None
-    conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
     try:
-        total, addr, kana, named = conn.execute(
-            "SELECT count(*), sum(address IS NOT NULL AND address != ''),"
-            " sum(kana IS NOT NULL AND kana != ''),"
-            " sum(category = 'named') FROM places").fetchone()
-        by_source = dict(conn.execute(
-            "SELECT source, count(*) FROM places GROUP BY source").fetchall())
-        created = conn.execute(
-            "SELECT value FROM meta WHERE key='created_at'").fetchone()
-    finally:
-        conn.close()
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+        try:
+            total, addr, kana, named = conn.execute(
+                "SELECT count(*), sum(address IS NOT NULL AND address != ''),"
+                " sum(kana IS NOT NULL AND kana != ''),"
+                " sum(category = 'named') FROM places").fetchone()
+            by_source = dict(conn.execute(
+                "SELECT source, count(*) FROM places GROUP BY source").fetchall())
+            created = conn.execute(
+                "SELECT value FROM meta WHERE key='created_at'").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        # 破損・未完成のDBでもサマリ全体は出す (該当県は "-" 表示)
+        return None
     total = total or 0
     pct = (lambda n: "%.1f%%" % (100.0 * (n or 0) / total)) if total else (lambda n: "-")
     return {
@@ -339,21 +352,23 @@ def main():
     progress = Progress(log, steps_per_pref(args) * len(args.prefs),
                         args.progress_interval)
     results = {}
-    for pref_id in args.prefs:
-        try:
-            build_pref(log, pref_id, args, s3_path, progress)
-            results[pref_id] = "OK"
-        except StepFailed as e:
-            results[pref_id] = "FAIL"
-            log.line("!! %s 失敗: %s" % (pref_id, e))
-            if not args.keep_going:
-                break
+    try:
+        for pref_id in args.prefs:
+            try:
+                build_pref(log, pref_id, args, s3_path, progress)
+                results[pref_id] = "OK"
+            except StepFailed as e:
+                results[pref_id] = "FAIL"
+                log.line("!! %s 失敗: %s" % (pref_id, e))
+                if not args.keep_going:
+                    break
 
-    if not args.dry_run:
-        log.line("全体所要時間: %s" % Progress.fmt(time.time() - progress.started))
-        summarize(log, args.prefs, results, stamp)
-    log.line("log: %s" % log.path)
-    log.close()
+        if not args.dry_run:
+            log.line("全体所要時間: %s" % Progress.fmt(time.time() - progress.started))
+            summarize(log, args.prefs, results, stamp)
+        log.line("log: %s" % log.path)
+    finally:
+        log.close()
     return 0 if all(v == "OK" for v in results.values()) and results else 1
 
 

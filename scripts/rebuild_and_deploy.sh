@@ -62,6 +62,35 @@ done
 
 skipped() { [[ ",${SKIP}," == *",$1,"* ]]; }
 
+# --skip の打ち間違いで意図しない段階 (実機転送など) が走らないよう、値を検証する
+if [[ -n "$SKIP" ]]; then
+    IFS=',' read -r -a SKIP_IDS <<< "$SKIP"
+    for s in "${SKIP_IDS[@]}"; do
+        case "$s" in
+            db|package|push) ;;
+            *) echo "不明な --skip 段階: ${s} (db,package,push のいずれか)" >&2; exit 2 ;;
+        esac
+    done
+fi
+
+# 検索DB(--extract-from の PBF)とグラフ(build_prefectures.py の SOURCE_PBF)の OSM 時点をそろえる
+SOURCE_PBF_DEFAULT="${ROOT_DIR}/data/japan-latest.osm.pbf"  # ルート直下のシンボリックリンクの実体
+EXTRACT_FROM=""
+for ((i = 0; i < ${#DB_ARGS[@]}; i++)); do
+    [[ "${DB_ARGS[$i]}" == "--extract-from" ]] && EXTRACT_FROM="${DB_ARGS[$((i + 1))]}"
+done
+if [[ -n "$EXTRACT_FROM" ]]; then
+    real() { python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+    if [[ "$(real "$EXTRACT_FROM")" != "$(real "$SOURCE_PBF_DEFAULT")" ]]; then
+        echo "警告: --extract-from (${EXTRACT_FROM}) が build_prefectures.py の入力 (${SOURCE_PBF_DEFAULT}) と異なります。" >&2
+        echo "      検索DBとグラフの OSM データ時点がずれます。" >&2
+        if ! $DRY_RUN; then
+            read -r -p "このまま続行しますか? [y/N] " ans
+            [[ "$ans" == [yY] ]] || exit 1
+        fi
+    fi
+fi
+
 # 県ID (小文字) を build_prefectures.py / push_data.sh 用の先頭大文字名に変換
 cap() { local s; s="$(tr '[:upper:]' '[:lower:]' <<< "$1")"; echo "$(tr '[:lower:]' '[:upper:]' <<< "${s:0:1}")${s:1}"; }
 

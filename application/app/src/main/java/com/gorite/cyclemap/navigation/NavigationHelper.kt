@@ -370,6 +370,9 @@ internal class MapOrientationAnimator(
     private var targetHeading: Float = Float.NaN
     private var running = false
     private var lastFrameNanos = 0L
+
+    /** cancel() を別スレッドから呼んだ後に開始された回転を、遅れて届いた stop() が止めないようにする世代番号。 */
+    @Volatile private var generation = 0
     private val frameCallback = android.view.Choreographer.FrameCallback { nanos -> onFrame(nanos) }
 
     /** 指で回している最中は、センサー側の回転を止めて操作を優先する。 */
@@ -418,6 +421,7 @@ internal class MapOrientationAnimator(
         actualHeading()?.let { follower.snap(it) }
         if (follower.isSettled(target) || kotlin.math.abs(com.gorite.cyclemap.ui.mapview.Angles.shortestDelta(follower.current, target)) < 0.3f) return
         running = true
+        generation++
         lastFrameNanos = 0L
         android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
     }
@@ -459,7 +463,11 @@ internal class MapOrientationAnimator(
     }
 
     fun cancel() {
-        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) stop()
-        else mainHandler.post { stop() }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            stop()
+        } else {
+            val requested = generation
+            mainHandler.post { if (generation == requested) stop() }
+        }
     }
 }

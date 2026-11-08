@@ -67,11 +67,16 @@ object BicycleAccessFilter {
         val highway = tags["highway"]
         if (highway.isNullOrBlank()) return false
         val bicycle = tags["bicycle"]
+        // bicycle=dismount (押し歩き) は自転車で乗って通れないので除外する (意図的な仕様)
         if (bicycle in explicitlyDenied || bicycle == "dismount") return false
-        if (tags["access"] in explicitlyDenied) return false
-        if (tags["vehicle"] in explicitlyDenied) return false
-        if (highway in unusableHighways) return false
         val bicycleExplicitlyAllowed = bicycle in bicycleAllowedValues
+        // OSM のアクセス階層では bicycle が vehicle / access より優先される。
+        // bicycle=yes/designated/permissive の明示がある道は access/vehicle の制限で除外しない。
+        if (!bicycleExplicitlyAllowed) {
+            if (tags["access"] in explicitlyDenied) return false
+            if (tags["vehicle"] in explicitlyDenied) return false
+        }
+        if (highway in unusableHighways) return false
         if (highway in footOnlyHighways && !bicycleExplicitlyAllowed) return false
         // 自動車専用道路 (motorroad=yes) は自転車通行不可。bicycle の明示許可がある場合のみ通す。
         if (tags["motorroad"] == "yes" && !bicycleExplicitlyAllowed) return false

@@ -107,7 +107,18 @@ internal fun BoxScope.MapControlsOverlay(
     }
     // ベクター地図のズームは毎フレーム moveCamera で進める (案内中の追従カメラに打ち切られないため)
     val zoomAnimator = androidx.compose.runtime.remember(vectorMap) {
-        com.gorite.cyclemap.ui.mapview.MapZoomAnimator { vectorMap }
+        com.gorite.cyclemap.ui.mapview.MapZoomAnimator(
+            getMap = { vectorMap },
+            isUserGestureInProgress = {
+                val gestures = vectorMap?.gesturesManager
+                gestures != null && (
+                    gestures.standardScaleGestureDetector.isInProgress ||
+                        gestures.rotateGestureDetector.isInProgress ||
+                        gestures.shoveGestureDetector.isInProgress ||
+                        gestures.moveGestureDetector.isInProgress
+                    )
+            },
+        )
     }
     val onZoomInAction: () -> Unit = {
         if (selectedLayer == MapLayer.VECTOR_LIBERTY) {

@@ -8,7 +8,11 @@ import org.maplibre.android.maps.MapLibreMap
  * ベクター地図の +/- ボタン用ズーム。毎フレーム moveCamera(zoomTo) で進めるので、
  * 案内中の追従カメラ (毎フレーム moveCamera) と打ち消し合わない。
  */
-internal class MapZoomAnimator(private val getMap: () -> MapLibreMap?) {
+internal class MapZoomAnimator(
+    private val getMap: () -> MapLibreMap?,
+    /** ピンチ・回転などの操作中は true。操作中はアニメーションを止めてユーザー操作を優先する。 */
+    private val isUserGestureInProgress: () -> Boolean = { false },
+) {
     private val follower = ZoomFollower()
     private var running = false
     private var lastNanos = 0L
@@ -26,7 +30,7 @@ internal class MapZoomAnimator(private val getMap: () -> MapLibreMap?) {
 
     private fun onFrame(nanos: Long) {
         val map = getMap()
-        if (!running || map == null) {
+        if (!running || map == null || isUserGestureInProgress()) {
             running = false
             return
         }

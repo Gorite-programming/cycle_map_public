@@ -67,6 +67,16 @@ class MotionSmoothingTest {
     }
 
     @Test
+    fun extrapolationStaysWithinLimitWhenGpsStalls() {
+        val g = LocationGlide()
+        // 北へ時速36km (10 m/s) で走行中に GPS が途絶える
+        g.onFix(34.0, 131.0, 10f, 0f, 0L)
+        val stalled = g.position(30_000L)!!
+        // 実測位置からの先読みの合計は maxExtrapolateMs (1.5秒) 分 = 15m まで
+        assertTrue("ahead=${dist(stalled, 34.0, 131.0)}", dist(stalled, 34.0, 131.0) <= 15.5)
+    }
+
+    @Test
     fun largeJumpSnapsInsteadOfGliding() {
         val g = LocationGlide()
         g.onFix(34.0, 131.0, null, null, 0L)

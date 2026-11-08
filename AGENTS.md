@@ -41,7 +41,7 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work             # 
 - データは APK に同梱しない。アプリはアプリ専用外部ストレージ `getExternalFilesDir(DOCUMENTS)/CycleMap/` を見る:`<name>.graph`、`<name>.graph.idx`、`tiles/cache.db`。県の動的切替は対応済み(`RoutingGraphSelector` / `SearchDbSelector` を `Prefectures.kt` に実装)。起動時は配置済みファイルから名前昇順で最初のものを自動探索し、現在地が確定したら対応する県のグラフ/検索DBに自動切替する。
 - `build_prefectures.py` の不変条件:`osmium extract --polygon <boundary> --strategy complete_ways` を使う。importer 呼び出しは `--bbox none`。ZIP 内容は `<name>.search.db` + `<name>.graph` + `<name>.graph.idx` + `manifest.json` + `LICENSE.txt` の5点。有効な ZIP があれば `--force` なしではスキップ。失敗時の作業ディレクトリはデバッグ用に残す。
 - `CyclingCostModel` は `motorway` を除外。最小倍率 0.90 は A\* ヒューリスティックの下限 — JVM 側と `LazyMappedRoadGraph` で同期を保つ。
-- `LazyMappedRouting.readEdge()` は 2 GB 超でオーバーフロー(`offset.toInt()`)。`nearestNodeIndex` は O(n) 線形走査。既知バグ集（旧系統の改修履歴）は `Archives/application/bugs.md` — 修正前に必ず確認すること。ただし Critical/High の大半はコミット `3a6faf2` で修正済みのため、着手前に `git -C application log --oneline` と現行コードで再確認する(盲目的な再修正を避ける)。
+- `LazyMappedRouting` は `Int` オフセットで読むため、2 GiB 超の `.graph` はロード時に明示エラーで拒否する(県別グラフは収まる)。`nearestNodeIndex` は空間グリッドを使い、見つからない場合のみ線形走査にフォールバックする。既知バグ集（旧系統の改修履歴）は `Archives/application/bugs.md` — 修正前に必ず確認すること。ただし Critical/High の大半はコミット `3a6faf2` で修正済みのため、着手前に `git -C application log --oneline` と現行コードで再確認する(盲目的な再修正を避ける)。
 - 実機手順:Samsung S21 + `adb push`、機内モードで検証。山口 z15–z16 全域タイル(約8.9万枚、1 GB 超)は見送り — 全域取得ではなく経路回廊のみ取得する方針。
 
 ## 開発体制・Git運用ポリシー（全エージェント共通）

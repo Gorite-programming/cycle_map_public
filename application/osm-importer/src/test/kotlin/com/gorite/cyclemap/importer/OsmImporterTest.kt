@@ -32,6 +32,17 @@ class OsmImporterTest {
     }
 
     @Test
+    fun `explicit bicycle permission overrides access and vehicle restrictions`() {
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "path", "vehicle" to "no", "bicycle" to "yes")))
+        assertTrue(BicycleAccessFilter.isAllowed(mapOf("highway" to "track", "access" to "private", "bicycle" to "designated")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "track", "access" to "private")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "path", "vehicle" to "no")))
+        // bicycle=no は access より優先して除外のまま、階段は明示許可でも通さない
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "path", "access" to "yes", "bicycle" to "no")))
+        assertFalse(BicycleAccessFilter.isAllowed(mapOf("highway" to "steps", "access" to "no", "bicycle" to "yes")))
+    }
+
+    @Test
     fun `graph keeps highway and applies one way direction`() {
         val nodes = mapOf(
             1L to GraphNode(1L, 34.0, 131.0),

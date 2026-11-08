@@ -58,7 +58,17 @@ fun gradeAhead(
 
     val slope = samples[first].slope
     var last = first
-    while (last + 1 < samples.size && samples[last + 1].slope == slope) last++
+    while (true) {
+        val next = last + 1
+        if (next < samples.size && samples[next].slope == slope) {
+            last = next
+        } else if (next + 1 < samples.size && samples[next].slope == Slope.FLAT && samples[next + 1].slope == slope) {
+            // 1サンプルだけの凹凸 (標高ノイズ) では坂を切らない
+            last = next + 1
+        } else {
+            break
+        }
+    }
     val run = samples.subList(first, last + 1)
     val endsWithinRange = last + 1 < samples.size
     val length = if (endsWithinRange) samples[last + 1].distance - samples[first].distance else null

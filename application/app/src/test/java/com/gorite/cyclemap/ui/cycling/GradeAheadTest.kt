@@ -40,6 +40,18 @@ class GradeAheadTest {
     }
 
     @Test
+    fun singleFlatSampleDoesNotSplitClimb() {
+        // 5%の坂の途中に 25m 刻みで1サンプルだけ平坦に見える箇所 (標高ノイズ) がある
+        val ahead = gradeAhead(
+            profile(100.0 to 0.0, 100.0 to 5.0, 20.0 to 0.0, 150.0 to 5.0, 200.0 to 0.0),
+            progressM = 0.0,
+        )!!
+        assertEquals(GradeKind.CLIMB, ahead.kind)
+        assertNotNull(ahead.lengthM)
+        assertTrue("length=${ahead.lengthM}", ahead.lengthM!! > 200.0)
+    }
+
+    @Test
     fun detectsDescent() {
         val ahead = gradeAhead(profile(100.0 to 0.0, 250.0 to -6.0), progressM = 0.0)!!
         assertEquals(GradeKind.DESCENT, ahead.kind)

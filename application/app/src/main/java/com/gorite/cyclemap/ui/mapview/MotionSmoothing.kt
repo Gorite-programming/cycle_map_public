@@ -81,7 +81,9 @@ internal class LocationGlide(
             val k = t.coerceAtLeast(0.0)
             return Position(fromLat + (toLat - fromLat) * k, fromLon + (toLon - fromLon) * k)
         }
-        val extra = (nowMs - startMs - durationMs).coerceIn(0L, maxExtrapolateMs)
+        // 目標 (toLat/toLon) は実測位置の leadMs 先なので、外挿はその分を差し引く。
+        // 実測位置からの先読みの合計が maxExtrapolateMs を超えないようにする (GPS途絶時に実位置から離れすぎない)
+        val extra = (nowMs - startMs - durationMs).coerceIn(0L, (maxExtrapolateMs - leadMs).coerceAtLeast(0L))
         if (speedMps >= minExtrapolateSpeedMps && bearingDeg.isFinite() && extra > 0L) {
             return advance(toLat, toLon, speedMps * extra / 1000.0, bearingDeg)
         }
