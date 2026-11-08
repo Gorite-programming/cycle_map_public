@@ -58,7 +58,7 @@ internal fun SearchResultItemCard(
                 ) {
                     // カテゴリ + 住所 (同じ名前の支店を見分けられるように)
                     Text(
-                        listOfNotNull(formatCategoryLabel(result.category), result.address?.let(::shortAddress))
+                        listOfNotNull(formatCategoryLabel(result.category), result.address?.let { shortAddress(it) })
                             .joinToString(" ・ "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -144,7 +144,9 @@ internal fun FavoriteSpotItemCard(
 /**
  * 検索結果に添える住所の短い表記。都道府県と、重複した区名 (「広島市中区 中区袋町5-7」の 2 つ目の「中区」) を除く。
  */
-internal fun shortAddress(address: String): String {
+internal fun shortAddress(address: String): String? {
+    // 郵便番号だけの住所 (「7300036」「730-0036」) は、支店の見分けに役立たないので出さない
+    if (Regex("^〒?\\s*\\d{3}-?\\d{4}$").matches(address.trim())) return null
     var a = address.trim().replace(Regex("^(広島県|岡山県|山口県|鳥取県|島根県)\\s*"), "")
     // 「◯◯市△△区 △△区…」のような重複を 1 つにする
     Regex("^(\\S*?([^\\s市]+区))\\s+\\2").find(a)?.let { m -> a = m.groupValues[1] + a.substring(m.range.last + 1) }

@@ -139,6 +139,25 @@ def patch_landuse(style, theme):
             paint[key] = WATER_COLORS[theme]
 
 
+def raise_shields(style):
+    """道路番号の標識の層を、道路名・POI・地名の上 (配置の優先が高い位置) へ移す。
+
+    MapLibre は上の層から順にラベルを置き、重なるものは後の層が消える。標識は道路名・POI より下に
+    あったため、市街地では z15 でも標識がほとんど出なかった (Google マップは z12 から出す)。冪等。
+    """
+    layers = style["layers"]
+    shield = next(l for l in layers if l["id"] == "roads_shields")
+    layers.remove(shield)
+    anchor = max(i for i, l in enumerate(layers) if l["id"] in ("pois", "roads_labels_major"))
+    layers.insert(anchor + 1, shield)
+    # 標識は小さいので、ほかのラベルとの間隔を詰めて置ける場所を増やす
+    shield["layout"]["icon-padding"] = 1
+    shield["layout"]["text-padding"] = 1
+    # 標識は、ほかのラベルと重なっても出す (Google マップと同じく番号を優先)。間隔は symbol-spacing で保つ
+    shield["layout"]["icon-allow-overlap"] = True
+    shield["layout"]["text-allow-overlap"] = True
+
+
 def patch_style(theme):
     path = STYLE_DIR / ("protomaps_%s.json" % theme)
     style = json.loads(path.read_text(encoding="utf-8"))
@@ -147,6 +166,7 @@ def patch_style(theme):
     patch_rail(layers, theme)
     patch_pois(layers["pois"])
     patch_landuse(style, theme)
+    raise_shields(style)
     path.write_text(json.dumps(style, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("patched %s" % path.name)
 

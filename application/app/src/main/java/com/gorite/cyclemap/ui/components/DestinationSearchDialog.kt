@@ -423,7 +423,8 @@ internal fun DestinationSearchDialog(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    "現在地から近い順",
+                                    // 検索語があるときは一致度・重要度・距離の総合順、カテゴリだけのときは近い順
+                                    if (query.trim().length >= 2) "関連度順 (近さも考慮)" else "現在地から近い順",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )

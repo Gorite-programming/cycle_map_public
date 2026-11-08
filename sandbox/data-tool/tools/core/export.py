@@ -88,6 +88,46 @@ def _osm_type_id(row, manual_serial):
     return "ext", manual_serial
 
 
+def _station_base(name):
+    """駅名の比較用の基本形 (先頭の JR・末尾の「駅」と空白を除き、全角を半角に)。"""
+    import unicodedata
+    n = unicodedata.normalize("NFKC", name or "").strip()
+    for prefix in ("JR", "ＪＲ"):
+        if n.startswith(prefix):
+            n = n[len(prefix):]
+    return n.strip().removesuffix("駅").strip()
+
+
+def drop_mislocated_overture_stations(rows, max_m=1500.0):
+    """Overture の鉄道駅のうち、同じ駅名の OSM の駅から max_m 以上離れているものを除く。
+
+    Overture には「広島駅」が海田町・東広島市・尾道市にあるなど、名前と位置の合わない駅があり、
+    「広島駅」の検索で正しい駅より上に出ていた。OSM の駅の位置は信頼できるので、それを基準にする。
+    戻り値は (残した行, 除いた件数)。
+    """
+    import math
+
+    def dist(a, b):
+        p1, p2 = math.radians(a[0]), math.radians(b[0])
+        h = (math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2)
+             * math.sin(math.radians(b[1] - a[1]) / 2) ** 2)
+        return 2 * 6371000 * math.asin(math.sqrt(min(1.0, h)))
+
+    osm = {}
+    for r in rows:
+        if r.get("source") == "osm" and r["category"] == "railway:station":
+            osm.setdefault(_station_base(r["name"]), []).append((r["lat"], r["lon"]))
+    kept, dropped = [], 0
+    for r in rows:
+        if (str(r.get("source") or "").startswith("overture") and r["category"] == "railway:station"):
+            places = osm.get(_station_base(r["name"]))
+            if places and min(dist((r["lat"], r["lon"]), p) for p in places) > max_m:
+                dropped += 1
+                continue
+        kept.append(r)
+    return kept, dropped
+
+
 def export_search_db(db_path=None, prefecture=None, out_path=None,
                      include_named=True, use_pykakasi=False):
     """検索DBを生成する。戻り値は件数サマリ dict。
@@ -110,6 +150,7 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
         kept = [r for r in rows if r["category"] != "named"]
         named_excluded = len(rows) - len(kept)
         rows = kept
+    rows, mislocated = drop_mislocated_overture_stations(rows)
     # 決定的順序: 取り込み順 (uid)。手動追加 (uid None) は末尾。
     rows.sort(key=lambda r: (r["uid"] is None, r["uid"] or 0))
 
@@ -233,6 +274,7 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
         "include_named": include_named,
         "use_pykakasi": use_pykakasi,
         "kana_tag_rows": n_kana_tag,
+        "mislocated_stations_dropped": mislocated,
         "kana_pykakasi_rows": n_kana_pykakasi,
         "detail_rows": {
             "hours": sum(1 for r in rows if r.get("hours")),

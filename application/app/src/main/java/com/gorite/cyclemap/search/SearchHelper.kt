@@ -206,7 +206,8 @@ internal fun textMatchScore(result: SearchResult, query: String): Double {
         result.category.startsWith("railway:halt")
     return when {
         name == q || nameCompact == qCompact -> 1000.0
-        stationBase != null && isStation && (name == stationBase || tokens.contains(stationBase)) -> 950.0
+        // 駅名だけで登録された駅 (OSM の「広島」) は、名前の完全一致と同じに扱う (差は距離で決まる)
+        stationBase != null && isStation && (name == stationBase || tokens.contains(stationBase)) -> 1000.0
         tokens.any { it == q || it == qCompact } -> 800.0
         nameCompact.startsWith(qCompact) -> 600.0
         tokens.any { it.startsWith(qCompact) } -> 500.0

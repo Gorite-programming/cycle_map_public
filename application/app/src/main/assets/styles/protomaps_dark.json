@@ -8743,126 +8743,6 @@
       }
     },
     {
-      "id": "roads_shields",
-      "type": "symbol",
-      "source": "protomaps",
-      "source-layer": "roads",
-      "filter": [
-        "all",
-        [
-          "==",
-          [
-            "get",
-            "kind"
-          ],
-          "major_road"
-        ],
-        [
-          "has",
-          "shield_text"
-        ],
-        [
-          "<=",
-          [
-            "length",
-            [
-              "get",
-              "shield_text"
-            ]
-          ],
-          4
-        ]
-      ],
-      "layout": {
-        "icon-image": [
-          "match",
-          [
-            "get",
-            "network"
-          ],
-          "JP:national",
-          [
-            "concat",
-            "jp-national-",
-            [
-              "length",
-              [
-                "get",
-                "shield_text"
-              ]
-            ],
-            "char"
-          ],
-          "JP:prefectural",
-          [
-            "concat",
-            "jp-prefectural-",
-            [
-              "length",
-              [
-                "get",
-                "shield_text"
-              ]
-            ],
-            "char"
-          ],
-          [
-            "concat",
-            "generic_shield-",
-            [
-              "length",
-              [
-                "get",
-                "shield_text"
-              ]
-            ],
-            "char"
-          ]
-        ],
-        "text-field": [
-          "get",
-          "shield_text"
-        ],
-        "text-font": [
-          "Noto Sans Regular"
-        ],
-        "text-size": 12,
-        "icon-size": 1,
-        "symbol-placement": "line",
-        "icon-rotation-alignment": "viewport",
-        "text-rotation-alignment": "viewport",
-        "symbol-spacing": 320,
-        "text-offset": [
-          "match",
-          [
-            "get",
-            "network"
-          ],
-          "JP:national",
-          [
-            "literal",
-            [
-              0,
-              -0.18
-            ]
-          ],
-          [
-            "literal",
-            [
-              0,
-              0
-            ]
-          ]
-        ],
-        "text-padding": 2
-      },
-      "paint": {
-        "text-color": "#FFFFFF",
-        "text-halo-color": "#062244",
-        "text-halo-width": 1.5
-      }
-    },
-    {
       "id": "roads_labels_major",
       "type": "symbol",
       "source": "protomaps",
@@ -11413,6 +11293,129 @@
           "#E8E8E8"
         ],
         "text-halo-color": "#0A0A0A",
+        "text-halo-width": 1.5
+      }
+    },
+    {
+      "id": "roads_shields",
+      "type": "symbol",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": [
+        "all",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "major_road"
+        ],
+        [
+          "has",
+          "shield_text"
+        ],
+        [
+          "<=",
+          [
+            "length",
+            [
+              "get",
+              "shield_text"
+            ]
+          ],
+          4
+        ]
+      ],
+      "layout": {
+        "icon-image": [
+          "match",
+          [
+            "get",
+            "network"
+          ],
+          "JP:national",
+          [
+            "concat",
+            "jp-national-",
+            [
+              "length",
+              [
+                "get",
+                "shield_text"
+              ]
+            ],
+            "char"
+          ],
+          "JP:prefectural",
+          [
+            "concat",
+            "jp-prefectural-",
+            [
+              "length",
+              [
+                "get",
+                "shield_text"
+              ]
+            ],
+            "char"
+          ],
+          [
+            "concat",
+            "generic_shield-",
+            [
+              "length",
+              [
+                "get",
+                "shield_text"
+              ]
+            ],
+            "char"
+          ]
+        ],
+        "text-field": [
+          "get",
+          "shield_text"
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": 12,
+        "icon-size": 1,
+        "symbol-placement": "line",
+        "icon-rotation-alignment": "viewport",
+        "text-rotation-alignment": "viewport",
+        "symbol-spacing": 320,
+        "text-offset": [
+          "match",
+          [
+            "get",
+            "network"
+          ],
+          "JP:national",
+          [
+            "literal",
+            [
+              0,
+              -0.18
+            ]
+          ],
+          [
+            "literal",
+            [
+              0,
+              0
+            ]
+          ]
+        ],
+        "text-padding": 1,
+        "icon-padding": 1,
+        "icon-allow-overlap": true,
+        "text-allow-overlap": true
+      },
+      "paint": {
+        "text-color": "#FFFFFF",
+        "text-halo-color": "#062244",
         "text-halo-width": 1.5
       }
     },

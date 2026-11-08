@@ -29,6 +29,16 @@ class SearchQualityTest {
     }
 
     @Test
+    fun realStationBeatsFartherSameNamedStation() {
+        // 駅名だけの OSM の駅 (9km) が、位置のずれた「広島駅」(17km) より上
+        val items = listOf(
+            r("広島駅", "railway:station", 34.3815, 132.5645),
+            r("広島", "railway:station", 34.3974, 132.4758, "広島 ひろしま"),
+        )
+        assertEquals("広島", rankSearchResults(items, "広島駅", userLat, userLon).first().name)
+    }
+
+    @Test
     fun readingQueryFindsKanjiStationFirst() {
         // 「ひろしまえき」で、近い西広島駅より広島駅を上に
         val items = listOf(
@@ -91,6 +101,8 @@ class SearchQualityTest {
         assertFalse(looksLikeAddress("スターバックス"))
         assertEquals("広島市中区袋町5-7", shortAddress("広島市中区 中区袋町5-7"))
         assertEquals("広島市西区井口5丁目", shortAddress("広島県広島市西区井口5丁目"))
+        assertEquals(null, shortAddress("7300036"))
+        assertEquals(null, shortAddress("〒730-0036"))
     }
 
     @Test
