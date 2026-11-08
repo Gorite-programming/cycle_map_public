@@ -4,6 +4,7 @@ import com.gorite.cyclemap.routing.GraphNode
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.routing.haversineMeters
+import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.routing.pickBenchOdPairs
 import java.io.File
 import java.util.Locale
@@ -12,6 +13,7 @@ import java.util.Locale
  * 経路の「実際の登り量」を標高タイルで測り、方針 (おすすめ/平坦優先/坂道優先) を比べる開発用ツール。
  * 使い方: ./gradlew :osm-importer:benchmarkAscent -Pgraph=<.graph> -Pdem=<dem14 dir> [-Pod=200]
  * 登り量は、経路を約 50m ごとに間引いた標高の増加分の合計 (DEM のノイズを抑えるため)。
+ * 標高は graph の標高区間 (トンネル・橋を補間済み) を優先し、無い旧 graph だけ DEM を直接引く。
  */
 fun ascentMeters(elevations: List<Float>, distances: List<Double>, stepMeters: Double = 50.0): Double {
     var ascent = 0.0
@@ -48,8 +50,13 @@ fun main(args: Array<String>) {
             if (results.any { !it.isReachable }) continue
             val ascents = results.map { r ->
                 val nodes = r.nodeIds.indices.map { GraphNode(r.nodeIds[it], r.coordinates[it].first, r.coordinates[it].second) }
-                val ele = dem.elevations(nodes)
-                val elevations = nodes.map { ele.getValue(it.id) }
+                // graph が標高を持てばそれ (トンネル・橋を補間済み) を使う。DEM の地表の高さだとトンネルの上の山を登ったことになる。
+                val elevations = if (graph.hasElevations) {
+                    graph.nodeElevationsAlong(r.coordinates).map { it?.toFloat() ?: Float.NaN }
+                } else {
+                    val ele = dem.elevations(nodes)
+                    nodes.map { ele.getValue(it.id) }
+                }
                 val cum = DoubleArray(nodes.size)
                 for (i in 1 until nodes.size) cum[i] = cum[i - 1] + haversineMeters(nodes[i - 1].latitude, nodes[i - 1].longitude, nodes[i].latitude, nodes[i].longitude)
                 ascentMeters(elevations, cum.toList())

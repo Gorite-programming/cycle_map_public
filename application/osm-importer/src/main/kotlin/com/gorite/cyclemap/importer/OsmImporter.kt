@@ -270,6 +270,10 @@ private class NodeCoordStore(capacity: Int) {
  */
 class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
 
+    /** 直前の [build] で見つけた構造物 (トンネル・橋) の way。標高の補間に使う。 */
+    var structures: StructureWays = StructureWays(emptyList(), emptySet())
+        private set
+
     fun build(pbfFile: File): RoadGraph {
         // ----------------------------------------------------------------
         // Pass 1: collect bicycle ways + required node ID set
@@ -288,6 +292,7 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
             }
         }
         println("[graph 1/2] Done. bicycleWays=${bicycleWays.size} neededNodes=${neededNodeIds.size}")
+        structures = StructureWays.from(bicycleWays, { it.tags }, { it.nodeIds })
 
         // ----------------------------------------------------------------
         // Pass 2: load only required node coordinates
@@ -797,8 +802,17 @@ fun main(args: Array<String>) {
     val start = System.nanoTime()
 
     // Use the two-pass builder instead of the old PbfReader + OsmGraphBuilder
-    val graph = TwoPassGraphBuilder(bbox).build(input)
-    val elevations = demDir?.let { DemElevation(it).elevations(graph.nodes.values) }
+    val builder = TwoPassGraphBuilder(bbox)
+    val graph = builder.build(input)
+    // トンネル・橋の途中のノードは、地表の標高 (DEM) ではなく両端から補間する
+    val elevations = demDir?.let { dir ->
+        val (corrected, stats) = interpolateStructureElevations(
+            DemElevation(dir).elevations(graph.nodes.values), builder.structures, graph.nodes,
+        )
+        println("structureElevation ways=${builder.structures.ways.size} nodes=${stats.structureNodes} " +
+            "interpolated=${stats.interpolated} unknown=${stats.unknown}")
+        corrected
+    }
     GraphBinaryWriter(elevations).write(graph, output)
     val indexFile = File(output.path + ".idx")
     writeGraphIndex(output, indexFile, elevations)
