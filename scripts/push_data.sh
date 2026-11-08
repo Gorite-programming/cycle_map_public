@@ -4,7 +4,7 @@
 # =============================================================================
 #
 # Target directory on device:
-#   /sdcard/Android/data/com.gorite.cyclemap/files/Documents/CycleMap/
+#   /sdcard/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap/
 #   (getExternalFilesDir(DOCUMENTS)/CycleMap/)
 #
 # Files deployed per prefecture:
@@ -15,8 +15,8 @@
 # =============================================================================
 set -euo pipefail
 
-DEST_DIR="/sdcard/Android/data/com.gorite.cyclemap/files/Documents/CycleMap"
-PACKAGE_NAME="com.gorite.cyclemap"
+DEST_DIR="/sdcard/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap"
+PACKAGE_NAME="com.gorite.cyclemap.test"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
