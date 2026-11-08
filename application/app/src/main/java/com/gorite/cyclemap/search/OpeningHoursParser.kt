@@ -32,6 +32,14 @@ object OpeningHoursParser {
         DayOfWeek.SUNDAY
     )
 
+    /** 祝日 (PH)・学校休暇 (SH) は日付の判定を持たないので、この規則は無視する (曜日の規則だけで判定する)。 */
+    private val ignorableDayTokens = setOf("PH", "SH")
+
+    /** 月・週・日の出日の入り・n 番目の曜日・年などを含む規則。解釈できないので、判定は Unknown に倒す。 */
+    private val unsupportedPattern = Regex(
+        "(?i)\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|week|sunrise|sunset|dawn|dusk|easter)\\b|\\[|\\+|\\|\\||\\d{4}"
+    )
+
     data class DayRule(
         val days: Set<DayOfWeek>,
         val isOff: Boolean,
@@ -39,151 +47,172 @@ object OpeningHoursParser {
     )
 
     /**
+     * 解析結果。[rules] は文中の順序のまま (後ろの規則が前の規則を上書きする)。
+     * [unsupported] は解釈できなかった規則の原文。空でなければ営業状況を断定しない。
+     */
+    data class Parsed(val rules: List<DayRule>, val unsupported: List<String>) {
+        val isFullySupported: Boolean get() = unsupported.isEmpty() && rules.isNotEmpty()
+    }
+
+    /** 文字列がこのパーサで完全に解釈できるか (実データでの対応率の測定にも使う)。 */
+    fun isFullySupported(raw: String?): Boolean = parse(raw).isFullySupported
+
+    /**
      * OSM opening_hours 文字列を解析し、指定時刻の営業状況を返す。
-     * 解析不能または空文字列の場合は安全側に倒して [OpenStatus.Unknown] を返す。
+     * 解析不能・空文字列・解釈できない規則を含む場合は安全側に倒して [OpenStatus.Unknown] を返す。
      */
     fun evaluate(raw: String?, dateTime: LocalDateTime = LocalDateTime.now()): OpenStatus {
         if (raw.isNullOrBlank()) return OpenStatus.Unknown
-        val clean = raw.trim().replace("\\s+".toRegex(), " ")
-
-        if (clean.equals("24/7", ignoreCase = true)) {
-            return OpenStatus.Open
-        }
-        if (clean.equals("closed", ignoreCase = true) || clean.equals("off", ignoreCase = true)) {
-            return OpenStatus.Closed
-        }
+        val parsed = parse(raw)
+        if (!parsed.isFullySupported) return OpenStatus.Unknown
+        val rules = parsed.rules
 
         return try {
-            val rules = parseRules(clean)
-            if (rules.isEmpty()) return OpenStatus.Unknown
-
             val currentDay = dateTime.dayOfWeek
             val prevDay = currentDay.minus(1)
             val currentMinutes = dateTime.hour * 60 + dateTime.minute
 
-            // 1. 前日深夜からの日またぎ営業の判定 (例: 22:00-02:00)
-            for (rule in rules) {
-                if (prevDay in rule.days && !rule.isOff) {
+            // 1. 前日深夜からの日またぎ営業の判定 (例: 22:00-02:00)。前日に効いている規則だけを見る
+            effectiveRule(rules, prevDay)?.let { rule ->
+                if (!rule.isOff) {
                     for ((start, end) in rule.timeRanges) {
-                        if (end < start && currentMinutes < end) {
-                            return OpenStatus.Open
-                        }
+                        if (end < start && currentMinutes < end) return OpenStatus.Open
                     }
                 }
             }
 
-            // 2. 当日の営業ルール判定
-            val matchingRule = rules.find { currentDay in it.days }
-            if (matchingRule != null) {
-                if (matchingRule.isOff) return OpenStatus.Closed
-                for ((start, end) in matchingRule.timeRanges) {
-                    if (end < start) {
-                        // 日またぎ: start以降なら本日営業中
-                        if (currentMinutes >= start) return OpenStatus.Open
-                    } else {
-                        // 同日内
-                        if (currentMinutes in start..end) return OpenStatus.Open
-                    }
+            // 2. 当日に効いている規則 (後ろの規則が前の規則を上書きする)。曜日の指定が無い日は断定しない
+            val rule = effectiveRule(rules, currentDay) ?: return OpenStatus.Unknown
+            if (rule.isOff) return OpenStatus.Closed
+            for ((start, end) in rule.timeRanges) {
+                if (end < start) {
+                    // 日またぎ: start以降なら本日営業中
+                    if (currentMinutes >= start) return OpenStatus.Open
+                } else if (currentMinutes in start..end) {
+                    return OpenStatus.Open
                 }
-                return OpenStatus.Closed
             }
-
-            // 当日の指定がない場合、ルールが曜日指定なし(毎日適用)のルールか確認
-            val generalRule = rules.find { it.days.isEmpty() }
-            if (generalRule != null) {
-                if (generalRule.isOff) return OpenStatus.Closed
-                for ((start, end) in generalRule.timeRanges) {
-                    if (end < start) {
-                        if (currentMinutes >= start) return OpenStatus.Open
-                    } else {
-                        if (currentMinutes in start..end) return OpenStatus.Open
-                    }
-                }
-                return OpenStatus.Closed
-            }
-
-            OpenStatus.Unknown
+            OpenStatus.Closed
         } catch (_: Exception) {
             OpenStatus.Unknown
         }
     }
 
-    private fun parseRules(ruleText: String): List<DayRule> {
-        val statements = ruleText.split(";").map { it.trim() }.filter { it.isNotEmpty() }
-        val result = mutableListOf<DayRule>()
+    /** [day] に効いている規則。曜日の指定が無い規則は毎日に効く。後ろにあるものが優先。 */
+    private fun effectiveRule(rules: List<DayRule>, day: DayOfWeek): DayRule? =
+        rules.lastOrNull { it.days.isEmpty() || day in it.days }
 
-        for (stmt in statements) {
-            val parts = stmt.split(" ").filter { it.isNotEmpty() }
-            if (parts.isEmpty()) continue
-
-            // 曜日パートの抽出
-            var dayTokens: String? = null
-            var timeTokens: String? = null
-
-            if (parts.size == 1) {
-                // "09:00-18:00" または "24/7"
-                timeTokens = parts[0]
-            } else if (parts[0].any { it.isLetter() } && dayAbbrs.keys.any { parts[0].contains(it) }) {
-                dayTokens = parts[0]
-                timeTokens = parts.drop(1).joinToString(" ")
-            } else {
-                timeTokens = stmt
-            }
-
-            val days = if (dayTokens != null) parseDays(dayTokens) else emptySet()
-
-            if (timeTokens.equals("off", ignoreCase = true) || timeTokens.equals("closed", ignoreCase = true)) {
-                result.add(DayRule(days = days, isOff = true, timeRanges = emptyList()))
-            } else {
-                val ranges = parseTimeRanges(timeTokens ?: "")
-                if (ranges.isNotEmpty()) {
-                    result.add(DayRule(days = days, isOff = false, timeRanges = ranges))
-                }
-            }
+    /** 文字列を規則の並びに解析する。 */
+    fun parse(raw: String?): Parsed {
+        if (raw.isNullOrBlank()) return Parsed(emptyList(), emptyList())
+        val clean = normalize(raw)
+        if (clean.equals("24/7", ignoreCase = true)) {
+            return Parsed(listOf(DayRule(emptySet(), false, listOf(0 to 1440))), emptyList())
+        }
+        if (clean.equals("closed", ignoreCase = true) || clean.equals("off", ignoreCase = true)) {
+            return Parsed(listOf(DayRule(emptySet(), true, emptyList())), emptyList())
         }
 
-        return result
+        val rules = mutableListOf<DayRule>()
+        val unsupported = mutableListOf<String>()
+        for (stmt in clean.split(";").map { it.trim() }.filter { it.isNotEmpty() }) {
+            when (val result = parseStatement(stmt)) {
+                is Statement.Rule -> rules += result.rule
+                Statement.Ignored -> Unit
+                Statement.Unsupported -> unsupported += stmt
+            }
+        }
+        return Parsed(rules, unsupported)
     }
 
-    private fun parseDays(token: String): Set<DayOfWeek> {
+    private sealed interface Statement {
+        data class Rule(val rule: DayRule) : Statement
+        data object Ignored : Statement
+        data object Unsupported : Statement
+    }
+
+    /** 全角・ダッシュ・引用符コメントなど、日本の入力で多い揺れをそろえる。 */
+    private fun normalize(raw: String): String =
+        java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+            .replace(Regex("\"[^\"]*\""), " ")      // "定休日あり" のようなコメント
+            .replace(Regex("[\\u2010-\\u2015\\u2212\\u301C~]"), "-") // ‐ – — ― − 〜 ~ を - に
+            .replace(Regex("\\b(Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)(?=\\d)"), "$1 ")  // "PH10:30-23:00" → "PH 10:30-23:00"
+            .replace(Regex("(?<=\\d|off|closed|open),\\s*(?=(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)\\b)"), ";")  // 規則どうしを区切るカンマ
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun parseStatement(stmt: String): Statement {
+        if (unsupportedPattern.containsMatchIn(stmt)) return Statement.Unsupported
+
+        // 曜日の部分と時刻の部分に分ける。時刻の部分は、数字で始まる語 / off / closed / open / 24/7 から
+        val parts = stmt.split(" ").filter { it.isNotEmpty() }
+        val timeStart = parts.indexOfFirst { token ->
+            token[0].isDigit() || token.equals("off", true) || token.equals("closed", true) ||
+                token.equals("open", true) || token.equals("24/7", true)
+        }
+        val dayTokens = if (timeStart < 0) parts.joinToString(",") else parts.take(timeStart).joinToString(",")
+        val timeTokens = if (timeStart < 0) "" else parts.drop(timeStart).joinToString(" ")
+        if (timeStart < 0) return Statement.Unsupported
+
+        val dayParse = parseDays(dayTokens) ?: return Statement.Unsupported
+        // 祝日だけの規則 (PH off など) は日付を判定できないので無視する
+        if (dayTokens.isNotEmpty() && dayParse.days.isEmpty() && dayParse.onlyIgnorable) return Statement.Ignored
+
+        val lower = timeTokens.lowercase()
+        return when {
+            lower == "off" || lower == "closed" -> Statement.Rule(DayRule(dayParse.days, true, emptyList()))
+            lower == "24/7" || lower == "open" -> Statement.Rule(DayRule(dayParse.days, false, listOf(0 to 1440)))
+            else -> {
+                val ranges = parseTimeRanges(timeTokens.removeSuffix(" open").trim()) ?: return Statement.Unsupported
+                Statement.Rule(DayRule(dayParse.days, false, ranges))
+            }
+        }
+    }
+
+    private data class DayParse(val days: Set<DayOfWeek>, val onlyIgnorable: Boolean)
+
+    /** 曜日の指定を解析する。解釈できない語があれば null。空文字列は「毎日」。 */
+    private fun parseDays(token: String): DayParse? {
+        if (token.isEmpty()) return DayParse(emptySet(), false)
         val days = mutableSetOf<DayOfWeek>()
-        val segments = token.split(",")
-        for (seg in segments) {
+        var sawIgnorable = false
+        for (segRaw in token.split(",")) {
+            val seg = segRaw.trim()
+            if (seg.isEmpty()) continue
+            if (seg in ignorableDayTokens) { sawIgnorable = true; continue }
             if (seg.contains("-")) {
                 val sub = seg.split("-")
-                val start = dayAbbrs[sub[0].trim()]
-                val end = dayAbbrs[sub[1].trim()]
-                if (start != null && end != null) {
-                    val sIdx = dayOrder.indexOf(start)
-                    val eIdx = dayOrder.indexOf(end)
-                    if (sIdx <= eIdx) {
-                        for (i in sIdx..eIdx) days.add(dayOrder[i])
-                    } else {
-                        for (i in sIdx until dayOrder.size) days.add(dayOrder[i])
-                        for (i in 0..eIdx) days.add(dayOrder[i])
-                    }
+                if (sub.size != 2) return null
+                val start = dayAbbrs[sub[0].trim()] ?: return null
+                val end = dayAbbrs[sub[1].trim()] ?: return null
+                val sIdx = dayOrder.indexOf(start)
+                val eIdx = dayOrder.indexOf(end)
+                if (sIdx <= eIdx) {
+                    for (i in sIdx..eIdx) days.add(dayOrder[i])
+                } else {
+                    for (i in sIdx until dayOrder.size) days.add(dayOrder[i])
+                    for (i in 0..eIdx) days.add(dayOrder[i])
                 }
             } else {
-                dayAbbrs[seg.trim()]?.let { days.add(it) }
+                days.add(dayAbbrs[seg] ?: return null)
             }
         }
-        return days
+        return DayParse(days, onlyIgnorable = days.isEmpty() && sawIgnorable)
     }
 
-    private fun parseTimeRanges(token: String): List<Pair<Int, Int>> {
+    /** "09:00-12:00,13:00-17:00" を分の組にする。1つでも解釈できなければ null。 */
+    private fun parseTimeRanges(token: String): List<Pair<Int, Int>>? {
         val list = mutableListOf<Pair<Int, Int>>()
-        val ranges = token.split(",")
-        for (range in ranges) {
+        for (range in token.split(",")) {
             val parts = range.trim().split("-")
-            if (parts.size == 2) {
-                val startMin = parseMinute(parts[0].trim())
-                val endMin = parseMinute(parts[1].trim())
-                if (startMin != null && endMin != null) {
-                    list.add(Pair(startMin, endMin))
-                }
-            }
+            if (parts.size != 2) return null
+            val startMin = parseMinute(parts[0].trim()) ?: return null
+            var endMin = parseMinute(parts[1].trim()) ?: return null
+            // 「18:00-27:30」のような 25 時以降の表記は、翌日にまたがる営業 (18:00-03:30) として扱う
+            if (endMin > 1440) endMin -= 1440
+            list.add(Pair(startMin, endMin))
         }
-        return list
+        return list.ifEmpty { null }
     }
 
     private fun parseMinute(timeStr: String): Int? {
@@ -191,6 +220,9 @@ object OpeningHoursParser {
         if (parts.size != 2) return null
         val h = parts[0].toIntOrNull() ?: return null
         val m = parts[1].toIntOrNull() ?: return null
-        return (h * 60 + m).coerceIn(0, 1440)
+        if (h !in 0..30 || m !in 0..59) return null
+        val minutes = h * 60 + m
+        // 24:00 ちょうどは 1440 に収める。それより後は呼び出し側が翌日分として扱う
+        return if (h == 24 && m == 0) 1440 else minutes
     }
 }
