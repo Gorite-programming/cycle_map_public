@@ -125,7 +125,7 @@ fun PlaceDetailContent(
         }
 
         // 営業状態バッジ
-        BusinessStatusBadge(status = detail.businessStatus, openingHoursText = detail.openingHoursText)
+        BusinessStatusBadge(status = detail.businessStatus)
 
         Spacer(modifier = Modifier.height(12.dp))
         val addrText = if (detail.address.isNotBlank() && detail.address != "周辺エリア") {
@@ -188,13 +188,74 @@ fun PlaceDetailContent(
                 Text(if (isFavorite) stringResource(R.string.saved_place) else stringResource(R.string.save_place))
             }
         }
+
+        // 営業時間・電話・Web・車椅子 (検索DB にあるものだけ)。操作ボタンが畳んだ状態でも見えるよう、ボタンの下に置く
+        val infoRows = placeInfoRows(detail)
+        if (infoRows.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PlaceInfoList(infoRows)
+        }
+    }
+}
+
+/** 場所の情報の行 (アイコン + 文字)。電話はダイヤル画面、Web はブラウザで開く。 */
+@Composable
+private fun PlaceInfoList(rows: List<PlaceInfoRow>) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            rows.forEach { row ->
+                val icon = when (row.kind) {
+                    PlaceInfoKind.HOURS -> R.drawable.ic_lucide_clock
+                    PlaceInfoKind.PHONE -> R.drawable.ic_lucide_phone
+                    PlaceInfoKind.WEBSITE -> R.drawable.ic_lucide_globe
+                    PlaceInfoKind.WHEELCHAIR -> R.drawable.ic_lucide_accessibility
+                }
+                val uri = row.uri
+                val linkColor = MaterialTheme.colorScheme.primary
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (uri != null) Modifier.clickable {
+                                val action = if (uri.startsWith("tel:")) android.content.Intent.ACTION_DIAL else android.content.Intent.ACTION_VIEW
+                                try {
+                                    context.startActivity(android.content.Intent(action, android.net.Uri.parse(uri)))
+                                } catch (_: android.content.ActivityNotFoundException) {
+                                    // 開けるアプリが無い端末では何もしない
+                                }
+                            } else Modifier
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(icon),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = row.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (uri != null) linkColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun BusinessStatusBadge(
-    status: BusinessStatus,
-    openingHoursText: String?
+    status: BusinessStatus
 ) {
     when (status) {
         is BusinessStatus.Open -> {
@@ -209,14 +270,6 @@ private fun BusinessStatusBadge(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                if (!openingHoursText.isNullOrEmpty()) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = openingHoursText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

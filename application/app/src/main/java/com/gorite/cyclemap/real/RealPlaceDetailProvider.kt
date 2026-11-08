@@ -44,6 +44,7 @@ class RealPlaceDetailProvider(
                 val hasOpeningHours = columns.contains("opening_hours")
                 val hasPhone = columns.contains("phone")
                 val hasWebsite = columns.contains("website")
+                val hasWheelchair = columns.contains("wheelchair")
                 val hasAddress = columns.contains("address")
 
                 val selectFields = buildList {
@@ -56,6 +57,7 @@ class RealPlaceDetailProvider(
                     if (hasOpeningHours) add("opening_hours") else add("NULL AS opening_hours")
                     if (hasPhone) add("phone") else add("NULL AS phone")
                     if (hasWebsite) add("website") else add("NULL AS website")
+                    if (hasWheelchair) add("wheelchair") else add("NULL AS wheelchair")
                 }.joinToString(", ")
 
                 val isRowId = placeId.toLongOrNull() != null
@@ -90,6 +92,7 @@ class RealPlaceDetailProvider(
                     val openingHoursText = colString("opening_hours")?.takeIf { it.isNotBlank() }
                     val phone = colString("phone")?.takeIf { it.isNotBlank() }
                     val website = colString("website")?.takeIf { it.isNotBlank() }
+                    val wheelchair = colString("wheelchair")?.takeIf { it.isNotBlank() }
 
                     val businessStatus = evaluateBusinessStatus(openingHoursText)
 
@@ -104,7 +107,8 @@ class RealPlaceDetailProvider(
                         businessStatus = businessStatus,
                         openingHoursText = openingHoursText,
                         phone = phone,
-                        website = website
+                        website = website,
+                        wheelchair = wheelchair,
                     )
                 }
             }

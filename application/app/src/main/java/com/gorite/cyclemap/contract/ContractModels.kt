@@ -24,7 +24,9 @@ data class PlaceDetail(
     val businessStatus: BusinessStatus = BusinessStatus.Unknown,
     val openingHoursText: String? = null,
     val phone: String? = null,
-    val website: String? = null
+    val website: String? = null,
+    /** OSM の wheelchair (yes / limited / no / designated)。無ければ null。 */
+    val wheelchair: String? = null,
 )
 
 data class RouteOption(
