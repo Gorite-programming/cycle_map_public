@@ -8,6 +8,7 @@ import com.gorite.cyclemap.routing.CyclingCostModel
 import com.gorite.cyclemap.routing.EdgeCostModel
 import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
+import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.routing.segmentGradesAlong
 import com.gorite.cyclemap.routing.PenaltyMultiRouteFinder
 import com.gorite.cyclemap.routing.RoadGraph
@@ -119,7 +120,8 @@ class RealRoutePlanner(
             durationSeconds = primaryDuration,
             elevationGainMeters = primaryElevGain,
             points = primaryResult.coordinates,
-            isPrimary = true
+            isPrimary = true,
+            nodeIds = primaryResult.nodeIds,
         )
 
         val options = mutableListOf(primaryOption)
@@ -167,7 +169,8 @@ class RealRoutePlanner(
                         durationSeconds = altDuration,
                         elevationGainMeters = altElevGain,
                         points = altResult.coordinates,
-                        isPrimary = false
+                        isPrimary = false,
+                        nodeIds = altResult.nodeIds,
                     )
                 )
             }
@@ -245,7 +248,10 @@ class RealRoutePlanner(
         }
     }
 
-    /** 経路沿いの辺の勾配から獲得標高を求める (画面の標高プロファイルと同じ計算)。勾配が無い旧 graph では 0。 */
+    /**
+     * 獲得標高を求める (画面の標高プロファイルと同じ計算)。graph が標高を持てば経路上のノードの標高から、
+     * 持たなければ辺の勾配の積み上げから。どちらも無い旧 graph では 0。
+     */
     private fun calculateElevationGain(
         lazyGraph: LazyMappedRoadGraph,
         coordinates: List<Pair<Double, Double>>,
@@ -253,7 +259,10 @@ class RealRoutePlanner(
     ): Double {
         if (coordinates.size < 2 || totalDistanceM <= 0.0) return 0.0
         val segments = lazyGraph.segmentGradesAlong(coordinates)
-        val profile = com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null)
+        val profile = com.gorite.cyclemap.ui.cycling.buildNodeElevationProfile(
+            segments,
+            lazyGraph.nodeElevationsAlong(coordinates),
+        ).ifEmpty { com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null) }
         return com.gorite.cyclemap.ui.cycling.elevationGain(profile, totalDistanceM) ?: 0.0
     }
 

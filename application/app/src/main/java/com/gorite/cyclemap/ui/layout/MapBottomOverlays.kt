@@ -87,6 +87,9 @@ internal fun BoxScope.MapBottomOverlays(
     corridorTileProgressText: String?,
     selectedRoutePreference: RoutePreference,
     onRoutePreferenceChange: (RoutePreference) -> Unit,
+    routeChoices: List<com.gorite.cyclemap.ui.cycling.RouteChoice> = emptyList(),
+    selectedRouteChoice: Int = 0,
+    onSelectRouteChoice: (Int) -> Unit = {},
     isArrived: Boolean,
     locationLabel: String,
     googleNavTab: GoogleNavTab,
@@ -264,6 +267,9 @@ internal fun BoxScope.MapBottomOverlays(
                             tileDownloadStatus = corridorTileProgressText,
                             selectedPreference = selectedRoutePreference,
                             onPreferenceChange = onRoutePreferenceChange,
+                            routeChoices = routeChoices,
+                            selectedRouteChoice = selectedRouteChoice,
+                            onSelectRouteChoice = onSelectRouteChoice,
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant,

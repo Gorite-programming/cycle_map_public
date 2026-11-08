@@ -50,6 +50,9 @@ fun RouteInfoCardContent(
     tileDownloadStatus: String? = null,
     selectedPreference: RoutePreference = RoutePreference.RECOMMENDED,
     onPreferenceChange: (RoutePreference) -> Unit = {},
+    routeChoices: List<RouteChoice> = emptyList(),
+    selectedRouteChoice: Int = 0,
+    onSelectRouteChoice: (Int) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (started) {
@@ -131,6 +134,50 @@ fun RouteInfoCardContent(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                         )
+                    }
+                }
+            }
+        }
+
+        // 経路の候補 (2 本以上あるとき): 選ぶと地図の主線と案内がその経路になる
+        if (routeChoices.size >= 2) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                routeChoices.forEachIndexed { index, choice ->
+                    val isSelected = index == selectedRouteChoice
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (isSelected) {
+                            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                        } else {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelectRouteChoice(index) },
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                choice.label,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                choice.detail,
+                                fontSize = 12.sp,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

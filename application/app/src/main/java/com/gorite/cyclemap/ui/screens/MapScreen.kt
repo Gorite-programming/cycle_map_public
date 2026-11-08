@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.ui.screens
 
 import com.gorite.cyclemap.*
+import kotlinx.coroutines.launch
+import kotlin.concurrent.read
 import com.gorite.cyclemap.utils.*
 import android.Manifest
 import android.os.SystemClock
@@ -119,6 +121,7 @@ internal fun MapScreen(
         },
         onRouteOptionsCalculated = { options ->
             state.calculatedRouteOptionsState.value = options
+            state.selectedRouteIndexState.value = 0 // 計算し直したら、最初の候補 (主線) に戻る
         },
     )
 
@@ -392,6 +395,45 @@ internal fun MapScreen(
         weatherRepo.updateLocation(lat, lon, cityHint = currentCityHint, isOnline = isOnline)
     }
 
+    // 経路プレビューで、別の候補を選んで主線 (案内する経路) にする。
+    // 案内の指示・曲がり角・概要を、選んだ候補の経路で作り直す。標高プロファイルは経路の変化に追従して再計算される。
+    val routeSelectScope = androidx.compose.runtime.rememberCoroutineScope()
+    val selectRouteOption: (Int) -> Unit = select@{ index ->
+        val options = state.calculatedRouteOptionsState.value
+        val option = options.getOrNull(index) ?: return@select
+        if (index == state.selectedRouteIndexState.value || option.points.size < 2) return@select
+        if (state.isNavigationActiveState.value) return@select
+        val graph = state.mappedGraphState.value
+        routeSelectScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val instructions = if (graph != null && option.nodeIds.size == option.points.size) {
+                try {
+                    state.graphLock.read {
+                        com.gorite.cyclemap.navigation.buildRouteInstructions(graph, option.nodeIds, option.points)
+                    }
+                } catch (t: Throwable) {
+                    Log.w("CycleMapInstruction", "alternative route instruction build failed", t)
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+            val navRoute = option.points.map { (lat, lon) -> RoutePoint(lat, lon) }
+            val maneuvers = com.gorite.cyclemap.routing.extractManeuvers(navRoute)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                // 選んでいる間に経路が消された・計算し直された・案内が始まった場合は、何もしない
+                if (state.calculatedRouteOptionsState.value !== options || state.isNavigationActiveState.value) {
+                    return@withContext
+                }
+                state.navigationRouteState.value = navRoute
+                state.navigationManeuversState.value = maneuvers
+                state.navigationInstructionsState.value = instructions
+                state.routeSummaryState.value = RouteSummary(option.distanceMeters, (navRoute.size - 1).coerceAtLeast(0))
+                state.selectedRouteIndexState.value = index
+                Log.i("CycleMapRoute", "ROUTE_OPTION_SELECTED index=$index id=${option.id} distanceM=${option.distanceMeters.toInt()}")
+            }
+        }
+    }
+
     val startNavigation: () -> Unit = {
         val loc = state.currentLocationState.value
         val navRoute = state.navigationRouteState.value
@@ -435,6 +477,7 @@ internal fun MapScreen(
             Log.i("CycleMapRoute", "GUIDANCE_STATE isNavigationActive=true routeDisplayed=true")
             // 案内中に見せるのは案内する 1 本だけ。代替ルート (灰色) は消す
             state.calculatedRouteOptionsState.value = emptyList()
+            state.selectedRouteIndexState.value = 0
             state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StartNavigation)
         } else {
             Log.e("CycleMapRoute", "ROUTE_FAILURE reason=start-with-empty-route")
@@ -465,6 +508,7 @@ internal fun MapScreen(
                 state.routeSummaryState.value = null
                 state.destinationState.value = null
                 state.calculatedRouteOptionsState.value = emptyList() // 灰色の代替ルートも消す
+                state.selectedRouteIndexState.value = 0
                 state.navigationRouteState.value = emptyList()
                 state.navigationManeuversState.value = emptyList()
                 state.navigationInstructionsState.value = emptyList()
@@ -536,6 +580,7 @@ internal fun MapScreen(
         orientationAnimator = orientationAnimator,
         runRouteCalculation = runRouteCalculation,
         startRouteToDestination = startRouteToDestination,
+        selectRouteOption = selectRouteOption,
         handleSpotSelected = handleSpotSelected,
         runRoutingBenchmark = runRoutingBenchmark,
         downloadCorridorTiles = downloadCorridorTiles,

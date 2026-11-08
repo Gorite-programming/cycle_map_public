@@ -46,6 +46,7 @@ internal fun MapScreenScaffold(
     toggleNextLayer: () -> Unit,
     startNavigation: () -> Unit,
     clearRoute: () -> Unit,
+    selectRouteOption: (Int) -> Unit = {},
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
 ) {
@@ -85,7 +86,8 @@ internal fun MapScreenScaffold(
                 state.showAreaDownloadConfirmDialogState.value = true
             },
             navigationRoute = state.navigationRouteState.value, alternativeRoutes = if (state.isNavigationActiveState.value || state.navigationRouteState.value.isEmpty()) emptyList()
-            else state.calculatedRouteOptionsState.value.filter { !it.isPrimary }.map { opt -> opt.points.map { GeoPoint(it.first, it.second) } },
+            else com.gorite.cyclemap.ui.cycling.alternativeLinesOf(state.calculatedRouteOptionsState.value, state.selectedRouteIndexState.value)
+                .map { line -> line.map { GeoPoint(it.first, it.second) } },
             currentLocation = state.currentLocationState.value,
             hasHeadingSensorFix = state.hasHeadingSensorFixState.value,
             headingDegrees = state.headingDegreesState.floatValue,
@@ -201,6 +203,9 @@ internal fun MapScreenScaffold(
             downloadCorridorTiles = downloadCorridorTiles,
             corridorTileProgressText = state.corridorTileProgressTextState.value,
             selectedRoutePreference = state.selectedRoutePreferenceState.value,
+            routeChoices = com.gorite.cyclemap.ui.cycling.routeChoicesOf(state.calculatedRouteOptionsState.value),
+            selectedRouteChoice = state.selectedRouteIndexState.value,
+            onSelectRouteChoice = selectRouteOption,
             onRoutePreferenceChange = { pref ->
                 state.selectedRoutePreferenceState.value = pref
                 val loc = state.currentLocationState.value

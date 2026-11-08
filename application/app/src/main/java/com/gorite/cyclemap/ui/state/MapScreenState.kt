@@ -179,6 +179,8 @@ internal class MapScreenState(
     val routeSummaryState: MutableState<RouteSummary?>,
     val calculatedRouteOptionsState: MutableState<List<com.gorite.cyclemap.contract.RouteOption>>,
     val selectedRoutePreferenceState: MutableState<RoutePreference>,
+    /** 経路候補 (calculatedRouteOptionsState) のうち、いま地図に主線として出して案内する候補の番号。 */
+    val selectedRouteIndexState: MutableState<Int>,
     val navigationRouteState: MutableState<List<RoutePoint>>,
     val navigationManeuversState: MutableState<List<Maneuver>>,
     val navigationInstructionsState: MutableState<List<RouteInstruction>>,

@@ -240,6 +240,7 @@ internal fun rememberMapScreenState(
     val routeSummaryState = remember { mutableStateOf<RouteSummary?>(null) }
     val calculatedRouteOptionsState = remember { mutableStateOf(emptyList<com.gorite.cyclemap.contract.RouteOption>()) }
     val selectedRoutePreferenceState = remember { mutableStateOf(RoutePreference.RECOMMENDED) }
+    val selectedRouteIndexState = remember { mutableStateOf(0) }
     val navigationRouteState = remember { mutableStateOf<List<RoutePoint>>(emptyList()) }
     val navigationManeuversState = remember { mutableStateOf(emptyList<Maneuver>()) }
     val navigationInstructionsState = remember { mutableStateOf(emptyList<RouteInstruction>()) }
@@ -458,6 +459,7 @@ internal fun rememberMapScreenState(
         routeSummaryState = routeSummaryState,
         calculatedRouteOptionsState = calculatedRouteOptionsState,
         selectedRoutePreferenceState = selectedRoutePreferenceState,
+        selectedRouteIndexState = selectedRouteIndexState,
         navigationRouteState = navigationRouteState,
         navigationManeuversState = navigationManeuversState,
         navigationInstructionsState = navigationInstructionsState,
