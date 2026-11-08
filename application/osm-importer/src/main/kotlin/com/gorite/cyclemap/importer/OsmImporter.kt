@@ -625,8 +625,11 @@ fun collectBicycleNetworkStats(file: File): BicycleNetworkStats {
 // Graph binary writer  (output format CYCLEMAP_GRAPH_V1 — unchanged)
 // ---------------------------------------------------------------------------
 
-class GraphBinaryWriter {
+class GraphBinaryWriter(private val demDir: File? = null) {
     fun write(graph: RoadGraph, output: File) {
+        // 標高タイルがあれば、辺ごとの勾配 (%) を書き込む。無ければ従来どおり勾配なし。
+        val elevations = demDir?.let { DemElevation(it).elevations(graph.nodes.values) }
+        var gradeEdges = 0
         output.parentFile?.mkdirs()
         DataOutputStream(FileOutputStream(output)).use { out ->
             out.writeUTF("CYCLEMAP_GRAPH_V1")
@@ -644,10 +647,13 @@ class GraphBinaryWriter {
                 out.writeDouble(edge.distanceMeters)
                 out.writeUTF(edge.roadType)
                 out.writeBoolean(edge.oneWay)
-                val grade = edge.gradePercent
+                val grade = edge.gradePercent ?: elevations?.let {
+                    DemElevation.edgeGradePercent(edge.distanceMeters, it[edge.from], it[edge.to])
+                }
                 out.writeBoolean(grade != null)
-                if (grade != null) out.writeDouble(grade)
+                if (grade != null) { out.writeDouble(grade); gradeEdges++ }
             }
+            if (elevations != null) println("gradeEdges=$gradeEdges / ${edges.size}")
         }
     }
 }
@@ -685,6 +691,7 @@ fun main(args: Array<String>) {
     val rest = args.toMutableList()
     var statsOnly = false
     var bbox = GeoBBox.YAMAGUCHI
+    var demDir: File? = null
     while (rest.firstOrNull()?.startsWith("--") == true) {
         when (val flag = rest.removeAt(0)) {
             "--stats" -> statsOnly = true
@@ -694,6 +701,10 @@ fun main(args: Array<String>) {
                     kotlin.system.exitProcess(1)
                 }
                 bbox = GeoBBox.parse(rest.removeAt(0))
+            }
+            "--dem-dir" -> {
+                require(rest.isNotEmpty() && !rest[0].startsWith("--")) { "Usage: osm-importer --dem-dir <dir>" }
+                demDir = File(rest.removeAt(0))
             }
             "--index" -> {
                 require(rest.size == 1) { "Usage: osm-importer --index <graph>" }
@@ -778,7 +789,7 @@ fun main(args: Array<String>) {
     }
 
     // Default: build graph
-    require(rest.size == 2) { "Usage: osm-importer [--bbox japan|yamaguchi|none] <input.osm.pbf> <output.graph>" }
+    require(rest.size == 2) { "Usage: osm-importer [--bbox japan|yamaguchi|none] [--dem-dir <dir>] <input.osm.pbf> <output.graph>" }
     val input = File(rest[0])
     val output = File(rest[1])
     require(input.isFile) { "Input PBF does not exist: ${input.absolutePath}" }
@@ -788,7 +799,7 @@ fun main(args: Array<String>) {
 
     // Use the two-pass builder instead of the old PbfReader + OsmGraphBuilder
     val graph = TwoPassGraphBuilder(bbox).build(input)
-    GraphBinaryWriter().write(graph, output)
+    GraphBinaryWriter(demDir).write(graph, output)
     val indexFile = File(output.path + ".idx")
     writeGraphIndex(output, indexFile)
 

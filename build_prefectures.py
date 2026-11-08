@@ -505,8 +505,11 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
         graph.unlink(missing_ok=True)
         idx.unlink(missing_ok=True)
         importer_env = {**os.environ, "JAVA_OPTS": IMPORTER_JAVA_OPTS}
+        # 標高タイル (scripts/build_terrain.py のキャッシュ) があれば辺の勾配を書き込む。無ければ勾配なし。
+        dem_dir = Path("work") / "terrain" / "dem14"
+        dem_args = ["--dem-dir", str(dem_dir)] if dem_dir.is_dir() else []
         rc = run_live(
-            [str(OSM_IMPORTER), "--bbox", "none", str(extract), str(graph)],
+            [str(OSM_IMPORTER), "--bbox", "none", *dem_args, str(extract), str(graph)],
             pref_log,
             env=importer_env,
         )
