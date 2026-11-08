@@ -8825,12 +8825,35 @@
         "text-font": [
           "Noto Sans Regular"
         ],
-        "text-size": 10,
+        "text-size": 12,
         "icon-size": 1,
         "symbol-placement": "line",
         "icon-rotation-alignment": "viewport",
         "text-rotation-alignment": "viewport",
-        "symbol-spacing": 300
+        "symbol-spacing": 320,
+        "text-offset": [
+          "match",
+          [
+            "get",
+            "network"
+          ],
+          "JP:national",
+          [
+            "literal",
+            [
+              0,
+              -0.18
+            ]
+          ],
+          [
+            "literal",
+            [
+              0,
+              0
+            ]
+          ]
+        ],
+        "text-padding": 2
       },
       "paint": {
         "text-color": "#FFFFFF"

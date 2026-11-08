@@ -328,7 +328,7 @@ enum class PoiCategory(
     val defaultOn: Boolean = false,
 ) {
     // 交通
-    STATION("駅・港", R.drawable.ic_lucide_train_front, "#0284C7",
+    STATION("駅・港", R.drawable.ic_poi_train, "#0284C7",
         listOf("railway:station", "railway:halt", "public_transport:station", "amenity:bus_station", "amenity:ferry_terminal"),
         true, minZoom = 10.5, defaultOn = true),
     BUS_STOP("バス停", R.drawable.ic_poi_bus, "#0277BD", listOf("highway:bus_stop"), false, minZoom = 15.5),
@@ -345,13 +345,13 @@ enum class PoiCategory(
     SUPERMARKET("スーパー・商業施設", R.drawable.ic_poi_cart, "#1A73E8",
         listOf("shop:supermarket", "shop:department_store", "shop:mall"), false, minZoom = 14.0, defaultOn = true),
     FOOD("飲食", R.drawable.ic_lucide_utensils, "#EA580C", listOf("amenity:restaurant", "amenity:cafe", "amenity:fast_food"), false, minZoom = 14.5, defaultOn = true),
-    BAKERY("パン屋", R.drawable.ic_lucide_store, "#E65100", listOf("shop:bakery"), false, minZoom = 15.0, defaultOn = true),
+    BAKERY("パン屋", R.drawable.ic_poi_bread, "#E65100", listOf("shop:bakery"), false, minZoom = 15.0, defaultOn = true),
     BAR("バー・居酒屋", R.drawable.ic_poi_glass, "#C2410C", listOf("amenity:bar", "amenity:pub"), false, minZoom = 15.5),
     // 観光・休憩
     TOURISM("観光", R.drawable.ic_lucide_camera, "#0D9488", listOf("tourism:"), true, minZoom = 11.5, defaultOn = true),
     WORSHIP("神社・寺", R.drawable.ic_poi_torii, "#B45309", listOf("amenity:place_of_worship"), false, minZoom = 14.0, defaultOn = true),
     PARK("公園", R.drawable.ic_lucide_trees, "#137333", listOf("leisure:park"), false, minZoom = 13.0, defaultOn = true),
-    BATH("温泉・銭湯", R.drawable.ic_lucide_droplets, "#00897B", listOf("amenity:public_bath"), true, minZoom = 12.5, defaultOn = true),
+    BATH("温泉・銭湯", R.drawable.ic_poi_onsen, "#00897B", listOf("amenity:public_bath"), true, minZoom = 12.5, defaultOn = true),
     HOTEL("宿泊", R.drawable.ic_poi_bed, "#7B1FA2", listOf("tourism:hotel", "tourism:guest_house", "tourism:hostel", "tourism:motel", "tourism:resort"),
         false, minZoom = 13.5, defaultOn = true),
     CAMP("キャンプ・山小屋", R.drawable.ic_poi_tent, "#2E7D32", listOf("tourism:camp_site", "tourism:alpine_hut", "tourism:wilderness_hut"),

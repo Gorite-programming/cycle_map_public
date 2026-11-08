@@ -25,9 +25,9 @@ private const val SHIELD_BLUE = 0xFF0B5DA8.toInt()
 private const val SHIELD_WHITE = 0xFFFFFFFF.toInt()
 
 /** 桁数に応じた標識の幅 (dp)。高さは [SHIELD_HEIGHT_DP] で固定。 */
-internal fun shieldWidthDp(digits: Int): Float = 16f + 6f * digits
+internal fun shieldWidthDp(digits: Int): Float = 22f + 7f * digits
 
-private const val SHIELD_HEIGHT_DP = 20f
+private const val SHIELD_HEIGHT_DP = 25f
 
 /** 国道・県道の標識画像を、まだ登録されていなければスタイルに登録する。 */
 internal fun registerRoadShieldImages(context: Context, style: Style) {
@@ -56,16 +56,21 @@ private fun drawNationalShield(widthDp: Float, density: Float): Bitmap {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
     val h = bitmap.height.toFloat()
-    val stroke = 1.2f * density
-    val inset = stroke
-    // 上辺が広く、下に向かって細くなる逆三角形 (角は丸める)
+    val stroke = 1.6f * density
+    val inset = stroke * 1.2f
+    // 上辺が広く、下に向かって細くなる逆三角形 (国道標識のおにぎり形。角は大きく丸める)
     val path = Path().apply {
-        moveTo(inset + 0.04f * w, inset + 0.08f * h)
-        lineTo(w - inset - 0.04f * w, inset + 0.08f * h)
+        moveTo(inset, inset + 0.04f * h)
+        lineTo(w - inset, inset + 0.04f * h)
         lineTo(w / 2f, h - inset)
         close()
     }
-    val round = CornerPathEffect(3f * density)
+    val round = CornerPathEffect(4.5f * density)
+    // 影 (白縁の外側を少しだけ沈ませて、暗い背景・明るい背景のどちらでも輪郭が立つようにする)
+    canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL; color = android.graphics.Color.TRANSPARENT; pathEffect = round
+        setShadowLayer(1.6f * density, 0f, 0.8f * density, 0x66000000)
+    })
     canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL; color = SHIELD_BLUE; pathEffect = round
     })
@@ -81,9 +86,9 @@ private fun drawPrefecturalShield(widthDp: Float, density: Float): Bitmap {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
     val h = bitmap.height.toFloat()
-    val stroke = 1.6f * density
-    val inset = stroke
-    val corner = h * 0.28f
+    val stroke = 1.8f * density
+    val inset = stroke * 1.2f
+    val corner = h * 0.30f
     val path = Path().apply {
         moveTo(inset, h / 2f)
         lineTo(inset + corner, inset)
@@ -93,7 +98,11 @@ private fun drawPrefecturalShield(widthDp: Float, density: Float): Bitmap {
         lineTo(inset + corner, h - inset)
         close()
     }
-    val round = CornerPathEffect(2.5f * density)
+    val round = CornerPathEffect(3f * density)
+    canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL; color = android.graphics.Color.TRANSPARENT; pathEffect = round
+        setShadowLayer(1.6f * density, 0f, 0.8f * density, 0x66000000)
+    })
     canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL; color = SHIELD_BLUE; pathEffect = round
     })

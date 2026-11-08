@@ -113,10 +113,10 @@ internal fun googlePoiMarker(
     if (cached != null) return cached
 
     val density = context.resources.displayMetrics.density
-    val pinRadius = 10f * density
-    val pointerHeight = 3.8f * density
-    val shadowPad = 2.5f * density
-    val iconSize = (11.5f * density).toInt()
+    val pinRadius = 11.5f * density
+    val pointerHeight = 5f * density
+    val shadowPad = 3.5f * density
+    val iconSize = (14.5f * density).toInt()
 
     // ピンの幾何学中心と先端
     val pinCx = shadowPad + pinRadius
@@ -174,30 +174,34 @@ internal fun googlePoiMarker(
         op(pointer, android.graphics.Path.Op.UNION)
     }
 
-    // 2. ピンの影 (薄い半透明シャドウ)
+    // 2. ピンの影 (ぼかした半透明シャドウで、地図から浮いて見せる)
     val shadowPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.parseColor("#33000000")
-        pathEffect = android.graphics.CornerPathEffect(2f * density)
+        color = android.graphics.Color.TRANSPARENT
+        setShadowLayer(2.2f * density, 0f, 1.4f * density, android.graphics.Color.parseColor("#59000000"))
+        pathEffect = android.graphics.CornerPathEffect(3f * density)
     }
-    canvas.save()
-    canvas.translate(0f, 1.2f * density)
     canvas.drawPath(pinPath, shadowPaint)
-    canvas.restore()
 
-    // 3. ピンの塗りつぶし (Googleマップ カテゴリカラー)
+    // 3. ピンの塗りつぶし (カテゴリカラー。上をわずかに明るくして平板に見えないようにする)
+    val base = android.graphics.Color.parseColor(category.colorHex)
     val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         style = android.graphics.Paint.Style.FILL
-        color = android.graphics.Color.parseColor(category.colorHex)
-        pathEffect = android.graphics.CornerPathEffect(2.5f * density)
+        shader = android.graphics.LinearGradient(
+            0f, pinCy - pinRadius, 0f, pinTipY,
+            androidx.core.graphics.ColorUtils.blendARGB(base, android.graphics.Color.WHITE, 0.16f), base,
+            android.graphics.Shader.TileMode.CLAMP,
+        )
+        pathEffect = android.graphics.CornerPathEffect(3f * density)
     }
     canvas.drawPath(pinPath, fillPaint)
 
-    // 4. ピンの外枠 (純白ストローク)
+    // 4. ピンの外枠 (白いリング。暗い地図でも明るい地図でも輪郭が立つ)
     val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         style = android.graphics.Paint.Style.STROKE
-        strokeWidth = 2.2f * density
+        strokeWidth = 2.4f * density
+        strokeJoin = android.graphics.Paint.Join.ROUND
         color = android.graphics.Color.WHITE
-        pathEffect = android.graphics.CornerPathEffect(2.5f * density)
+        pathEffect = android.graphics.CornerPathEffect(3f * density)
     }
     canvas.drawPath(pinPath, strokePaint)
 

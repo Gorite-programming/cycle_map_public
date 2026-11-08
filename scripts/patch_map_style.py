@@ -44,7 +44,7 @@ def shield_len_image(prefix):
     return ["concat", prefix, ["length", ["get", "shield_text"]], "char"]
 
 
-def patch_shields(layer):
+def patch_shields(layer, theme):
     layer["filter"] = [
         "all",
         ["==", ["get", "kind"], "major_road"],
@@ -57,12 +57,18 @@ def patch_shields(layer):
         "JP:prefectural", shield_len_image("jp-prefectural-"),
         shield_len_image("generic_shield-"),
     ]
-    layer["layout"]["text-size"] = 10
+    layer["layout"]["text-size"] = 12
     layer["layout"]["icon-size"] = 1
-    layer["layout"]["symbol-spacing"] = 300
+    layer["layout"]["symbol-spacing"] = 320
+    # 逆三角形 (国道) は数字を載せる広い上寄りに、六角形 (県道) は中央に置く
+    layer["layout"]["text-offset"] = ["match", ["get", "network"], "JP:national", ["literal", [0, -0.18]], ["literal", [0, 0]]]
+    layer["layout"]["text-padding"] = 2
     paint = layer["paint"]
     # 国道・県道とも青地に白文字 (形で区別する)。標識の上に載る文字なので、地図背景ではなく標識の青との対比で決める
     paint["text-color"] = "#FFFFFF"
+    if theme == "dark":
+        # ダークの既存規約 (ハロー幅 1.5 以上・地図背景より暗い色) を守りつつ、標識の青に溶ける濃紺にして数字を太く見せない
+        paint["text-halo-color"] = "#062244"
 
 
 def patch_rail(layers, theme):
@@ -137,7 +143,7 @@ def patch_style(theme):
     path = STYLE_DIR / ("protomaps_%s.json" % theme)
     style = json.loads(path.read_text(encoding="utf-8"))
     layers = {l["id"]: l for l in style["layers"]}
-    patch_shields(layers["roads_shields"])
+    patch_shields(layers["roads_shields"], theme)
     patch_rail(layers, theme)
     patch_pois(layers["pois"])
     patch_landuse(style, theme)
