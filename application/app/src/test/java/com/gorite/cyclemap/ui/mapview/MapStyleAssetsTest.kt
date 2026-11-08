@@ -79,6 +79,26 @@ class MapStyleAssetsTest {
     }
 
     @Test
+    fun landuseIsSplitIntoDistinctKindsWithDistinctColours() {
+        val ids = listOf(
+            "landuse_park", "landuse_wood", "landuse_farmland", "landuse_cemetery",
+            "landuse_residential", "landuse_commercial", "landuse_pitch", "landuse_military",
+        )
+        for (theme in listOf("light", "dark")) {
+            val all = layers(loadStyle(theme))
+            val colours = ids.map { id ->
+                val layer = all[id] ?: error("$theme: $id missing")
+                layer.getAsJsonObject("paint").get("fill-color").asString
+            }
+            assertEquals("$theme: every landuse class has its own colour", colours.size, colours.toSet().size)
+            // 同じ kind を 2 つのレイヤーが塗らない (重なると上のレイヤーの色で隠れてしまう)
+            val kinds = ids.flatMap { id -> all.getValue(id).getAsJsonArray("filter").strings().drop(2) }
+            assertEquals("$theme: a kind is painted by one layer only", kinds.size, kinds.toSet().size)
+            assertTrue("$theme: forest is no longer painted as a park", !all.getValue("landuse_park").toString().contains("\"forest\""))
+        }
+    }
+
+    @Test
     fun placeLabelLayersExistSoDynamicPinsCanBeInsertedBelowThem() {
         // setupDynamicPoiLayers は places_subplace → places_region → places_locality の順で直下を探す
         for (theme in listOf("light", "dark")) {

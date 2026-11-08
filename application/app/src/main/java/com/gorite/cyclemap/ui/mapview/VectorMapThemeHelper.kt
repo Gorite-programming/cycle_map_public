@@ -118,8 +118,16 @@ internal fun applyMapLabelReadability(style: Style) {
 }
 
 internal fun vectorMapAreaFillColors(isNight: Boolean): Map<String, String> = listOf(
-    "water" to if (isNight) "#17263C" else "#D7E6EC",
-    "landuse_park" to if (isNight) "#1B2A22" else "#C2F0D6",
+    // 土地利用・水域の色は scripts/patch_map_style.py が正。ここは同じ値にそろえる (StyleJsonTest が一致を検証)
+    "water" to if (isNight) "#1A3552" else "#AFCFE6",
+    "landuse_park" to if (isNight) "#20372A" else "#C9E8C4",
+    "landuse_wood" to if (isNight) "#162A1D" else "#B7D9B0",
+    "landuse_farmland" to if (isNight) "#26301F" else "#E8EDC8",
+    "landuse_cemetery" to if (isNight) "#1F2C25" else "#D6E3D2",
+    "landuse_residential" to if (isNight) "#262729" else "#ECEEF3",
+    "landuse_commercial" to if (isNight) "#2D2823" else "#F3E9DE",
+    "landuse_pitch" to if (isNight) "#23402F" else "#CDE8C8",
+    "landuse_military" to if (isNight) "#2B2B30" else "#E3E1E6",
     "landuse_urban_green" to if (isNight) "#1B2A22" else "#C2F0D6",
     "landuse_hospital" to if (isNight) "#252628" else "#FDF9EE",
     "landuse_industrial" to if (isNight) "#252628" else "#eceae6",

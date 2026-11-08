@@ -81,19 +81,13 @@
         "kind",
         "national_park",
         "park",
-        "cemetery",
         "protected_area",
         "nature_reserve",
-        "forest",
         "golf_course",
-        "wood",
-        "scrub",
         "grassland",
         "grass",
         "glacier",
         "sand",
-        "military",
-        "naval_base",
         "airfield"
       ],
       "paint": {
@@ -110,7 +104,207 @@
           11,
           1
         ],
-        "fill-color": "#C2F0D6"
+        "fill-color": "#C9E8C4"
+      }
+    },
+    {
+      "id": "landuse_wood",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "forest",
+        "wood",
+        "scrub"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#B7D9B0"
+      }
+    },
+    {
+      "id": "landuse_farmland",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "farmland",
+        "orchard",
+        "vineyard",
+        "meadow",
+        "greenhouse_horticulture",
+        "plant_nursery"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#E8EDC8"
+      }
+    },
+    {
+      "id": "landuse_cemetery",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "cemetery"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#D6E3D2"
+      }
+    },
+    {
+      "id": "landuse_residential",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "residential"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#ECEEF3"
+      }
+    },
+    {
+      "id": "landuse_commercial",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "commercial",
+        "retail"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#F3E9DE"
+      }
+    },
+    {
+      "id": "landuse_pitch",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "pitch",
+        "recreation_ground",
+        "sports_centre"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#CDE8C8"
+      }
+    },
+    {
+      "id": "landuse_military",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "filter": [
+        "in",
+        "kind",
+        "military",
+        "naval_base"
+      ],
+      "paint": {
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0,
+          11,
+          1
+        ],
+        "fill-color": "#E3E1E6"
       }
     },
     {
@@ -306,7 +500,7 @@
       "source": "protomaps",
       "source-layer": "water",
       "paint": {
-        "fill-color": "#D7E6EC"
+        "fill-color": "#AFCFE6"
       }
     },
     {
@@ -321,7 +515,7 @@
         "stream"
       ],
       "paint": {
-        "line-color": "#D7E6EC",
+        "line-color": "#AFCFE6",
         "line-width": 0.5
       }
     },
@@ -337,7 +531,7 @@
         "river"
       ],
       "paint": {
-        "line-color": "#D7E6EC",
+        "line-color": "#AFCFE6",
         "line-width": [
           "interpolate",
           [

@@ -9,7 +9,10 @@
      画像は実行時にコード (VectorMapStyles.kt の registerRoadShieldImages) が jp-national-Nchar /
      jp-prefectural-Nchar として登録する。高速道路 (kind=highway) は関連路線の番号が混ざるため対象外。
   2. 鉄道: JR 等の本線を「黒地に白い破線」のゼブラ表示にする。路面電車・地下鉄などは細い実線のまま。
-  3. タイル内 POI: 動的 POI ピン (検索DB由来) が担うカテゴリ (飲食・コンビニ・トイレ・給水・バス停) は
+  3. 土地利用: 公園・森林・農地・墓地・住宅地・商業地・運動場・軍用地を別々の色で塗り分け、水域を濃くする。
+     色の定義はこのスクリプトが正。Kotlin 側の VectorMapThemeHelper.vectorMapAreaFillColors も同じ色にそろえる
+     (StyleJsonTest が一致を検証する)。
+  4. タイル内 POI: 動的 POI ピン (検索DB由来) が担うカテゴリ (飲食・コンビニ・トイレ・給水・バス停) は
      スタイル側から外し、同じ施設が二重に出ないようにする。
 
 使い方 (リポジトリ直下から):
@@ -87,6 +90,49 @@ def patch_pois(layer):
     flt[1][2][1] = [k for k in kinds if k not in POI_KINDS_COVERED_BY_PINS]
 
 
+# 土地利用の塗り分け。landuse_park は残りの種別 (公園・草地・ゴルフ場など) を担当する。
+# (layer id, 担当する kind, light の色, dark の色)
+LANDUSE_PARK_KINDS = ["national_park", "park", "protected_area", "nature_reserve", "golf_course", "grassland", "grass",
+                      "glacier", "sand", "airfield"]
+LANDUSE_SPLIT = [
+    ("landuse_wood", ["forest", "wood", "scrub"], "#B7D9B0", "#162A1D"),
+    ("landuse_farmland", ["farmland", "orchard", "vineyard", "meadow", "greenhouse_horticulture", "plant_nursery"],
+     "#E8EDC8", "#26301F"),
+    ("landuse_cemetery", ["cemetery"], "#D6E3D2", "#1F2C25"),
+    ("landuse_residential", ["residential"], "#ECEEF3", "#262729"),
+    ("landuse_commercial", ["commercial", "retail"], "#F3E9DE", "#2D2823"),
+    ("landuse_pitch", ["pitch", "recreation_ground", "sports_centre"], "#CDE8C8", "#23402F"),
+    ("landuse_military", ["military", "naval_base"], "#E3E1E6", "#2B2B30"),
+]
+PARK_COLORS = {"light": "#C9E8C4", "dark": "#20372A"}
+WATER_COLORS = {"light": "#AFCFE6", "dark": "#1A3552"}
+
+
+def patch_landuse(style, theme):
+    layers = style["layers"]
+    by_id = {l["id"]: l for l in layers}
+    park = by_id["landuse_park"]
+    park["filter"] = ["in", "kind"] + LANDUSE_PARK_KINDS
+    park["paint"]["fill-color"] = PARK_COLORS[theme]
+    insert_at = layers.index(park) + 1
+    for layer_id, kinds, light, dark in LANDUSE_SPLIT:
+        color = light if theme == "light" else dark
+        if layer_id in by_id:
+            layer = by_id[layer_id]
+        else:
+            layer = json.loads(json.dumps(park))
+            layer["id"] = layer_id
+            layers.insert(insert_at, layer)
+            insert_at += 1
+        layer["filter"] = ["in", "kind"] + kinds
+        layer["paint"]["fill-color"] = color
+    for water_id in ("water", "water_river", "water_stream"):
+        if water_id in by_id:
+            paint = by_id[water_id]["paint"]
+            key = "fill-color" if "fill-color" in paint else "line-color"
+            paint[key] = WATER_COLORS[theme]
+
+
 def patch_style(theme):
     path = STYLE_DIR / ("protomaps_%s.json" % theme)
     style = json.loads(path.read_text(encoding="utf-8"))
@@ -94,6 +140,7 @@ def patch_style(theme):
     patch_shields(layers["roads_shields"])
     patch_rail(layers, theme)
     patch_pois(layers["pois"])
+    patch_landuse(style, theme)
     path.write_text(json.dumps(style, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("patched %s" % path.name)
 
