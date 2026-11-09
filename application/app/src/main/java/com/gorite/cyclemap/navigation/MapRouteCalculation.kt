@@ -85,7 +85,27 @@ internal fun executeRouteCalculation(
     if (waypointsOverride != null) {
         env.onWaypointsChanged(waypointsOverride)
     }
+    val startPrefecture = findPrefectureName(start.latitude, start.longitude)
+    val goalPrefecture = findPrefectureName(goal.latitude, goal.longitude)
+    val straightDistanceMeters = haversineMeters(
+        start.latitude,
+        start.longitude,
+        goal.latitude,
+        goal.longitude,
+    )
+    val notice = if (isReroute) {
+        CrossPrefectureNotice(showLongCalculationNotice = false, showUnsupportedWarning = false)
+    } else {
+        crossPrefectureNotice(startPrefecture, goalPrefecture, straightDistanceMeters)
+    }
     env.onCalculatingRouteChanged(true)
+    if (notice.showLongCalculationNotice) {
+        env.onWarningMessageChanged(LONG_CROSS_PREFECTURE_CALCULATION_MESSAGE)
+        Log.i(
+            "CycleMapRoute",
+            "ROUTE_NOTICE kind=long_cross_prefecture straightKm=${"%.2f".format(java.util.Locale.US, straightDistanceMeters / 1_000.0)}",
+        )
+    }
     if (isReroute) {
         env.onReroutingChanged(true)
     }
@@ -105,7 +125,7 @@ internal fun executeRouteCalculation(
             return
         }
         is RoutingGraphSelection.Available -> {
-            val goalPref = findPrefectureName(goal.latitude, goal.longitude)
+            val goalPref = goalPrefecture
             Log.i(
                 "CycleMapRoute",
                 "GRAPH_SELECT location=${start.latitude},${start.longitude} " +
@@ -367,6 +387,11 @@ internal fun executeRouteCalculation(
                     routeSummary,
                     isReroute,
                 )
+
+                if (notice.showUnsupportedWarning) {
+                    env.onWarningMessageChanged(CROSS_PREFECTURE_UNSUPPORTED_MESSAGE)
+                    Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_prefecture_unsupported")
+                }
 
                 Log.i(
                     "CycleMapRoute",

@@ -1,0 +1,25 @@
+package com.gorite.cyclemap.navigation
+
+/** 表示だけに使う県またぎ経路の通知判定。 */
+internal data class CrossPrefectureNotice(
+    val showLongCalculationNotice: Boolean,
+    val showUnsupportedWarning: Boolean,
+)
+
+internal const val LONG_CROSS_PREFECTURE_CALCULATION_MESSAGE =
+    "長距離の計算を行なっています。この計算には時間がかかることがあります..."
+
+internal const val CROSS_PREFECTURE_UNSUPPORTED_MESSAGE =
+    "県をまたぐ経路には未対応です。出発地の県内で目的地に最も近い地点までの経路を表示しています"
+
+internal fun crossPrefectureNotice(
+    startPref: String?,
+    goalPref: String?,
+    straightMeters: Double,
+): CrossPrefectureNotice {
+    val crossesPrefecture = startPref != null && goalPref != null && startPref != goalPref
+    return CrossPrefectureNotice(
+        showLongCalculationNotice = crossesPrefecture && straightMeters > 50_000.0,
+        showUnsupportedWarning = crossesPrefecture,
+    )
+}
