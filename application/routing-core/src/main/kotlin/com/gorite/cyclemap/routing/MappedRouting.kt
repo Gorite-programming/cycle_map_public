@@ -217,6 +217,11 @@ data class MappedRouteResult(
     val wasCancelled: Boolean = false,
     /** 展開ノード上限で打ち切られた。範囲を狭めて再試行できる。 */
     val wasTruncated: Boolean = false,
+    /**
+     * 経路上のノードの、graph 内の番号 (nodeIds と同じ順)。LazyMappedRoadGraph の探索結果だけが持つ。
+     * 座標から最寄りのノードを探し直さずに、勾配・標高を引くのに使う (実機で数秒かかっていた)。
+     */
+    val nodeIndices: List<Int> = emptyList(),
 ) {
     val isReachable: Boolean get() = nodeIds.isNotEmpty()
 }

@@ -10,6 +10,8 @@ import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.routing.segmentGradesAlong
+import com.gorite.cyclemap.routing.segmentGradesAlongIndices
+import com.gorite.cyclemap.routing.nodeElevationsAt
 import com.gorite.cyclemap.routing.PenaltyMultiRouteFinder
 import com.gorite.cyclemap.routing.RoadGraph
 import com.gorite.cyclemap.routing.TravelCostModelFactory
@@ -106,7 +108,7 @@ class RealRoutePlanner(
             dateTime = now
         )
 
-        val primaryElevGain = calculateElevationGain(lazyGraph, primaryResult.coordinates, primaryDistance)
+        val primaryElevGain = calculateElevationGain(lazyGraph, primaryResult, primaryDistance)
 
         val primaryOption = RouteOption(
             id = "route_primary",
@@ -155,7 +157,7 @@ class RealRoutePlanner(
                     mode = mode,
                     dateTime = now
                 )
-                val altElevGain = calculateElevationGain(lazyGraph, altResult.coordinates, altDistance)
+                val altElevGain = calculateElevationGain(lazyGraph, altResult, altDistance)
                 options.add(
                     RouteOption(
                         id = "route_alternative",
@@ -254,14 +256,17 @@ class RealRoutePlanner(
      */
     private fun calculateElevationGain(
         lazyGraph: LazyMappedRoadGraph,
-        coordinates: List<Pair<Double, Double>>,
+        result: com.gorite.cyclemap.routing.MappedRouteResult,
         totalDistanceM: Double,
     ): Double {
+        val coordinates = result.coordinates
         if (coordinates.size < 2 || totalDistanceM <= 0.0) return 0.0
-        val segments = lazyGraph.segmentGradesAlong(coordinates)
+        // 探索結果がノードの番号を持てば、それで引く (座標から最寄りノードを探すと実機で数秒かかる)
+        val byIndex = result.nodeIndices.size == coordinates.size
+        val segments = if (byIndex) lazyGraph.segmentGradesAlongIndices(result.nodeIndices) else lazyGraph.segmentGradesAlong(coordinates)
         val profile = com.gorite.cyclemap.ui.cycling.buildNodeElevationProfile(
             segments,
-            lazyGraph.nodeElevationsAlong(coordinates),
+            if (byIndex) lazyGraph.nodeElevationsAt(result.nodeIndices) else lazyGraph.nodeElevationsAlong(coordinates),
         ).ifEmpty { com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null) }
         return com.gorite.cyclemap.ui.cycling.elevationGain(profile, totalDistanceM) ?: 0.0
     }

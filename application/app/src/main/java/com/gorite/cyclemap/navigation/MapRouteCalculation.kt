@@ -183,6 +183,7 @@ internal fun executeRouteCalculation(
                 add(goal)
             }
             val allNodeIds = ArrayList<Long>()
+            val allNodeIndices = ArrayList<Int>()
             val allCoordinates = ArrayList<Pair<Double, Double>>()
             var totalDist = 0.0
             var totalCostVal = 0.0
@@ -208,13 +209,16 @@ internal fun executeRouteCalculation(
                         "ROUTE_SNAP leg=$i startNode=$startIndex goalNode=$goalIndex pref=$pref",
                     )
                     if (routeJob.isCancelled()) return@launch
+                    val t0 = SystemClock.elapsedRealtime()
                     graph.route(
                         startIndex,
                         goalIndex,
                         isCancelled = { routeJob.isCancelled() },
                         maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
                         preference = pref,
-                    )
+                    ).also {
+                        Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes}")
+                    }
                 }
                 if (routeJob.isCancelled() || legResult.wasCancelled) return@launch
                 if (!legResult.isReachable) {
@@ -228,12 +232,14 @@ internal fun executeRouteCalculation(
                 if (allCoordinates.isEmpty()) {
                     allCoordinates.addAll(legResult.coordinates)
                     allNodeIds.addAll(legResult.nodeIds)
+                    allNodeIndices.addAll(legResult.nodeIndices)
                 } else {
                     if (legResult.coordinates.isNotEmpty()) {
                         allCoordinates.addAll(legResult.coordinates.drop(1))
                     }
                     if (legResult.nodeIds.isNotEmpty()) {
                         allNodeIds.addAll(legResult.nodeIds.drop(1))
+                        allNodeIndices.addAll(legResult.nodeIndices.drop(1))
                     }
                 }
             }
@@ -245,10 +251,13 @@ internal fun executeRouteCalculation(
                 coordinates = if (isAllReachable) allCoordinates else emptyList(),
                 wasCancelled = false,
                 wasTruncated = isAnyTruncated,
+                // 番号の列は全区間そろっているときだけ渡す (欠けていれば座標から引く従来の処理になる)
+                nodeIndices = if (isAllReachable && allNodeIndices.size == allNodeIds.size) allNodeIndices else emptyList(),
             )
             if (routeJob.isCancelled()) return@launch
             if (result.wasCancelled) return@launch
 
+            val optionsStartedAt = SystemClock.elapsedRealtime()
             val routeOptions = if (!isReroute && result.isReachable) {
                 env.graphLock.read {
                     if (routeJob.isCancelled()) emptyList()
@@ -269,6 +278,7 @@ internal fun executeRouteCalculation(
                 emptyList()
             }
 
+            Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=${SystemClock.elapsedRealtime() - optionsStartedAt} options=${routeOptions.size}")
             Log.i(
                 "CycleMapRoute",
                 "ROUTE_RESULT pref=$pref success=${result.isReachable} truncated=${result.wasTruncated} " +

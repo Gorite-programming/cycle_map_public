@@ -8,7 +8,6 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.util.PriorityQueue
 import kotlin.math.abs
 import kotlin.math.cos
 
@@ -88,9 +87,33 @@ class LazyMappedRoadGraph private constructor(
     }
 
     fun nodeIndexOf(nodeId: Long): Int {
-        val index = nodeIds.indexOf(nodeId)
-        require(index >= 0) { "Unknown node id: $nodeId" }
-        return index
+        // 以前は nodeIds.indexOf の線形探索 (広島 186 万件) で、案内の指示を作るだけで実機 5 秒以上かかっていた。
+        // ID を並べ替えた表を一度だけ作り、二分探索で引く (広島で約 22MB)。
+        val (sortedIds, order) = sortedIdIndex()
+        val k = java.util.Arrays.binarySearch(sortedIds, nodeId)
+        require(k >= 0) { "Unknown node id: $nodeId" }
+        return order[k]
+    }
+
+    @Volatile private var sortedIdIndexCache: Pair<LongArray, IntArray>? = null
+
+    private fun sortedIdIndex(): Pair<LongArray, IntArray> {
+        sortedIdIndexCache?.let { return it }
+        synchronized(this) {
+            sortedIdIndexCache?.let { return it }
+            val n = nodeIds.size
+            val packable = n < (1 shl 24) && nodeIds.all { it in 0 until (1L shl 39) }
+            val result = if (packable) {
+                // ID (39 ビット) と番号 (24 ビット) を 1 つの Long に詰めてプリミティブのまま並べ替える (箱詰めを避ける)
+                val packed = LongArray(n) { (nodeIds[it] shl 24) or it.toLong() }
+                packed.sort()
+                LongArray(n) { packed[it] ushr 24 } to IntArray(n) { (packed[it] and 0xFFFFFF).toInt() }
+            } else {
+                val order = (0 until n).sortedBy { nodeIds[it] }.toIntArray()
+                LongArray(n) { nodeIds[order[it]] } to order
+            }
+            return result.also { sortedIdIndexCache = it }
+        }
     }
 
     fun nearestNodeIndex(latitude: Double, longitude: Double): Int {
@@ -199,80 +222,232 @@ class LazyMappedRoadGraph private constructor(
         require(maxExpandedNodes > 0) { "maxExpandedNodes must be positive" }
         if (start == goal) {
             lastExpandedNodes = 0
-            return MappedRouteResult(listOf(nodeIds[start]), 0.0, 0.0, listOf(latitudes[start] to longitudes[start]))
+            return MappedRouteResult(listOf(nodeIds[start]), 0.0, 0.0, listOf(latitudes[start] to longitudes[start]), nodeIndices = listOf(start))
         }
-        data class Entry(val index: Int, val cost: Double, val estimate: Double) : Comparable<Entry> {
-            override fun compareTo(other: Entry): Int = estimate.compareTo(other.estimate)
-        }
-        val open = PriorityQueue<Entry>()
-        val cost = HashMap<Int, Double>()
-        val distance = HashMap<Int, Double>()
-        val cameFrom = HashMap<Int, Int>()
-        var expandedNodes = 0
-        cost[start] = 0.0; distance[start] = 0.0
-        open += Entry(start, 0.0, heuristic(start, goal, heuristicMultiplier))
-        while (open.isNotEmpty()) {
-            val entry = open.remove()
-            val current = entry.index
-            if (entry.cost > cost.getOrDefault(current, Double.POSITIVE_INFINITY)) {
-                continue
-            }
-            expandedNodes++
-            // 1024展開ごとにキャンセル・上限を判定 (毎回の判定コストを避ける)
-            if ((expandedNodes and 1023) == 0) {
-                if (isCancelled?.invoke() == true) {
-                    lastExpandedNodes = expandedNodes
-                    return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
-                }
-                if (expandedNodes >= maxExpandedNodes) {
-                    lastExpandedNodes = expandedNodes
-                    return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasTruncated = true)
-                }
-            }
-            if (current == goal) {
-                lastExpandedNodes = expandedNodes
-                val path = ArrayList<Int>(); var cursor = goal; path += cursor
-                while (cameFrom.containsKey(cursor)) { cursor = cameFrom.getValue(cursor); path += cursor }
-                path.reverse()
-                return MappedRouteResult(
-                    path.map { nodeIds[it] }, distance.getValue(goal), cost.getValue(goal),
-                    path.map { latitudes[it] to longitudes[it] },
-                )
-            }
-            if (bounds != null && current != start &&
-                !bounds.contains(latitudes[current], longitudes[current])
-            ) {
-                continue
-            }
-            var position = edgeStarts[current]
-            var ordinal = edgeFirstOrdinals[current]
-            repeat(edgeCounts[current]) {
-                val record = readEdge(position)
-                position = record.nextOffset
-                val multiplier = multiplier(record.type, costMode)
-                val target = edgeTargets[ordinal]
-                if (multiplier != null && (!arterialOnly || isArterial(record.type) || current == start || target == goal)) {
-                    if (target >= 0 && (target == goal || bounds == null ||
-                        bounds.contains(latitudes[target], longitudes[target]))) {
-                        val arterialBias = if (isArterial(record.type)) arterialPenaltyMultiplier else nonArterialPenaltyMultiplier
-                        val gradePen = if (costMode == RouteCostMode.CAR) 1.0 else gradePenalty(record.grade, preference)
-                        val combinedMultiplier = (multiplier * gradePen * arterialBias).coerceAtLeast(0.90)
-                        val stepCost = record.distance * combinedMultiplier
-                        val newCost = cost.getValue(current) + stepCost
-                        if (newCost < cost.getOrDefault(target, Double.POSITIVE_INFINITY)) {
-                            cost[target] = newCost
-                            distance[target] = distance.getValue(current) + record.distance
-                            cameFrom[target] = current
-                            open += Entry(target, newCost, newCost + heuristic(target, goal, heuristicMultiplier))
-                        }
+        val types = edgeTypeCodes()
+        val multipliers = multiplierTable(costMode)
+        val ws = acquireWorkspace()
+        try {
+            ws.begin()
+            var expandedNodes = 0
+            ws.set(start, 0.0, 0.0, -1)
+            ws.push(start, 0.0, heuristic(start, goal, heuristicMultiplier))
+            while (ws.size > 0) {
+                val current = ws.topNode()
+                val entryCost = ws.topCost()
+                ws.pop()
+                if (entryCost > ws.costOf(current)) continue
+                expandedNodes++
+                // 1024展開ごとにキャンセル・上限を判定 (毎回の判定コストを避ける)
+                if ((expandedNodes and 1023) == 0) {
+                    if (isCancelled?.invoke() == true) {
+                        lastExpandedNodes = expandedNodes
+                        return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
+                    }
+                    if (expandedNodes >= maxExpandedNodes) {
+                        lastExpandedNodes = expandedNodes
+                        return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasTruncated = true)
                     }
                 }
-                ordinal++
+                if (current == goal) {
+                    lastExpandedNodes = expandedNodes
+                    val path = ArrayList<Int>(); var cursor = goal; path += cursor
+                    while (ws.parentOf(cursor) >= 0) { cursor = ws.parentOf(cursor); path += cursor }
+                    path.reverse()
+                    return MappedRouteResult(
+                        path.map { nodeIds[it] }, ws.distanceOf(goal), ws.costOf(goal),
+                        path.map { latitudes[it] to longitudes[it] },
+                        nodeIndices = path,
+                    )
+                }
+                if (bounds != null && current != start &&
+                    !bounds.contains(latitudes[current], longitudes[current])
+                ) {
+                    continue
+                }
+                val currentCost = ws.costOf(current)
+                val currentDistance = ws.distanceOf(current)
+                // 辺を割り当てなしで読む (レコード: from 8 / to 8 / 距離 8 / 種別 UTF / 一方通行 1 / 勾配あり 1 / 勾配 8)
+                var p = edgeStarts[current].toInt()
+                var ordinal = edgeFirstOrdinals[current]
+                val end = ordinal + edgeCounts[current]
+                while (ordinal < end) {
+                    val edgeDistance = mapped.getDouble(p + 16)
+                    val typeLength = mapped.getShort(p + 24).toInt() and 0xffff
+                    val gradeFlag = p + 26 + typeLength + 1
+                    val hasGrade = mapped.get(gradeFlag).toInt() != 0
+                    val grade = if (hasGrade) mapped.getDouble(gradeFlag + 1).toFloat() else Float.NaN
+                    p = if (hasGrade) gradeFlag + 9 else gradeFlag + 1
+                    val type = types[ordinal].toInt()
+                    val target = edgeTargets[ordinal]
+                    ordinal++
+                    val multiplier = multipliers[type]
+                    if (multiplier.isNaN()) continue
+                    val arterial = isArterial(type)
+                    if (arterialOnly && !arterial && current != start && target != goal) continue
+                    if (target < 0) continue
+                    if (target != goal && bounds != null && !bounds.contains(latitudes[target], longitudes[target])) continue
+                    val arterialBias = if (arterial) arterialPenaltyMultiplier else nonArterialPenaltyMultiplier
+                    val gradePen = if (costMode == RouteCostMode.CAR) 1.0 else gradePenalty(grade, preference)
+                    val combinedMultiplier = (multiplier * gradePen * arterialBias).coerceAtLeast(0.90)
+                    val newCost = currentCost + edgeDistance * combinedMultiplier
+                    if (newCost < ws.costOf(target)) {
+                        ws.set(target, newCost, currentDistance + edgeDistance, current)
+                        ws.push(target, newCost, newCost + heuristic(target, goal, heuristicMultiplier))
+                    }
+                }
             }
+            lastExpandedNodes = expandedNodes
+            return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+        } finally {
+            releaseWorkspace(ws)
         }
-        lastExpandedNodes = expandedNodes
-        return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
     }
+
+    /** ノード [from] から出る辺の行き先のうち、座標がちょうど ([lat], [lon]) のもの。無ければ -1。 */
+    internal fun neighborAt(from: Int, lat: Double, lon: Double): Int {
+        val first = edgeFirstOrdinals[from]
+        for (ordinal in first until first + edgeCounts[from]) {
+            val t = edgeTargets[ordinal]
+            if (t >= 0 && latitudes[t] == lat && longitudes[t] == lon) return t
+        }
+        return -1
+    }
+
+    /**
+     * ノード [from] から [to] への辺の (距離, 勾配%) 。複数あれば最短の辺。無ければ null。勾配が無い辺は NaN。
+     * outgoingBranches と違い、文字列やオブジェクトを辺ごとに作らない。
+     */
+    fun edgeDistanceAndGrade(from: Int, to: Int): Pair<Double, Float>? {
+        var p = edgeStarts[from].toInt()
+        var ordinal = edgeFirstOrdinals[from]
+        val end = ordinal + edgeCounts[from]
+        var bestDistance = Double.POSITIVE_INFINITY
+        var bestGrade = Float.NaN
+        while (ordinal < end) {
+            val d = mapped.getDouble(p + 16)
+            val typeLength = mapped.getShort(p + 24).toInt() and 0xffff
+            val gradeFlag = p + 26 + typeLength + 1
+            val hasGrade = mapped.get(gradeFlag).toInt() != 0
+            val grade = if (hasGrade) mapped.getDouble(gradeFlag + 1).toFloat() else Float.NaN
+            p = if (hasGrade) gradeFlag + 9 else gradeFlag + 1
+            if (edgeTargets[ordinal] == to && d < bestDistance) { bestDistance = d; bestGrade = grade }
+            ordinal++
+        }
+        return if (bestDistance.isInfinite()) null else bestDistance to bestGrade
+    }
+
+    // ---- 探索の高速化のための補助 (結果は従来の実装と同じ。探索ごとの割り当てを無くす) ----
+
+    /** 辺 (通し番号) ごとの道路種別コード。最初の探索の前に graph を 1 度なめて作る (広島で約 4MB)。 */
+    @Volatile private var edgeTypeCodesCache: ByteArray? = null
+
+    private fun edgeTypeCodes(): ByteArray {
+        edgeTypeCodesCache?.let { return it }
+        synchronized(this) {
+            edgeTypeCodesCache?.let { return it }
+            val codes = ByteArray(edgeCount)
+            for (node in nodeIds.indices) {
+                var p = edgeStarts[node].toInt()
+                var ordinal = edgeFirstOrdinals[node]
+                repeat(edgeCounts[node]) {
+                    val typeLength = mapped.getShort(p + 24).toInt() and 0xffff
+                    codes[ordinal] = typeCodeAt(p + 26, typeLength).toByte()
+                    val gradeFlag = p + 26 + typeLength + 1
+                    p = if (mapped.get(gradeFlag).toInt() != 0) gradeFlag + 9 else gradeFlag + 1
+                    ordinal++
+                }
+            }
+            edgeTypeCodesCache = codes
+            return codes
+        }
+    }
+
+    /** mmap 上の UTF の道路種別を、文字列を作らずに種別コードにする。 */
+    private fun typeCodeAt(offset: Int, length: Int): Int {
+        for ((code, bytes) in TYPE_NAME_BYTES) {
+            if (bytes.size != length) continue
+            var same = true
+            for (k in 0 until length) if (mapped.get(offset + k) != bytes[k]) { same = false; break }
+            if (same) return code
+        }
+        return 0
+    }
+
+    /** 移動手段ごとの、種別コード → コスト倍率の表 (通れない種別は NaN)。 */
+    private fun multiplierTable(costMode: RouteCostMode): DoubleArray = MULTIPLIER_TABLES.getOrPut(costMode) {
+        DoubleArray(TYPE_CODE_COUNT) { type -> multiplier(type, costMode) ?: Double.NaN }
+    }
+
+    /**
+     * 探索の作業領域 (ノードごとのコスト・距離・親、世代番号、二分ヒープ)。graph ごとに 1 つを使い回し、
+     * 同時に複数の探索が走るときだけ追加で作る。世代番号で「この探索で触れたか」を判定するので、毎回の初期化は不要。
+     */
+    private class SearchWorkspace(nodeCount: Int) {
+        private val cost = DoubleArray(nodeCount)
+        private val distance = DoubleArray(nodeCount)
+        private val parent = IntArray(nodeCount)
+        private val stamp = IntArray(nodeCount)
+        private var generation = 0
+        private var heapNode = IntArray(1 shl 14)
+        private var heapCost = DoubleArray(1 shl 14)
+        private var heapKey = DoubleArray(1 shl 14)
+        var size = 0
+            private set
+
+        fun begin() {
+            generation++
+            if (generation == Int.MAX_VALUE) { stamp.fill(0); generation = 1 }
+            size = 0
+        }
+
+        fun costOf(i: Int): Double = if (stamp[i] == generation) cost[i] else Double.POSITIVE_INFINITY
+        fun distanceOf(i: Int): Double = distance[i]
+        fun parentOf(i: Int): Int = if (stamp[i] == generation) parent[i] else -1
+
+        fun set(i: Int, c: Double, d: Double, p: Int) {
+            stamp[i] = generation; cost[i] = c; distance[i] = d; parent[i] = p
+        }
+
+        fun topNode(): Int = heapNode[0]
+        fun topCost(): Double = heapCost[0]
+
+        fun push(node: Int, c: Double, key: Double) {
+            if (size == heapNode.size) {
+                heapNode = heapNode.copyOf(size * 2); heapCost = heapCost.copyOf(size * 2); heapKey = heapKey.copyOf(size * 2)
+            }
+            var i = size++
+            while (i > 0) {
+                val parentSlot = (i - 1) ushr 1
+                if (heapKey[parentSlot] <= key) break
+                heapNode[i] = heapNode[parentSlot]; heapCost[i] = heapCost[parentSlot]; heapKey[i] = heapKey[parentSlot]
+                i = parentSlot
+            }
+            heapNode[i] = node; heapCost[i] = c; heapKey[i] = key
+        }
+
+        fun pop() {
+            size--
+            if (size == 0) return
+            val node = heapNode[size]; val c = heapCost[size]; val key = heapKey[size]
+            var i = 0
+            while (true) {
+                var child = 2 * i + 1
+                if (child >= size) break
+                if (child + 1 < size && heapKey[child + 1] < heapKey[child]) child++
+                if (heapKey[child] >= key) break
+                heapNode[i] = heapNode[child]; heapCost[i] = heapCost[child]; heapKey[i] = heapKey[child]
+                i = child
+            }
+            heapNode[i] = node; heapCost[i] = c; heapKey[i] = key
+        }
+    }
+
+    private val workspaceSlot = java.util.concurrent.atomic.AtomicReference<SearchWorkspace?>(null)
+
+    private fun acquireWorkspace(): SearchWorkspace = workspaceSlot.getAndSet(null) ?: SearchWorkspace(nodeIds.size)
+
+    private fun releaseWorkspace(ws: SearchWorkspace) { workspaceSlot.set(ws) }
 
     private data class EdgeRecord(
         val to: Long,
@@ -472,6 +647,14 @@ class LazyMappedRoadGraph private constructor(
                 // 末尾に達した (EOF) か、壊れている。読めた区間だけ使う
             }
         }
+
+        private const val TYPE_CODE_COUNT = 11
+        private val TYPE_NAME_BYTES: List<Pair<Int, ByteArray>> = listOf(
+            TYPE_MOTORWAY to "motorway", TYPE_MOTORWAY_LINK to "motorway_link", TYPE_PRIMARY to "primary",
+            TYPE_SECONDARY to "secondary", TYPE_TERTIARY to "tertiary", TYPE_RESIDENTIAL to "residential",
+            TYPE_UNCLASSIFIED to "unclassified", TYPE_SERVICE to "service", TYPE_TRACK to "track", TYPE_PATH to "path",
+        ).map { (code, name) -> code to name.toByteArray(Charsets.UTF_8) }
+        private val MULTIPLIER_TABLES = java.util.concurrent.ConcurrentHashMap<RouteCostMode, DoubleArray>()
 
         private fun roadTypeCode(type: String): Int = when (type) {
             "motorway" -> TYPE_MOTORWAY; "motorway_link" -> TYPE_MOTORWAY_LINK; "primary" -> TYPE_PRIMARY

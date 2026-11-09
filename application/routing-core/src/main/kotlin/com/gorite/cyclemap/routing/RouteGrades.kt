@@ -14,12 +14,7 @@ fun LazyMappedRoadGraph.segmentGradesAlong(
     maxSnapMeters: Double = 5.0,
 ): List<RouteSegmentGrade> {
     if (coordinates.size < 2) return emptyList()
-    val indices = IntArray(coordinates.size) { i ->
-        val (lat, lon) = coordinates[i]
-        val index = nearestNodeIndex(lat, lon)
-        val node = nodeAt(index)
-        if (haversineMeters(lat, lon, node.latitude, node.longitude) <= maxSnapMeters) index else -1
-    }
+    val indices = snappedIndicesAlong(coordinates, maxSnapMeters)
     return (0 until coordinates.size - 1).map { i ->
         val (lat1, lon1) = coordinates[i]
         val (lat2, lon2) = coordinates[i + 1]
@@ -46,9 +41,50 @@ fun LazyMappedRoadGraph.nodeElevationsAlong(
     maxSnapMeters: Double = 5.0,
 ): List<Double?> {
     if (!hasElevations) return coordinates.map { null }
-    return coordinates.map { (lat, lon) ->
-        val index = nearestNodeIndex(lat, lon)
+    val indices = snappedIndicesAlong(coordinates, maxSnapMeters)
+    return indices.map { if (it >= 0) elevationMetersAt(it) else null }
+}
+
+/**
+ * 経路の座標列の各点に対応するノードの番号 ([maxSnapMeters] より離れていれば -1)。
+ * 経路は隣り合うノードをたどるので、直前の点のノードから出る辺の行き先に同じ座標があればそれを使い、
+ * 無いときだけ最寄りのノードを探す (最寄り探索は 1 点 0.1ms 前後かかり、実機では経路 1 本で数秒になっていた)。
+ */
+internal fun LazyMappedRoadGraph.snappedIndicesAlong(coordinates: List<Pair<Double, Double>>, maxSnapMeters: Double): IntArray {
+    val out = IntArray(coordinates.size)
+    var previous = -1
+    for (i in coordinates.indices) {
+        val (lat, lon) = coordinates[i]
+        val viaEdge = if (previous >= 0) neighborAt(previous, lat, lon) else -1
+        val index = if (viaEdge >= 0) viaEdge else nearestNodeIndex(lat, lon)
         val node = nodeAt(index)
-        if (haversineMeters(lat, lon, node.latitude, node.longitude) <= maxSnapMeters) elevationMetersAt(index) else null
+        out[i] = if (haversineMeters(lat, lon, node.latitude, node.longitude) <= maxSnapMeters) index else -1
+        previous = index
+    }
+    return out
+}
+
+/**
+ * [segmentGradesAlong] の、graph 内のノード番号の列を受け取る版 (探索結果の [MappedRouteResult.nodeIndices])。
+ * 座標から最寄りのノードを探し直さないので速い (実機で 1 経路あたり数秒 → 数十ミリ秒)。結果は座標版と同じ。
+ */
+fun LazyMappedRoadGraph.segmentGradesAlongIndices(indices: List<Int>): List<RouteSegmentGrade> {
+    if (indices.size < 2) return emptyList()
+    return (0 until indices.size - 1).map { i ->
+        val a = indices[i]
+        val b = indices[i + 1]
+        val edge = if (a != b) edgeDistanceAndGrade(a, b) else null
+        when {
+            edge == null -> {
+                val na = nodeAt(a); val nb = nodeAt(b)
+                RouteSegmentGrade(haversineMeters(na.latitude, na.longitude, nb.latitude, nb.longitude), null)
+            }
+            edge.second.isNaN() -> RouteSegmentGrade(edge.first, null)
+            else -> RouteSegmentGrade(edge.first, edge.second.toDouble())
+        }
     }
 }
+
+/** [nodeElevationsAlong] の、ノード番号の列を受け取る版。 */
+fun LazyMappedRoadGraph.nodeElevationsAt(indices: List<Int>): List<Double?> =
+    if (!hasElevations) indices.map { null } else indices.map { elevationMetersAt(it) }

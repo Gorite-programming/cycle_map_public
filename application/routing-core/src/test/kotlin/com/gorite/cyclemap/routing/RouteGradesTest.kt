@@ -78,3 +78,23 @@ class RouteGradesTest {
         }
     }
 }
+
+class NodeIndexLookupTest {
+    @kotlin.test.Test
+    fun nodeIndexOfFindsEveryNodeAndRejectsUnknownIds() {
+        val ids = longArrayOf(9_000_000_123L, 5L, 77L, 1_234_567_890L, 300L)
+        val n = ids.size
+        val tmp = java.io.File.createTempFile("nodeidx", ".graph").apply { deleteOnExit() }
+        val ctor = LazyMappedRoadGraph::class.java.getDeclaredConstructor(
+            java.nio.channels.FileChannel::class.java, java.nio.ByteBuffer::class.java, LongArray::class.java,
+            DoubleArray::class.java, DoubleArray::class.java, LongArray::class.java, IntArray::class.java,
+            IntArray::class.java, IntArray::class.java, Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        val g = ctor.newInstance(
+            java.io.RandomAccessFile(tmp, "r").channel, java.nio.ByteBuffer.allocate(0), ids,
+            DoubleArray(n) { 34.0 }, DoubleArray(n) { 132.0 }, LongArray(n), IntArray(n), IntArray(n), IntArray(0), 0,
+        ) as LazyMappedRoadGraph
+        ids.forEachIndexed { i, id -> kotlin.test.assertEquals(i, g.nodeIndexOf(id)) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { g.nodeIndexOf(42L) }
+    }
+}
