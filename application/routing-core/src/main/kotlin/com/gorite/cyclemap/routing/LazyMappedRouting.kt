@@ -116,6 +116,61 @@ class LazyMappedRoadGraph private constructor(
         }
     }
 
+    /** ノードID昇順の (ID, 元の番号)。県間 portal 突き合わせ用。 */
+    internal fun sortedNodeIdIndex(): Pair<LongArray, IntArray> = sortedIdIndex()
+
+    /** 探索ごとに一つ生成し、ノード間で再利用する辺カーソル。ノードごとのラムダ割り当てを避ける。 */
+    internal inner class RoutingEdgeCursor {
+        private val types = edgeTypeCodes()
+        private var position = 0
+        private var ordinal = 0
+        private var end = 0
+        var target: Int = -1; private set
+        var distance: Double = 0.0; private set
+        var type: Int = 0; private set
+        var grade: Float = Float.NaN; private set
+
+        fun reset(from: Int) {
+            require(from in nodeIds.indices)
+            position = edgeStarts[from].toInt()
+            ordinal = edgeFirstOrdinals[from]
+            end = ordinal + edgeCounts[from]
+        }
+
+        fun next(): Boolean {
+            if (ordinal >= end) return false
+            distance = mapped.getDouble(position + 16)
+            val typeLength = mapped.getShort(position + 24).toInt() and 0xffff
+            val gradeFlag = position + 26 + typeLength + 1
+            val hasGrade = mapped.get(gradeFlag).toInt() != 0
+            grade = if (hasGrade) mapped.getDouble(gradeFlag + 1).toFloat() else Float.NaN
+            position = if (hasGrade) gradeFlag + 9 else gradeFlag + 1
+            target = edgeTargets[ordinal]
+            type = types[ordinal].toInt()
+            ordinal++
+            return true
+        }
+    }
+
+    internal fun newRoutingEdgeCursor(): RoutingEdgeCursor = RoutingEdgeCursor()
+
+    internal fun routingEdgeMultiplier(type: Int, grade: Float, preference: RoutePreference, costMode: RouteCostMode): Double {
+        val base = multiplierTable(costMode)[type]
+        if (base.isNaN()) return Double.NaN
+        return combinedRoutingEdgeMultiplier(base, grade, preference, costMode, 1.0)
+    }
+
+    private fun combinedRoutingEdgeMultiplier(
+        baseMultiplier: Double,
+        grade: Float,
+        preference: RoutePreference,
+        costMode: RouteCostMode,
+        arterialBias: Double,
+    ): Double {
+        val gradePen = if (costMode == RouteCostMode.CAR) 1.0 else gradePenalty(grade, preference)
+        return (baseMultiplier * gradePen * arterialBias).coerceAtLeast(0.90)
+    }
+
     fun nearestNodeIndex(latitude: Double, longitude: Double): Int {
         if (nodeCount == 0) return -1
         val grid = spatialGrid
@@ -488,6 +543,8 @@ class LazyMappedRoadGraph private constructor(
 
     private fun heuristic(from: Int, to: Int, multiplier: Double) =
         haversineMeters(latitudes[from], longitudes[from], latitudes[to], longitudes[to]) * 0.90 * multiplier
+
+    internal fun portalHeuristic(from: Int, to: Int): Double = heuristic(from, to, 1.0)
 
     private fun gradePenalty(grade: Float, preference: RoutePreference): Double {
         if (grade.isNaN()) return 1.0
