@@ -24,14 +24,17 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 
 internal class RouteExecutionContext(
     val context: Context,
     val routeJobRef: AtomicReference<RouteCalculationJob?>,
+    val routeExecutionGeneration: AtomicLong,
     val graphLock: ReentrantReadWriteLock,
     val pendingRouteRef: AtomicReference<RouteRequest?>,
     val getGraph: () -> LazyMappedRoadGraph?,
@@ -73,6 +76,8 @@ internal fun executeRouteCalculation(
     waypointsOverride: List<GeoPoint>?,
     preferenceOverride: RoutePreference?,
 ) {
+    val requestStartedAt = SystemClock.elapsedRealtime()
+    val executionGeneration = env.routeExecutionGeneration.incrementAndGet()
     env.routeJobRef.getAndSet(null)?.cancel()
     if (!isReroute) {
         env.onDestinationChanged(goal)
@@ -257,28 +262,6 @@ internal fun executeRouteCalculation(
             if (routeJob.isCancelled()) return@launch
             if (result.wasCancelled) return@launch
 
-            val optionsStartedAt = SystemClock.elapsedRealtime()
-            val routeOptions = if (!isReroute && result.isReachable) {
-                env.graphLock.read {
-                    if (routeJob.isCancelled()) emptyList()
-                    else {
-                        val planner = com.gorite.cyclemap.real.RealRoutePlanner(graphProvider = { jobGraph })
-                        planner.buildOptionsFromPrimary(
-                            lazyGraph = jobGraph,
-                            startIndex = if (currentWaypoints.isEmpty()) firstStartIndex else -1,
-                            goalIndex = if (currentWaypoints.isEmpty()) lastGoalIndex else -1,
-                            primaryResult = result,
-                            travelMode = com.gorite.cyclemap.contract.TravelModeType.Bicycle,
-                            isCancelled = { routeJob.isCancelled() },
-                            maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
-                        )
-                    }
-                }
-            } else {
-                emptyList()
-            }
-
-            Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=${SystemClock.elapsedRealtime() - optionsStartedAt} options=${routeOptions.size}")
             Log.i(
                 "CycleMapRoute",
                 "ROUTE_RESULT pref=$pref success=${result.isReachable} truncated=${result.wasTruncated} " +
@@ -295,13 +278,19 @@ internal fun executeRouteCalculation(
                 }
             }
 
-            (env.context as? ComponentActivity)?.runOnUiThread {
-                if (routeJob.isCancelled() || env.routeJobRef.get() !== routeJob) return@runOnUiThread
+            val primaryDisplayed = CompletableDeferred<Boolean>()
+            val activityForDisplay = env.context as? ComponentActivity ?: return@launch
+            activityForDisplay.runOnUiThread {
+                if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration || env.routeJobRef.get() !== routeJob) {
+                    primaryDisplayed.complete(false)
+                    return@runOnUiThread
+                }
                 if (env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph) {
                     Log.e("CycleMapRoute", "ROUTE_FAILURE reason=graph-changed jobGraph=$jobGraphName now=${env.getLoadedGraphName()}")
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
                     env.routeJobRef.compareAndSet(routeJob, null)
+                    primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
                 if (result.wasTruncated) {
@@ -310,6 +299,7 @@ internal fun executeRouteCalculation(
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
                     env.routeJobRef.compareAndSet(routeJob, null)
+                    primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
                 if (!result.isReachable) {
@@ -324,6 +314,7 @@ internal fun executeRouteCalculation(
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
                     env.routeJobRef.compareAndSet(routeJob, null)
+                    primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
                 val activity = env.context as? ComponentActivity
@@ -335,6 +326,7 @@ internal fun executeRouteCalculation(
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
                     env.routeJobRef.compareAndSet(routeJob, null)
+                    primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
                 env.onCalculatingRouteChanged(false)
@@ -364,7 +356,8 @@ internal fun executeRouteCalculation(
                 val navigationManeuvers = extractManeuvers(navigationRoute)
                 val routeSummary = RouteSummary(result.totalDistanceMeters, result.nodeIds.size - 1)
 
-                env.onRouteOptionsCalculated?.invoke(routeOptions)
+                // 主経路を表示した時点では代替ルート未計算。古い候補をチップ表示しない。
+                if (!isReroute) env.onRouteOptionsCalculated?.invoke(emptyList())
 
                 env.onRouteCalculated(
                     polyline,
@@ -377,10 +370,64 @@ internal fun executeRouteCalculation(
 
                 Log.i(
                     "CycleMapRoute",
+                    "ROUTE_TIMING firstDisplayMs=${SystemClock.elapsedRealtime() - requestStartedAt}",
+                )
+
+                Log.i(
+                    "CycleMapRoute",
                     "ROUTE_DISPLAYED graph=$jobGraphName polylinePointCount=${result.coordinates.size} " +
                         "instructionCount=${richInstructions.size} maneuverCount=${navigationManeuvers.size} " +
                         "routeDisplayed=true",
                 )
+                primaryDisplayed.complete(true)
+            }
+
+            if (!primaryDisplayed.await()) {
+                Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=0 options=0")
+                return@launch
+            }
+
+            // UIへの主経路反映をrunOnUiThreadに登録した後、同じIOコルーチンで候補を計算する。
+            // 世代は新規要求・reroute・clearで変わるため、表示後にrouteJobRefがnullでも古い候補を止められる。
+            if (!isReroute && result.isReachable && !routeJob.isCancelled() &&
+                env.routeExecutionGeneration.get() == executionGeneration
+            ) {
+                val optionsStartedAt = SystemClock.elapsedRealtime()
+                val routeOptions = env.graphLock.read {
+                    if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
+                        env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                    ) emptyList()
+                    else {
+                        val planner = com.gorite.cyclemap.real.RealRoutePlanner(graphProvider = { jobGraph })
+                        planner.buildOptionsFromPrimary(
+                            lazyGraph = jobGraph,
+                            startIndex = if (currentWaypoints.isEmpty()) firstStartIndex else -1,
+                            goalIndex = if (currentWaypoints.isEmpty()) lastGoalIndex else -1,
+                            primaryResult = result,
+                            travelMode = com.gorite.cyclemap.contract.TravelModeType.Bicycle,
+                            isCancelled = {
+                                routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
+                                    env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                            },
+                            maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
+                        )
+                    }
+                }
+                Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=${SystemClock.elapsedRealtime() - optionsStartedAt} options=${routeOptions.size}")
+                if (routeOptions.isNotEmpty() && !routeJob.isCancelled() &&
+                    env.routeExecutionGeneration.get() == executionGeneration &&
+                    env.getLoadedGraphName() == jobGraphName && env.getGraph() === jobGraph
+                ) {
+                    (env.context as? ComponentActivity)?.runOnUiThread {
+                        if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
+                            env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                        ) return@runOnUiThread
+                        env.onRouteOptionsCalculated?.invoke(routeOptions)
+                    }
+                }
+            } else {
+                // rerouteでは候補探索をしない。従来のタイミングログは0件で維持する。
+                Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=0 options=0")
             }
         } catch (t: Throwable) {
             if (routeJob.isCancelled()) return@launch

@@ -31,6 +31,7 @@ import com.gorite.cyclemap.ui.RoutingBenchmarkRequest
 import com.gorite.cyclemap.ui.theme.ThemeMode
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
+import java.util.concurrent.atomic.AtomicLong
 
 // ---------------------------------------------------------------------------
 // MapScreen Composable
@@ -49,6 +50,7 @@ internal fun MapScreen(
     val state = rememberMapScreenState(
         onNavigationStateChanged = onNavigationStateChanged,
     )
+    val routeExecutionGeneration = remember { AtomicLong(0L) }
     val density = LocalDensity.current
 
     val orientationAnimator = remember {
@@ -73,12 +75,16 @@ internal fun MapScreen(
     val routeExecutionContext = RouteExecutionContext(
         context = state.context,
         routeJobRef = state.routeJobRef,
+        routeExecutionGeneration = routeExecutionGeneration,
         graphLock = state.graphLock,
         pendingRouteRef = state.pendingRouteRef,
         getGraph = { latestGraph },
         getLoadedGraphName = { state.loadedGraphNameState.value },
         isSwitchingGraph = { state.isSwitchingGraphState.value },
-        onSwitchGraph = { state.switchRef.get()?.invoke(it) },
+        onSwitchGraph = {
+            routeExecutionGeneration.incrementAndGet()
+            state.switchRef.get()?.invoke(it)
+        },
         getMapView = { latestMapView },
         getDestMarker = { latestDestMarker },
         getStartMarker = { latestStartMarker },
@@ -103,6 +109,9 @@ internal fun MapScreen(
             state.navigationProgressState.value = null
             state.navStatsState.value = null
             state.offRouteDetector.reset()
+            // 主経路の表示時点では代替ルートは未計算 (reroute でも従来どおり候補を空にして主線に戻す)
+            state.calculatedRouteOptionsState.value = emptyList()
+            state.selectedRouteIndexState.value = 0
             if (!isReroute) {
                 state.isNavigationActiveState.value = false
                 state.isArrivedState.value = false
@@ -120,8 +129,10 @@ internal fun MapScreen(
             }
         },
         onRouteOptionsCalculated = { options ->
-            state.calculatedRouteOptionsState.value = options
-            state.selectedRouteIndexState.value = 0 // 計算し直したら、最初の候補 (主線) に戻る
+            // 遅延した候補が案内中の一本表示を復活させない。
+            if (!state.isNavigationActiveState.value) {
+                state.calculatedRouteOptionsState.value = options
+            }
         },
     )
 
@@ -486,6 +497,7 @@ internal fun MapScreen(
     }
 
     val clearRoute: () -> Unit = {
+        routeExecutionGeneration.incrementAndGet()
         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
         executeClearRoute(
             routeJobRef = state.routeJobRef,
