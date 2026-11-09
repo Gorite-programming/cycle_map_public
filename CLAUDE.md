@@ -75,14 +75,19 @@ Google Maps に近い情報量をオフラインで実現する取り組みと�
 
 ### 現在の状態
 - 18 項目の改善 (検索の並び順・別名・読み・住所、名所・史跡のカテゴリ、道路番号の標識、画面中心の地名、案内の道路名・車線、CI、refresh_data の回帰チェックなど) は commit 済み (`939d17a`, `0619363`)。実機で確認済み (追記11)。
-- A* の高速化は **途中** (追記12)。探索本体・nodeIndexOf・獲得標高の計算を速くし、Mac では結果が完全に一致することを確認済み。最後の変更の実機での再計測と、変更前後の突き合わせの再実行が残っている。
+- A* の高速化は **P0〜P3 完了** (追記13、計画は `docs/astar_optimization_plan.md`)。変更前後の突き合わせは 1000 行で完全一致、実機 (広島 約 40km) の表示までは 13.2 秒 → 1.1 秒。代替ルートは主経路の表示後に裏で計算する。
 - データ: `packages/` (5 県の ZIP・タイル) と `sandbox/data-tool/out/` は Mac にだけある (git 管理外)。別の環境で作り直すなら `scripts/refresh_data.py` (OSM 取得〜昇格、約 1.5 時間)。実機 (Galaxy S26) には 2026-11-08 夜の最新データが転送済み。
-- 実機の APK: 高速化の途中版 (計測ログ `ROUTE_TIMING` 入り、獲得標高の番号版の手前) が入っている。
+- 実機の APK: 代替ルート後回し版 (2026-11-10 の debug ビルド、`ROUTE_TIMING firstDisplayMs` 入り) が入っている。
+
+### Codex への委譲 (Claude が親、Codex が子)
+- Claude が設計・タスク分割・検証を行い、実装とテストの実行を Codex に委譲する。指示文 (Markdown: 背景 / 触ってよいファイル / 守ること / 受け入れ条件 / 実行するテスト) を `work/codex/` に書き、`scripts/delegate_codex.sh <指示文>` で渡す (`--readonly` で読み取り専用)。出力は画面とログ (`work/codex/*.log`) に流れるので、Terminal パネルで進行を見られる。
+- Codex は同じ作業ツリーで作業する。commit / push / adb / 履歴を壊す git 操作は禁止 (ラッパーの前置きで指示済み)。Gradle は動くようサンドボックスに network と `~/.gradle` の書き込みを許可している。
+- Claude は返ってきた diff を必ず読み、テストを自分でも実行してから commit する。実機検証は Claude が必要と判断したときだけ行い (UI の出方・待ち時間・スレッド競合に関わる変更など)、Codex には触らせない。
 
 ### 次にやること (優先順)
-1. 追記12 の未完了 1〜4 (実機の再計測 → routeDump の突き合わせ → 代替ルートを後回しにする → 計測ログの扱い)。
-2. まだ遅ければ双方向探索 → Contraction Hierarchies の試作。HSA* はいまの形では止める。
-3. Kotlin の CI の失敗原因 (GitHub のログ)。data-tool と scripts のジョブは通っている。
+1. 探索がまだ必要なら、計画の P4 (双方向 A*) → P5 (Contraction Hierarchies、おすすめの方針 1 つ)。HSA* は止める。
+2. Kotlin の CI の失敗原因 (GitHub のログ)。data-tool と scripts のジョブは通っている。
+3. 公園内からの reroute が「到達不能」になる件 (最寄りノードが孤立した道に当たると推測)。
 
 ### 検証の道具 (debug ビルドのみ)
 - カメラ移動: `adb shell am broadcast -a com.gorite.cyclemap.test.CAMERA -p com.gorite.cyclemap.test --ed lat <緯度> --ed lon <経度> --ed zoom <z>`
