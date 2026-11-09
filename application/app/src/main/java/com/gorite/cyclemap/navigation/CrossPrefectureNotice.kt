@@ -12,6 +12,9 @@ internal const val LONG_CROSS_PREFECTURE_CALCULATION_MESSAGE =
 internal const val CROSS_PREFECTURE_UNSUPPORTED_MESSAGE =
     "県をまたぐ経路には未対応です。出発地の県内で目的地に最も近い地点までの経路を表示しています"
 
+internal const val CROSS_PREFECTURE_ROUTE_MESSAGE =
+    "県をまたぐ経路です。ナビ中の県の切替は、まだ試験段階です"
+
 internal fun crossPrefectureNotice(
     startPref: String?,
     goalPref: String?,

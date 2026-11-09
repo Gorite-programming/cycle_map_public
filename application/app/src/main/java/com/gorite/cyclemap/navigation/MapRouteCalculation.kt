@@ -11,6 +11,10 @@ import androidx.core.content.ContextCompat
 import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
 import com.gorite.cyclemap.data.findPrefectureName
+import com.gorite.cyclemap.routing.portalsBetween
+import com.gorite.cyclemap.routing.routeAcrossGraphs
+import com.gorite.cyclemap.routing.segmentGradesAlongIndices
+import com.gorite.cyclemap.routing.nodeElevationsAt
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.Maneuver
 import com.gorite.cyclemap.routing.OffRouteDetector
@@ -26,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
+import com.gorite.cyclemap.utils.cycleMapDataDir
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -64,6 +69,7 @@ internal class RouteExecutionContext(
         instructions: List<RouteInstruction>,
         summary: RouteSummary,
         isReroute: Boolean,
+        crossRouteElevation: CrossRouteElevationData?,
     ) -> Unit,
     val onRouteOptionsCalculated: ((List<com.gorite.cyclemap.contract.RouteOption>) -> Unit)? = null,
 )
@@ -216,9 +222,95 @@ internal fun executeRouteCalculation(
             var isAnyTruncated = false
             var firstStartIndex = -1
             var lastGoalIndex = -1
+            var usedCrossRoute = false
+            var crossInstructions: List<RouteInstruction>? = null
+            var crossElevation: CrossRouteElevationData? = null
+            var crossLoadMs = 0L
+            var crossPortalMs = 0L
+            var crossAMs = 0L
+            var crossBMs = 0L
+            var crossTotalMs = 0L
 
             val pref = preferenceOverride ?: env.getRoutePreference()
+
+            // 今回は経由地なし・2県間のみ対応。ナビ中の県切替、3県以上、県境を複数回通る経路は範囲外。
+            val canAttemptCross = currentWaypoints.isEmpty() && startPrefecture != null && goalPrefecture != null &&
+                startPrefecture != goalPrefecture
+            if (canAttemptCross && !routeJob.isCancelled()) {
+                val crossStarted = SystemClock.elapsedRealtime()
+                val goalSelection = RoutingGraphSelector.select(goal.latitude, goal.longitude)
+                if (goalSelection is RoutingGraphSelection.Available && goalSelection.fileName != jobGraphName) {
+                    val dataDir = cycleMapDataDir(env.context)
+                    val files = RoutingGraphSelector.resolveGraphFiles(dataDir, goalSelection.fileName)
+                    if (files != null) {
+                        var destinationGraph: LazyMappedRoadGraph? = null
+                        try {
+                            val loadStarted = SystemClock.elapsedRealtime()
+                            destinationGraph = LazyMappedRoadGraph.load(files.first, files.second)
+                            crossLoadMs = SystemClock.elapsedRealtime() - loadStarted
+                            if (!routeJob.isCancelled() && env.routeExecutionGeneration.get() == executionGeneration) {
+                                val startIndex = env.graphLock.read { jobGraph?.nearestNodeIndex(start.latitude, start.longitude) ?: -1 }
+                                val goalIndex = destinationGraph.nearestNodeIndex(goal.latitude, goal.longitude)
+                                if (startIndex >= 0) {
+                                    val portalStarted = SystemClock.elapsedRealtime()
+                                    val portals = portalsBetween(jobGraph!!, destinationGraph)
+                                    crossPortalMs = SystemClock.elapsedRealtime() - portalStarted
+                                    val cross = env.graphLock.read {
+                                        routeAcrossGraphs(
+                                            a = jobGraph,
+                                            startA = startIndex,
+                                            b = destinationGraph,
+                                            goalB = goalIndex,
+                                            portals = portals,
+                                            preference = pref,
+                                            isCancelled = { routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration },
+                                            maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
+                                        )
+                                    }
+                                    crossAMs = cross.aSearchMs
+                                    crossBMs = cross.bSearchMs
+                                    if (cross.isReachable && !routeJob.isCancelled() && env.routeExecutionGeneration.get() == executionGeneration) {
+                                        usedCrossRoute = true
+                                        val aGrades = env.graphLock.read { jobGraph.segmentGradesAlongIndices(cross.aPart.nodeIndices) }
+                                        val aElevations = env.graphLock.read { jobGraph.nodeElevationsAt(cross.aPart.nodeIndices) }
+                                        val bGrades = destinationGraph.segmentGradesAlongIndices(cross.bPart.nodeIndices)
+                                        val bElevations = destinationGraph.nodeElevationsAt(cross.bPart.nodeIndices)
+                                        crossElevation = mergeElevationParts(aGrades, aElevations, bGrades, bElevations)
+                                        val aDistance = aGrades.sumOf { it.distanceMeters }
+                                        val aRich = env.graphLock.read { buildRouteInstructions(jobGraph, cross.aPart.nodeIds, cross.aPart.coordinates) }
+                                        val bRich = buildRouteInstructions(destinationGraph, cross.bPart.nodeIds, cross.bPart.coordinates)
+                                        crossInstructions = mergeInstructionParts(aRich, bRich, cross.aPart.nodeIds.size, aDistance)
+                                        totalDist = cross.totalDistanceMeters
+                                        totalCostVal = cross.totalCost
+                                        allNodeIds.addAll(cross.nodeIds)
+                                        allCoordinates.addAll(cross.coordinates)
+                                        // Cross-graph node indices have no single graph namespace.
+                                    } else if (cross.wasCancelled || routeJob.isCancelled()) return@launch
+                                }
+                            } else if (routeJob.isCancelled()) return@launch
+                        } catch (t: Throwable) {
+                            if (routeJob.isCancelled()) return@launch
+                            Log.w("CycleMapRoute", "CROSS_PREFECTURE fallback reason=${t::class.java.simpleName}:${t.message}")
+                            usedCrossRoute = false
+                            crossInstructions = null
+                            crossElevation = null
+                            allNodeIds.clear()
+                            allCoordinates.clear()
+                            totalDist = 0.0
+                            totalCostVal = 0.0
+                        } finally {
+                            destinationGraph?.close()
+                        }
+                    }
+                }
+                if (usedCrossRoute) crossTotalMs = SystemClock.elapsedRealtime() - crossStarted
+            }
+            if (usedCrossRoute) {
+                Log.i("CycleMapRoute", "ROUTE_TIMING cross loadMs=$crossLoadMs portalMs=$crossPortalMs aMs=$crossAMs bMs=$crossBMs totalMs=$crossTotalMs")
+                Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_used from=$startPrefecture to=$goalPrefecture")
+            }
             for (i in 0 until stops.size - 1) {
+                if (usedCrossRoute) break
                 if (routeJob.isCancelled()) return@launch
                 val legStart = stops[i]
                 val legGoal = stops[i + 1]
@@ -288,7 +380,7 @@ internal fun executeRouteCalculation(
                     "routeNodeCount=${result.nodeIds.size} routeDistanceM=${result.totalDistanceMeters.toInt()} " +
                     "routeCost=${"%.2f".format(java.util.Locale.US, result.totalCost)} pathHash=${result.nodeIds.hashCode()}",
             )
-            val richInstructions = env.graphLock.read {
+            val richInstructions = crossInstructions ?: env.graphLock.read {
                 if (routeJob.isCancelled()) return@read emptyList<RouteInstruction>()
                 try {
                     buildRouteInstructions(graph, result.nodeIds, result.coordinates)
@@ -386,9 +478,13 @@ internal fun executeRouteCalculation(
                     richInstructions,
                     routeSummary,
                     isReroute,
+                    if (usedCrossRoute) crossElevation else null,
                 )
 
-                if (notice.showUnsupportedWarning) {
+                if (usedCrossRoute) {
+                    env.onWarningMessageChanged(CROSS_PREFECTURE_ROUTE_MESSAGE)
+                    Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_guidance")
+                } else if (notice.showUnsupportedWarning) {
                     env.onWarningMessageChanged(CROSS_PREFECTURE_UNSUPPORTED_MESSAGE)
                     Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_prefecture_unsupported")
                 }
@@ -414,7 +510,7 @@ internal fun executeRouteCalculation(
 
             // UIへの主経路反映をrunOnUiThreadに登録した後、同じIOコルーチンで候補を計算する。
             // 世代は新規要求・reroute・clearで変わるため、表示後にrouteJobRefがnullでも古い候補を止められる。
-            if (!isReroute && result.isReachable && !routeJob.isCancelled() &&
+            if (!usedCrossRoute && !isReroute && result.isReachable && !routeJob.isCancelled() &&
                 env.routeExecutionGeneration.get() == executionGeneration
             ) {
                 val optionsStartedAt = SystemClock.elapsedRealtime()

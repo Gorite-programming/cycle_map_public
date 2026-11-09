@@ -269,7 +269,8 @@ internal fun rememberMapScreenState(
 
     val elevationRepository = remember(context) { ElevationRepository.getInstance(context) }
     val realElevProfileState = remember { mutableStateOf<List<ElevationSample>>(emptyList()) }
-    LaunchedEffect(routeSummaryState.value, navigationRouteState.value, mappedGraphState.value) {
+    val crossRouteElevationState = remember { mutableStateOf<CrossRouteElevationData?>(null) }
+    LaunchedEffect(routeSummaryState.value, navigationRouteState.value, mappedGraphState.value, crossRouteElevationState.value) {
         val summary = routeSummaryState.value
         val navRoute = navigationRouteState.value
         if (summary != null && navRoute.isNotEmpty()) {
@@ -277,7 +278,18 @@ internal fun rememberMapScreenState(
             // オフラインで使える本命: 経路沿いの辺の勾配 (osm-importer が標高タイルから書き込んだ値) を積み上げる。
             // 勾配の入っていない旧 graph のときだけ、従来の推定 (実際の標高ではない) に戻す。
             val graph = mappedGraphState.value
-            val gradeProfile = if (graph != null) {
+            val gradeProfile = if (crossRouteElevationState.value != null) {
+                val cross = crossRouteElevationState.value!!
+                buildNodeElevationProfile(cross.segments, cross.nodeElevations).ifEmpty {
+                    if (cross.segments.any { it.gradePercent != null }) {
+                        buildGradeElevationProfile(
+                            cross.segments,
+                            anchoredStartElevation(cross.segments, cross.nodeElevations)
+                                ?: elevationRepository.getCachedElevation(coords.first().first, coords.first().second),
+                        )
+                    } else emptyList()
+                }
+            } else if (graph != null) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val (segments, nodeElevations) = graphLock.read {
                         graph.segmentGradesAlong(coords) to graph.nodeElevationsAlong(coords)
@@ -299,7 +311,7 @@ internal fun rememberMapScreenState(
             // graph が標高を持たない旧版のときだけ、標高タイルが端末にあれば (またはネット接続で取得できれば)
             // 絶対標高の実測で置き換える。一部しか実測で埋まらない場合は、架空値が混ざるので置き換えない。
             // graph が標高を持つときは上書きしない (別の計算と食い違い、値が揺れるため)。
-            if (graph == null || !graph.hasElevations) {
+            if (crossRouteElevationState.value == null && (graph == null || !graph.hasElevations)) {
                 val real = elevationRepository.getRouteElevationProfile(coords, summary.distanceMeters)
                 if (real.isNotEmpty() && real.all { it.source == ElevationSource.GSI_DEM }) {
                     realElevProfileState.value = real
@@ -461,6 +473,7 @@ internal fun rememberMapScreenState(
         selectedRoutePreferenceState = selectedRoutePreferenceState,
         selectedRouteIndexState = selectedRouteIndexState,
         navigationRouteState = navigationRouteState,
+        crossRouteElevationState = crossRouteElevationState,
         navigationManeuversState = navigationManeuversState,
         navigationInstructionsState = navigationInstructionsState,
         navigationProgressState = navigationProgressState,

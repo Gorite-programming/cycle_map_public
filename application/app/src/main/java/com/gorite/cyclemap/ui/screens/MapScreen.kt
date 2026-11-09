@@ -101,7 +101,7 @@ internal fun MapScreen(
         onCalculatingRouteChanged = { state.isCalculatingRouteState.value = it },
         onReroutingChanged = { state.isReroutingState.value = it },
         onWarningMessageChanged = { state.warningMessageState.value = it },
-        onRouteCalculated = { overlay, route, maneuvers, instructions, summary, isReroute ->
+        onRouteCalculated = { overlay, route, maneuvers, instructions, summary, isReroute, crossElevation ->
             state.routeOverlayState.value = overlay
             state.navigationRouteState.value = route
             state.navigationManeuversState.value = maneuvers
@@ -124,6 +124,8 @@ internal fun MapScreen(
                 state.rerouteCountState.intValue++
             }
             state.routeSummaryState.value = summary
+            // 通常経路・fallback・reroute では null を受け取り、以前の県またぎ標高を破棄する。
+            state.crossRouteElevationState.value = crossElevation
             if (state.warningMessageState.value?.contains("グラフに切替中です") == true) {
                 state.warningMessageState.value = null
             }

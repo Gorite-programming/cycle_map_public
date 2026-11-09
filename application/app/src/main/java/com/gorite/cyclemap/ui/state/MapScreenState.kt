@@ -182,6 +182,7 @@ internal class MapScreenState(
     /** 経路候補 (calculatedRouteOptionsState) のうち、いま地図に主線として出して案内する候補の番号。 */
     val selectedRouteIndexState: MutableState<Int>,
     val navigationRouteState: MutableState<List<RoutePoint>>,
+    val crossRouteElevationState: MutableState<CrossRouteElevationData?>,
     val navigationManeuversState: MutableState<List<Maneuver>>,
     val navigationInstructionsState: MutableState<List<RouteInstruction>>,
     val navigationProgressState: MutableState<RouteProgress?>,

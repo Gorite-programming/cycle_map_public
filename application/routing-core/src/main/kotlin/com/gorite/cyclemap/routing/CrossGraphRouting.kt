@@ -53,6 +53,8 @@ data class CrossRouteResult(
     val portalId: Long?,
     val wasCancelled: Boolean = false,
     val wasTruncated: Boolean = false,
+    val aSearchMs: Long = 0,
+    val bSearchMs: Long = 0,
 ) {
     val isReachable: Boolean get() = nodeIds.isNotEmpty() && !wasCancelled && !wasTruncated
 }
@@ -194,12 +196,16 @@ fun routeAcrossGraphs(
     costMode: RouteCostMode = RouteCostMode.BICYCLE,
 ): CrossRouteResult {
     require(portals.aIndices.size == portals.bIndices.size && portals.nodeIds.size == portals.aIndices.size)
+    val aStarted = System.nanoTime()
     val reach = a.routeToPortals(startA, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode)
-    if (reach.wasCancelled || reach.wasTruncated) return CrossRouteResult(emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, CrossRoutePart(), CrossRoutePart(), null, reach.wasCancelled, reach.wasTruncated)
+    val aSearchMs = (System.nanoTime() - aStarted) / 1_000_000
+    if (reach.wasCancelled || reach.wasTruncated) return CrossRouteResult(emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, CrossRoutePart(), CrossRoutePart(), null, reach.wasCancelled, reach.wasTruncated, aSearchMs, 0)
     val byIndex = reach.portals.associateBy { it.aIndex }
     val sources = portals.nodeIds.indices.mapNotNull { k -> byIndex[portals.aIndices[k]]?.let { PortalSource(it.nodeId, it.aIndex, portals.bIndices[k], it.cost, it.distanceMeters) } }
+    val bStarted = System.nanoTime()
     val bResult = b.routeFromPortals(sources, goalB, preference, isCancelled, maxExpandedNodes, costMode)
-    if (bResult.wasCancelled || bResult.wasTruncated || !bResult.isReachable) return CrossRouteResult(emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, CrossRoutePart(), CrossRoutePart(), bResult.seedPortalId, bResult.wasCancelled, bResult.wasTruncated)
+    val bSearchMs = (System.nanoTime() - bStarted) / 1_000_000
+    if (bResult.wasCancelled || bResult.wasTruncated || !bResult.isReachable) return CrossRouteResult(emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, CrossRoutePart(), CrossRoutePart(), bResult.seedPortalId, bResult.wasCancelled, bResult.wasTruncated, aSearchMs, bSearchMs)
     val selected = sources.first { it.nodeId == bResult.seedPortalId }
     val aIndices = ArrayList<Int>(); var c = selected.aIndex; aIndices += c
     while (reach.parentSnapshot[c] >= 0) { c = reach.parentSnapshot[c]; aIndices += c }
@@ -212,7 +218,8 @@ fun routeAcrossGraphs(
     val fullIds = aIds + bIds.drop(1)
     val fullCoords = aCoords + bCoords.drop(1)
     return CrossRouteResult(fullIds, fullCoords, bResult.totalDistanceMeters, bResult.totalCost,
-        CrossRoutePart(aIds, aCoords, aIndices), CrossRoutePart(bIds, bCoords, bIndices), selected.nodeId)
+        CrossRoutePart(aIds, aCoords, aIndices), CrossRoutePart(bIds, bCoords, bIndices), selected.nodeId,
+        aSearchMs = aSearchMs, bSearchMs = bSearchMs)
 }
 
 private fun LazyMappedRoadGraph.straightLineHeuristic(from: Int, goal: Int): Double {
