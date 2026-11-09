@@ -68,7 +68,7 @@ Toolchain: AGP 8.10.1, Kotlin 2.0.21, compileSdk/target 35, minSdk 33, Java 11 t
 
 Build release APKs only from a clean HEAD (a `-dirty` APK is for dev checks only). Record the first 12 characters of the APK SHA-256 in `VERSIONS.md` in a separate commit. The debug keystore (`~/.android/debug.keystore`, with the Khadas Edge 2 copy as the original) is never committed. Builds can be offloaded to the Khadas Edge 2 SBC (see `AGENTS.md`).
 
-## 引き継ぎメモ (2026-11-09 時点、Mac から Windows へ移行)
+## 引き継ぎメモ (2026-11-09 時点)
 
 ### 全体像
 Google Maps に近い情報量をオフラインで実現する取り組みと、経路探索の高速化を進めている。経緯と数値はすべて `docs/away_session_report_20261108.md` (追記1〜12) にある。まずその **追記12 の「未完了」** を読むこと。
@@ -76,7 +76,7 @@ Google Maps に近い情報量をオフラインで実現する取り組みと�
 ### 現在の状態
 - 18 項目の改善 (検索の並び順・別名・読み・住所、名所・史跡のカテゴリ、道路番号の標識、画面中心の地名、案内の道路名・車線、CI、refresh_data の回帰チェックなど) は commit 済み (`939d17a`, `0619363`)。実機で確認済み (追記11)。
 - A* の高速化は **途中** (追記12)。探索本体・nodeIndexOf・獲得標高の計算を速くし、Mac では結果が完全に一致することを確認済み。最後の変更の実機での再計測と、変更前後の突き合わせの再実行が残っている。
-- データ: `packages/` (5 県の ZIP・タイル) と `sandbox/data-tool/out/` は Mac にだけある (git 管理外)。Windows で作り直すなら `scripts/refresh_data.py` (OSM 取得〜昇格、約 1.5 時間)。実機 (Galaxy S26) には 2026-11-08 夜の最新データが転送済み。
+- データ: `packages/` (5 県の ZIP・タイル) と `sandbox/data-tool/out/` は Mac にだけある (git 管理外)。別の環境で作り直すなら `scripts/refresh_data.py` (OSM 取得〜昇格、約 1.5 時間)。実機 (Galaxy S26) には 2026-11-08 夜の最新データが転送済み。
 - 実機の APK: 高速化の途中版 (計測ログ `ROUTE_TIMING` 入り、獲得標高の番号版の手前) が入っている。
 
 ### 次にやること (優先順)
