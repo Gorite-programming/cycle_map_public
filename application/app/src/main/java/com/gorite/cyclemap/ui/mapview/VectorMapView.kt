@@ -123,6 +123,7 @@ internal fun VectorMapView(
     var lastExtruded by remember { mutableStateOf(false) }
     var offlineDataMissing by remember { mutableStateOf(false) }
     var offlineMissingPrefecture by remember { mutableStateOf<String?>(null) }
+    var offlineMissingPmtilesFile by remember { mutableStateOf<String?>(null) }
     var fetchPoisJob by remember { mutableStateOf<Job?>(null) }
     var triggerPoisRef by remember { mutableStateOf<(() -> Unit)?>(null) }
     var activePmtilesPath by remember { mutableStateOf<String?>(null) }
@@ -196,6 +197,7 @@ internal fun VectorMapView(
                                 is TileSourceSelection.Available -> tileSelection.prefectureName
                                 is TileSourceSelection.Unavailable -> tileSelection.prefectureName
                             }
+                            offlineMissingPmtilesFile = (tileSelection as? TileSourceSelection.Available)?.fileName
                             offlineDataMissing = true
                         } else {
                             offlineDataMissing = false
@@ -376,6 +378,7 @@ internal fun VectorMapView(
         if (offlineDataMissing) {
             OfflineVectorMissingBanner(
                 prefectureName = offlineMissingPrefecture,
+                pmtilesFileName = offlineMissingPmtilesFile,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }

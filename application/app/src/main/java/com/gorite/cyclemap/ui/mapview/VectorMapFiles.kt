@@ -13,7 +13,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -76,29 +86,64 @@ fun verifyOfflineDataPackage(file: File, expectedSha256: String? = null): Boolea
 @Composable
 internal fun OfflineVectorMissingBanner(
     prefectureName: String?,
+    pmtilesFileName: String?,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val guide = remember(prefectureName, pmtilesFileName) {
+        buildOfflineDataGuide(prefectureName, pmtilesFileName, cycleMapDataDir(context).absolutePath)
+    }
+    var showSteps by remember { mutableStateOf(false) }
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF37474F)),
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 152.dp, start = 16.dp, end = 16.dp),
+            .padding(top = 152.dp, start = 16.dp, end = 88.dp), // 右端の地図ボタンと重ならないよう広めに空ける
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
-                text = "⚠ オフラインベクターデータ未検出",
+                text = guide.title,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "${prefectureName ?: "この地域"}の地図データが未導入です。\n端末ストレージ (Documents/CycleMap/ または tiles/) を確認してください。\n他県のデータや外部通信へは自動フォールバックしません。",
+                text = guide.summary,
                 color = Color.White.copy(alpha = 0.9f),
                 fontSize = 12.sp,
             )
+            if (guide.hasInstallSteps) {
+                TextButton(onClick = { showSteps = true }) {
+                    Text("導入方法を見る", color = Color(0xFF90CAF9))
+                }
+            }
         }
     }
-}
 
+    if (showSteps) {
+        AlertDialog(
+            onDismissRequest = { showSteps = false },
+            confirmButton = { TextButton(onClick = { showSteps = false }) { Text("閉じる") } },
+            title = { Text("データの入れ方") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    guide.steps.forEachIndexed { index, step ->
+                        Text("${index + 1}. $step", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("必要なファイル", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    guide.requiredFiles.forEach { Text("・$it", fontSize = 13.sp) }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("入れるフォルダ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    SelectionContainer { Text(guide.folderPath, fontSize = 12.sp) }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(OFFLINE_DATA_FOLDER_NOTE, fontSize = 12.sp)
+                }
+            },
+        )
+    }
+}
