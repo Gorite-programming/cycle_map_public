@@ -79,3 +79,6 @@ sandbox/vector_test/pipeline/node_modules/
 sandbox/vector_test/data/
 
 .mcp.json
+
+# Gradle wrapper は CI で ./gradlew を動かすために追跡する
+!application/gradle/wrapper/gradle-wrapper.jar
