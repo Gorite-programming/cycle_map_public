@@ -245,6 +245,15 @@ fun SettingsPanelSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("オフラインについて", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            OFFLINE_CAPABILITY_NOTES.forEach { line ->
+                Text(
+                    "・$line",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Button(
                 onClick = onManageData,

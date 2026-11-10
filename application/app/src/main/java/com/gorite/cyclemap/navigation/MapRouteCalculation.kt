@@ -423,7 +423,7 @@ internal fun executeRouteCalculation(
                         if (isReroute) {
                             "再探索で有効なルートが見つかりませんでした。元のルートを維持します"
                         } else {
-                            "有効な自転車ルートが見つかりませんでした"
+                            "有効な自転車ルートが見つかりませんでした。出発地や目的地が道路から離れている、または地図データの範囲外の可能性があります"
                         },
                     )
                     env.onCalculatingRouteChanged(false)
