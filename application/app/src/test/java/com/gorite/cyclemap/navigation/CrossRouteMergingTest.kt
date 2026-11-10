@@ -29,6 +29,24 @@ class CrossRouteMergingTest {
         assertEquals(merged.nodeElevations.size - 1, merged.segments.size)
     }
 
+    @Test fun mergesThreeInstructionAndElevationPartsInGlobalCoordinates() {
+        val instructions = mergeInstructionParts(listOf(
+            CrossInstructionPart(listOf(instruction(1, 10.0)), 3, 20.0),
+            CrossInstructionPart(listOf(instruction(0, 0.0), instruction(2, 30.0)), 3, 40.0),
+            CrossInstructionPart(listOf(instruction(0, 0.0), instruction(1, 50.0)), 2, 50.0),
+        ))
+        assertEquals(listOf(1, 4, 5), instructions.map { it.routeIndex })
+        assertEquals(listOf(10.0, 50.0, 110.0), instructions.map { it.distanceFromStartMeters })
+
+        val elevation = mergeElevationParts(listOf(
+            CrossElevationPart(listOf(RouteSegmentGrade(10.0, 1.0)), listOf(10.0, 11.0)),
+            CrossElevationPart(listOf(RouteSegmentGrade(20.0, 2.0)), listOf(11.0, 13.0)),
+            CrossElevationPart(listOf(RouteSegmentGrade(30.0, 3.0)), listOf(13.0, 16.0)),
+        ))
+        assertEquals(3, elevation.segments.size)
+        assertEquals(listOf(10.0, 11.0, 13.0, 16.0), elevation.nodeElevations)
+    }
+
     private fun instruction(index: Int, distance: Double) = RouteInstruction(
         type = InstructionType.LEFT_TURN,
         nodeId = index.toLong(),

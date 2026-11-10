@@ -100,10 +100,17 @@ internal fun executeRouteCalculation(
         goal.latitude,
         goal.longitude,
     )
+    val noticeStops = listOf(start) + (waypointsOverride ?: env.getWaypoints()) + goal
     val notice = if (isReroute) {
         CrossPrefectureNotice(showLongCalculationNotice = false, showUnsupportedWarning = false)
     } else {
-        crossPrefectureNotice(startPrefecture, goalPrefecture, straightDistanceMeters)
+        crossPrefectureNotice(noticeStops.mapIndexed { i, point ->
+            val pref = findPrefectureName(point.latitude, point.longitude)
+            pref to if (i == 0) 0.0 else haversineMeters(
+                noticeStops[i - 1].latitude, noticeStops[i - 1].longitude,
+                point.latitude, point.longitude,
+            )
+        })
     }
     env.onCalculatingRouteChanged(true)
     if (notice.showLongCalculationNotice) {
@@ -238,81 +245,38 @@ internal fun executeRouteCalculation(
 
             val pref = preferenceOverride ?: env.getRoutePreference()
 
-            // 今回は経由地なし・2県間のみ対応。ナビ中の県切替、3県以上、県境を複数回通る経路は範囲外。
-            val canAttemptCross = currentWaypoints.isEmpty() && startPrefecture != null && goalPrefecture != null &&
-                startPrefecture != goalPrefecture
-            if (canAttemptCross && !routeJob.isCancelled()) {
-                val crossStarted = SystemClock.elapsedRealtime()
-                val goalSelection = RoutingGraphSelector.select(goal.latitude, goal.longitude)
-                if (goalSelection is RoutingGraphSelection.Available && goalSelection.fileName != jobGraphName) {
-                    val dataDir = cycleMapDataDir(env.context)
-                    val files = RoutingGraphSelector.resolveGraphFiles(dataDir, goalSelection.fileName)
-                    if (files != null) {
-                        var destinationGraph: LazyMappedRoadGraph? = null
-                        try {
-                            val loadStarted = SystemClock.elapsedRealtime()
-                            destinationGraph = LazyMappedRoadGraph.load(files.first, files.second)
-                            crossLoadMs = SystemClock.elapsedRealtime() - loadStarted
-                            if (!routeJob.isCancelled() && env.routeExecutionGeneration.get() == executionGeneration) {
-                                val startIndex = env.graphLock.read { jobGraph?.nearestNodeIndex(start.latitude, start.longitude) ?: -1 }
-                                val goalIndex = destinationGraph.nearestNodeIndex(goal.latitude, goal.longitude)
-                                if (startIndex >= 0) {
-                                    val portalStarted = SystemClock.elapsedRealtime()
-                                    val portals = portalsBetween(jobGraph!!, destinationGraph)
-                                    crossPortalMs = SystemClock.elapsedRealtime() - portalStarted
-                                    val cross = env.graphLock.read {
-                                        routeAcrossGraphs(
-                                            a = jobGraph,
-                                            startA = startIndex,
-                                            b = destinationGraph,
-                                            goalB = goalIndex,
-                                            portals = portals,
-                                            preference = pref,
-                                            isCancelled = { routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration },
-                                            maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
-                                        )
-                                    }
-                                    crossAMs = cross.aSearchMs
-                                    crossBMs = cross.bSearchMs
-                                    if (cross.isReachable && !routeJob.isCancelled() && env.routeExecutionGeneration.get() == executionGeneration) {
-                                        usedCrossRoute = true
-                                        val aGrades = env.graphLock.read { jobGraph.segmentGradesAlongIndices(cross.aPart.nodeIndices) }
-                                        val aElevations = env.graphLock.read { jobGraph.nodeElevationsAt(cross.aPart.nodeIndices) }
-                                        val bGrades = destinationGraph.segmentGradesAlongIndices(cross.bPart.nodeIndices)
-                                        val bElevations = destinationGraph.nodeElevationsAt(cross.bPart.nodeIndices)
-                                        crossElevation = mergeElevationParts(aGrades, aElevations, bGrades, bElevations)
-                                        val aDistance = aGrades.sumOf { it.distanceMeters }
-                                        val aRich = env.graphLock.read { buildRouteInstructions(jobGraph, cross.aPart.nodeIds, cross.aPart.coordinates) }
-                                        val bRich = buildRouteInstructions(destinationGraph, cross.bPart.nodeIds, cross.bPart.coordinates)
-                                        crossInstructions = mergeInstructionParts(aRich, bRich, cross.aPart.nodeIds.size, aDistance)
-                                        totalDist = cross.totalDistanceMeters
-                                        totalCostVal = cross.totalCost
-                                        allNodeIds.addAll(cross.nodeIds)
-                                        allCoordinates.addAll(cross.coordinates)
-                                        // Cross-graph node indices have no single graph namespace.
-                                    } else if (cross.wasCancelled || routeJob.isCancelled()) return@launch
-                                }
-                            } else if (routeJob.isCancelled()) return@launch
-                        } catch (t: Throwable) {
-                            if (routeJob.isCancelled()) return@launch
-                            Log.w("CycleMapRoute", "CROSS_PREFECTURE fallback reason=${t::class.java.simpleName}:${t.message}")
-                            usedCrossRoute = false
-                            crossInstructions = null
-                            crossElevation = null
-                            allNodeIds.clear()
-                            allCoordinates.clear()
-                            totalDist = 0.0
-                            totalCostVal = 0.0
-                        } finally {
-                            destinationGraph?.close()
-                        }
-                    }
-                }
-                if (usedCrossRoute) crossTotalMs = SystemClock.elapsedRealtime() - crossStarted
+            val needsCrossPlanning = stops.zipWithNext().any { (a, b) ->
+                classifyLeg(findPrefectureName(a.latitude, a.longitude), findPrefectureName(b.latitude, b.longitude)) == CrossLegKind.CROSS
             }
-            if (usedCrossRoute) {
-                Log.i("CycleMapRoute", "ROUTE_TIMING cross loadMs=$crossLoadMs portalMs=$crossPortalMs aMs=$crossAMs bMs=$crossBMs totalMs=$crossTotalMs")
-                Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_used from=$startPrefecture to=$goalPrefecture")
+            if (needsCrossPlanning && !routeJob.isCancelled()) {
+                val crossStarted = SystemClock.elapsedRealtime()
+                try {
+                    val planned = jobGraph?.let { graphForJob -> calculateMultiLegCrossRoute(
+                        env.context, env.graphLock, graphForJob, jobGraphName, stops, pref,
+                        isCancelled = { routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration },
+                    ) }
+                    if (planned != null) {
+                        usedCrossRoute = true
+                        crossLoadMs = planned.loadMs
+                        crossInstructions = planned.instructions
+                        crossElevation = planned.elevation
+                        totalDist = planned.route.totalDistanceMeters
+                        totalCostVal = planned.route.totalCost
+                        allNodeIds.addAll(planned.route.nodeIds)
+                        allCoordinates.addAll(planned.route.coordinates)
+                        isAnyTruncated = planned.route.wasTruncated
+                        crossTotalMs = SystemClock.elapsedRealtime() - crossStarted
+                        if (currentWaypoints.isEmpty() && planned.chain.split('>').size == 2) {
+                            Log.i("CycleMapRoute", "ROUTE_TIMING cross loadMs=$crossLoadMs portalMs=${planned.portalMs} aMs=${planned.aMs} bMs=${planned.bMs} totalMs=$crossTotalMs")
+                        } else {
+                            Log.i("CycleMapRoute", "ROUTE_TIMING cross legs=${stops.size - 1} chain=${planned.chain} loadMs=$crossLoadMs totalMs=$crossTotalMs")
+                        }
+                        Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_used from=$startPrefecture to=$goalPrefecture via=${planned.chain}")
+                    }
+                } catch (t: Throwable) {
+                    if (routeJob.isCancelled()) return@launch
+                    Log.w("CycleMapRoute", "CROSS_PREFECTURE fallback reason=${t::class.java.simpleName}:${t.message}")
+                }
             }
             for (i in 0 until stops.size - 1) {
                 if (usedCrossRoute) break

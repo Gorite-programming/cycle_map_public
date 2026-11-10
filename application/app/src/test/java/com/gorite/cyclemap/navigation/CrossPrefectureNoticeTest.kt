@@ -47,4 +47,11 @@ class CrossPrefectureNoticeTest {
             crossPrefectureNotice("広島県", null, 80_000.0),
         )
     }
+
+    @Test fun waypointLegsUseTheirCombinedDistanceAndCrossing() {
+        assertEquals(
+            CrossPrefectureNotice(showLongCalculationNotice = true, showUnsupportedWarning = true),
+            crossPrefectureNotice(listOf("広島県" to 0.0, "岡山県" to 31_000.0, "岡山県" to 25_000.0)),
+        )
+    }
 }

@@ -26,3 +26,13 @@ internal fun crossPrefectureNotice(
         showUnsupportedWarning = crossesPrefecture,
     )
 }
+
+/** 停止点列に県またぎ区間があり、全体の直線距離が閾値を超えるか判定する。 */
+internal fun crossPrefectureNotice(stops: List<Pair<String?, Double>>): CrossPrefectureNotice {
+    val hasCrossLeg = stops.zipWithNext().any { (a, b) -> a.first != null && b.first != null && a.first != b.first }
+    val totalStraightMeters = stops.zipWithNext().sumOf { (a, b) ->
+        // pair's distance carries the cumulative segment length at its destination.
+        b.second
+    }
+    return CrossPrefectureNotice(hasCrossLeg && totalStraightMeters > 50_000.0, hasCrossLeg)
+}
