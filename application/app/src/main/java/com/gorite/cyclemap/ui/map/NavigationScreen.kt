@@ -241,10 +241,11 @@ fun formatDuration(seconds: Double): String {
     val totalMinutes = (seconds / 60).toInt()
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
-    return if (hours > 0) {
-        "${hours}時間${minutes}分"
-    } else {
-        "${minutes}分"
+    val days = hours / 24
+    return when {
+        days > 0 -> "${days}日${hours % 24}時間"
+        hours > 0 -> "${hours}時間${minutes}分"
+        else -> "${minutes}分"
     }
 }
 

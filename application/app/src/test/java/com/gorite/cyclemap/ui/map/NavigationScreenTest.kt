@@ -18,6 +18,7 @@ class NavigationScreenTest {
         assertEquals("5分", formatDuration(300.0))
         assertEquals("1時間15分", formatDuration(4500.0))
         assertEquals("2時間0分", formatDuration(7200.0))
+        assertEquals("1日2時間", formatDuration(26 * 3600.0))
     }
 
     @Test

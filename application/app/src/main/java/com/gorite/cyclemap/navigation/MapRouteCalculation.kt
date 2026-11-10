@@ -150,12 +150,6 @@ internal fun executeRouteCalculation(
                         "loaded=${env.getLoadedGraphName()} goalPrefecture=${goalPref ?: "(unknown)"}",
                 )
             }
-            if (goalPref != null && goalPref != selection.prefectureName) {
-                Log.w(
-                    "CycleMapRoute",
-                    "CROSS_PREFECTURE note=unsupported startPref=${selection.prefectureName} goalPref=$goalPref",
-                )
-            }
             if (env.getLoadedGraphName() != selection.fileName || graph == null) {
                 env.pendingRouteRef.set(RouteRequest(start, goal, isReroute, waypointsOverride, preferenceOverride))
                 if (!env.isSwitchingGraph()) env.onSwitchGraph(selection)

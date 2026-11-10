@@ -96,7 +96,7 @@ fun SpotPanelSheet(
                         tint = if (showFavoritesOnly) MaterialTheme.colorScheme.primary else Color(0xFFFFB300),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (showFavoritesOnly) "周辺検索へ" else "★ お気に入り (${favorites.size})")
+                    Text(if (showFavoritesOnly) "周辺検索へ" else "お気に入り (${favorites.size})")
                 }
             }
             Text(

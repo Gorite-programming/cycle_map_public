@@ -155,8 +155,7 @@ internal fun MapPanelsHost(
             spots = spotResults,
             message = spotMessage,
             onSpotClick = { spot ->
-                onCloseSpotPanel()
-                onRouteToSpot(GeoPoint(spot.latitude, spot.longitude))
+                onSelectPoiSpot(spot)
             },
             onQuickSpotTypeSelect = onQuickSpotTypeSelectFromSpotPanel,
             onRouteToSpot = { spot ->

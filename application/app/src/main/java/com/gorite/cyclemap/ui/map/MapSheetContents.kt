@@ -38,6 +38,7 @@ import com.gorite.cyclemap.contract.BusinessStatus
 import com.gorite.cyclemap.contract.PlaceDetail
 import com.gorite.cyclemap.contract.RouteOption
 import com.gorite.cyclemap.contract.TravelModeType
+import com.gorite.cyclemap.utils.normalizePlaceAddress
 
 /**
  * 契約 PlaceDetail に準拠した場所詳細コンポーネント (営業中/まもなく閉店/営業時間外/不明)
@@ -132,7 +133,7 @@ fun PlaceDetailContent(
 
         Spacer(modifier = Modifier.height(12.dp))
         val addrText = if (detail.address.isNotBlank() && detail.address != "周辺エリア") {
-            detail.address
+            normalizePlaceAddress(detail.address)
         } else {
             String.format(java.util.Locale.US, "周辺エリア (%.4f, %.4f)", detail.lat, detail.lon)
         }

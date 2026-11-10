@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,12 @@ internal fun MapNotificationBanners(
     isLocationServiceEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
+    LaunchedEffect(warningMessage) {
+        if (warningMessage?.startsWith("県をまたぐ経路です。") == true) {
+            kotlinx.coroutines.delay(5_000)
+            onDismissWarning()
+        }
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),

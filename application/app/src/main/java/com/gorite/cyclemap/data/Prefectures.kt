@@ -22,7 +22,7 @@ data class Prefecture(
 )
 
 enum class MapSourceType(val id: String, val displayName: String) {
-    VECTOR_LIBERTY("vector_liberty", "★Libertyベクター (オフライン)"),
+    VECTOR_LIBERTY("vector_liberty", "ベクター地図 (オフライン)"),
     GSI("gsi", "地理院地図（標準）"),
     OSM("osm", "OpenStreetMap"),
 }

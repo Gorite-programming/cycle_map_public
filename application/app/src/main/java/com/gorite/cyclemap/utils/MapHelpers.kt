@@ -54,7 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 // ---------------------------------------------------------------------------
 
 internal enum class MapLayer(val label: String) {
-    VECTOR_LIBERTY("★Libertyベクター"),
+    VECTOR_LIBERTY("ベクター地図 (オフライン)"),
     GSI("地理院標準"),
     OSM("自転車向け"),
     TERRAIN("地形起伏"),

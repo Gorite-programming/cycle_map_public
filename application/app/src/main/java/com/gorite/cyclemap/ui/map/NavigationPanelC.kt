@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -331,15 +332,21 @@ internal fun NavBottomPanelC(
             ElevationAheadCard(data = data, palette = p)
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
-                        style = numStyle(28, p.warn),
+                        style = numStyle(20, p.warn),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = data.etaEpochMillis?.let { "${formatClock(it)} 着" } ?: "到着時刻を計算中",
-                        style = TextStyle(fontSize = 13.sp, color = p.sub),
+                        text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                        style = TextStyle(fontSize = 11.sp, color = p.sub),
                         modifier = Modifier.padding(bottom = 2.dp),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
                     )
                 }
                 if (batteryPercent != null) BatteryBadge(percent = batteryPercent, color = p.sub)
@@ -439,10 +446,16 @@ private fun ElevationAheadCard(data: NavPanelData, palette: NavPalette) {
         ElevationStrip(data = data, palette = palette, modifier = Modifier.fillMaxWidth().height(48.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             val w = data.windowM
-            val axis = TextStyle(fontSize = 10.sp, color = palette.sub)
+            val axis = TextStyle(fontSize = 9.sp, color = palette.sub)
             Text("いま", style = axis)
-            Text(splitDistance(w / 2.0).let { (n, u) -> n + u }, style = axis)
-            Text(splitDistance(w).let { (n, u) -> n + u }, style = axis)
+            Text(splitDistance(w / 2.0).let { (n, u) -> n + u }, style = axis, maxLines = 1)
+            Text(
+                splitDistance(w).let { (n, u) -> n + u },
+                style = axis,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 40.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            )
         }
     }
 }

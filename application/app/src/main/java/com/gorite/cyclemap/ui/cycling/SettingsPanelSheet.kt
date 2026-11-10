@@ -136,7 +136,7 @@ fun SettingsPanelSheet(
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("地図レイヤー (オフライン・航空写真なし)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("地図レイヤー", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             layerLabels.forEachIndexed { index, label ->
                 Row(
                     modifier = Modifier

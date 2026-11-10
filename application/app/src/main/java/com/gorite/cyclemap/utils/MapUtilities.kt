@@ -11,6 +11,21 @@ import kotlin.math.roundToInt
 
 import org.osmdroid.util.MapTileIndex
 
+/** 市区町村名と住所の先頭が重複した表示を整える。 */
+internal fun normalizePlaceAddress(address: String): String {
+    val normalized = address.trim()
+    val parts = normalized.split(Regex("\\s+"), limit = 2)
+    if (parts.size < 2) return normalized
+
+    val prefix = parts[0]
+    val remainder = parts[1]
+    val overlap = (1..minOf(prefix.length, remainder.length))
+        .map { prefix.takeLast(it) }
+        .lastOrNull { remainder.startsWith(it) }
+        ?: return normalized
+    return "$prefix ${remainder.drop(overlap.length)}".trim()
+}
+
 // ---------------------------------------------------------------------------
 // タイルソース定義 (最大ズーム21までのデジタル拡大・高画質タイル表示対応)
 // ---------------------------------------------------------------------------

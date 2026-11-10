@@ -72,7 +72,7 @@ internal fun MapDrawerContent(
                 onClick = onSearchClick,
             )
             NavigationDrawerItem(
-                label = { Text("地図ダウンロード（47都道府県）") },
+                label = { Text("地図ダウンロード") },
                 icon = {
                     Icon(
                         painterResource(R.drawable.ic_lucide_download),
