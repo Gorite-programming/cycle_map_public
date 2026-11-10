@@ -438,6 +438,17 @@ internal fun VectorMapView(
             rebuildStyle(map, path, isNightMode)
         }
 
+        // 手動でスクロールして別の県へ移動したとき (現在地は元の県のまま) も、カメラ停止時の中心の県のタイルへ切り替える。
+        // 該当県のタイルが無いときは、表示中のタイルを維持する。
+        LaunchedEffect(mapLibreMap) {
+            val map = mapLibreMap ?: return@LaunchedEffect
+            MapCameraCenter.center.collect { center ->
+                val (lat, lon) = center ?: return@collect
+                val path = resolveOfflinePmtilesPath(context, lat, lon) ?: return@collect
+                if (path != activePmtilesPath) rebuildStyle(map, path, isNightMode)
+            }
+        }
+
         // 検証フック (debug ビルドの CameraDebugReceiver のみが発行): 任意の地点・ズームへカメラを動かす。
         // 追従を解除し、その地点の県のタイルへ切り替える。
         LaunchedEffect(mapLibreMap) {
