@@ -87,7 +87,7 @@ Google Maps に近い情報量をオフラインで実現する取り組みと�
 
 ### 次にやること (優先順)
 1. 探索がまだ必要なら、計画の P4 (双方向 A*) → P5 (Contraction Hierarchies、おすすめの方針 1 つ)。HSA* は止める。
-2. Kotlin の CI の失敗原因 (GitHub のログ)。data-tool と scripts のジョブは通っている。
+2. (解決済み 2026-11-10) Kotlin の CI の失敗は、`gradle-wrapper.jar` が `.gitignore` の `*.jar` で未追跡だったことと、`gradle.properties` の Mac 専用 `org.gradle.java.home` が原因。両方直して CI は緑。Mac のローカル JDK 指定は `~/.gradle/gradle.properties` に置く。
 3. 公園内からの reroute が「到達不能」になる件 (最寄りノードが孤立した道に当たると推測)。
 
 ### 検証の道具 (debug ビルドのみ)
