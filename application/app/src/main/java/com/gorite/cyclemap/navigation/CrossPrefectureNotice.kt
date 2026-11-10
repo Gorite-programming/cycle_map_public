@@ -15,6 +15,11 @@ internal const val CROSS_PREFECTURE_UNSUPPORTED_MESSAGE =
 internal const val CROSS_PREFECTURE_ROUTE_MESSAGE =
     "県をまたぐ経路です。県境付近で地図データを切り替えます。"
 
+internal const val OUT_OF_MEMORY_ROUTE_MESSAGE = "メモリ不足でルートを計算できませんでした"
+
+internal fun routeFailureMessage(outOfMemory: Boolean): String =
+    if (outOfMemory) OUT_OF_MEMORY_ROUTE_MESSAGE else "ルート探索に失敗しました"
+
 internal fun crossPrefectureNotice(
     startPref: String?,
     goalPref: String?,

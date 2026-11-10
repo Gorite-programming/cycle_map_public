@@ -5,6 +5,12 @@ import org.junit.Test
 
 class CrossPrefectureNoticeTest {
     @Test
+    fun outOfMemoryFailureHasClearWarning() {
+        assertEquals("メモリ不足でルートを計算できませんでした", routeFailureMessage(outOfMemory = true))
+        assertEquals("ルート探索に失敗しました", routeFailureMessage(outOfMemory = false))
+    }
+
+    @Test
     fun differentPrefecturesOver50Km_showsBothNotices() {
         assertEquals(
             CrossPrefectureNotice(showLongCalculationNotice = true, showUnsupportedWarning = true),

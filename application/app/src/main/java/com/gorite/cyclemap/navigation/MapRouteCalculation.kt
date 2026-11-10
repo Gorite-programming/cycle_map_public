@@ -538,11 +538,15 @@ internal fun executeRouteCalculation(
             }
         } catch (t: Throwable) {
             if (routeJob.isCancelled()) return@launch
-            Log.e("CycleMapGraph", "route failed", t)
-            Log.e("CycleMapRoute", "ROUTE_FAILURE reason=exception exception=${t::class.java.simpleName}:${t.message}")
+            if (t is OutOfMemoryError) {
+                Log.e("CycleMapRoute", "ROUTE_FAILURE reason=out_of_memory")
+            } else {
+                Log.e("CycleMapGraph", "route failed", t)
+                Log.e("CycleMapRoute", "ROUTE_FAILURE reason=exception exception=${t::class.java.simpleName}:${t.message}")
+            }
             (env.context as? ComponentActivity)?.runOnUiThread {
                 if (routeJob.isCancelled() || env.routeJobRef.get() !== routeJob) return@runOnUiThread
-                env.onWarningMessageChanged("ルート探索失敗: ${t.message}")
+                env.onWarningMessageChanged(routeFailureMessage(t is OutOfMemoryError))
                 env.onCalculatingRouteChanged(false)
                 env.onReroutingChanged(false)
                 env.routeJobRef.compareAndSet(routeJob, null)

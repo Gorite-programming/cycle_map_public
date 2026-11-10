@@ -164,6 +164,10 @@ internal fun calculateMultiLegCrossRoute(
                     }
                 } catch (t: Throwable) {
                     if (isCancelled()) return null
+                    if (t is OutOfMemoryError) {
+                        Log.e("CycleMapRoute", "ROUTE_FAILURE reason=out_of_memory")
+                        throw t
+                    }
                     Log.w("CycleMapRoute", "CROSS_PREFECTURE chain failed ${chain.joinToString(">")}: ${t.message}")
                     continue
                 } finally { /* Each owned graph is closed by routeAcrossChain or the pair block. */ }

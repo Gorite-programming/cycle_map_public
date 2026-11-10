@@ -25,7 +25,7 @@ data class CrossChainResult(
 internal data class ChainPortalCost(val index: Int, val cost: Double, val distance: Double, val originIndex: Int)
 internal data class ChainPortalReach(
     val portals: List<ChainPortalCost>,
-    val parentSnapshot: IntArray,
+    val pathToSolePortal: IntArray?,
     val expandedNodes: Int,
     val wasCancelled: Boolean,
     val wasTruncated: Boolean,
@@ -34,8 +34,6 @@ internal data class ChainPortalReach(
 private data class ChainStageSnapshot(
     val ids: LongArray,
     val indices: IntArray,
-    val origins: IntArray,
-    val parent: IntArray,
 )
 
 private data class ChainSeed(val id: Long, val index: Int, val cost: Double, val distance: Double)
@@ -55,9 +53,10 @@ fun routeAcrossChain(
     val stageMs = MutableList(graphs.size) { 0L }
     val nodeCounts = MutableList(graphs.size) { 0 }
     val snapshots = arrayOfNulls<ChainStageSnapshot>(graphs.size - 1)
+    val stageInputs = arrayOfNulls<List<ChainSeed>>(graphs.size)
     var seeds: List<ChainSeed> = emptyList()
 
-    fun acquire(i: Int) = graphs[i].open()
+    fun acquire(i: Int) = graphs[i].open().also { if (graphs[i].borrowed) it.clearWorkspaceCache() }
     fun release(i: Int, graph: LazyMappedRoadGraph) { if (!graphs[i].borrowed) graphs[i].close(graph) }
     fun failed(cancelled: Boolean = false, truncated: Boolean = false) = CrossChainResult(
         emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, emptyList(), emptyList(),
@@ -72,8 +71,16 @@ fun routeAcrossChain(
             next = acquire(i + 1)
             val portals = portalsBetween(current, next)
             if (portals.size == 0) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed() }
+            // The next graph is needed only to find the portal pairs. Search this stage
+            // with the current graph alone so two large owned graphs are not live together.
+            if (!graphs[i + 1].borrowed) {
+                release(i + 1, next)
+                next = null
+                System.gc()
+            }
             if (i == 0) {
-                val reach = current.routeToPortals(startIndex, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode)
+                val reach = current.routeToPortals(startIndex, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode,
+                    includeParentSnapshot = false)
                 nodeCounts[i] = reach.expandedNodes
                 if (reach.wasCancelled || reach.wasTruncated) {
                     stageMs[i] = (System.nanoTime() - started) / 1_000_000
@@ -86,9 +93,9 @@ fun routeAcrossChain(
                 snapshots[0] = ChainStageSnapshot(
                     LongArray(reach.portals.size) { reach.portals[it].nodeId },
                     IntArray(reach.portals.size) { reach.portals[it].aIndex },
-                    IntArray(reach.portals.size) { -1 }, reach.parentSnapshot,
                 )
             } else {
+                stageInputs[i] = seeds
                 val sources = seeds.map { PortalSource(it.id, it.index, -1, it.cost, it.distance) }
                 val reach = current.routeBetweenPortals(sources, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode)
                 nodeCounts[i] = reach.expandedNodes
@@ -102,19 +109,22 @@ fun routeAcrossChain(
                 }
                 val foundByIndex = reach.portals.associateBy { it.index }
                 val outSeeds = ArrayList<ChainSeed>()
-                val outIds = ArrayList<Long>(); val outIndices = ArrayList<Int>(); val outOrigins = ArrayList<Int>()
+                val outIds = ArrayList<Long>(); val outIndices = ArrayList<Int>()
                 for (p in portals.nodeIds.indices) {
                     val found = foundByIndex[portals.aIndices[p]] ?: continue
                     outSeeds += ChainSeed(portals.nodeIds[p], portals.bIndices[p], found.cost, found.distance)
-                    outIds += portals.nodeIds[p]; outIndices += found.index; outOrigins += found.originIndex
+                    outIds += portals.nodeIds[p]; outIndices += found.index
                 }
                 seeds = outSeeds
-                snapshots[i] = ChainStageSnapshot(outIds.toLongArray(), outIndices.toIntArray(), outOrigins.toIntArray(), reach.parentSnapshot)
+                snapshots[i] = ChainStageSnapshot(outIds.toLongArray(), outIndices.toIntArray())
             }
             stageMs[i] = (System.nanoTime() - started) / 1_000_000
         } finally {
             try { if (next != null) release(i + 1, next) }
-            finally { release(i, current) }
+            finally {
+                release(i, current)
+                if (graphs[i].borrowed) current.clearWorkspaceCache()
+            }
         }
         // Reopened graph objects retain large heap arrays even after their mmap is closed. Reclaim
         // those arrays before opening the next pair so peak Java heap tracks the two-live-graph bound.
@@ -148,16 +158,16 @@ fun routeAcrossChain(
         val snapshot = snapshots[i] ?: return failed()
         val exitSlot = snapshot.ids.indexOf(selectedId)
         if (exitSlot < 0) return failed()
-        var cursor = snapshot.indices[exitSlot]
-        val origin = snapshot.origins[exitSlot]
-        val path = ArrayList<Int>(); path += cursor
-        while (cursor != origin && snapshot.parent[cursor] >= 0) { cursor = snapshot.parent[cursor]; path += cursor }
-        if (cursor != origin) return failed()
-        path.reverse()
+        val incoming = stageInputs[i] ?: return failed()
+        val sources = incoming.map { PortalSource(it.id, it.index, -1, it.cost, it.distance) }
         val graph = acquire(i)
         try {
-            partByStage[i] = makePart(graph, path)
-            selectedId = graph.nodeAt(origin).id
+            val reach = graph.routeBetweenPortals(sources, intArrayOf(snapshot.indices[exitSlot]), preference,
+                isCancelled, maxExpandedNodes, costMode)
+            if (reach.wasCancelled || reach.wasTruncated || reach.portals.isEmpty()) return failed(reach.wasCancelled, reach.wasTruncated)
+            val path = reach.pathToSolePortal ?: return failed()
+            partByStage[i] = makePart(graph, path.toList())
+            selectedId = graph.nodeAt(reach.portals.single().originIndex).id
         }
         finally { release(i, graph) }
         if (!graphs[i].borrowed) System.gc()
@@ -166,12 +176,15 @@ fun routeAcrossChain(
     val firstSnapshot = snapshots[0] ?: return failed()
     val firstSlot = firstSnapshot.ids.indexOf(selectedId)
     if (firstSlot < 0) return failed()
-    var cursor = firstSnapshot.indices[firstSlot]
-    val firstPath = ArrayList<Int>(); firstPath += cursor
-    while (firstSnapshot.parent[cursor] >= 0) { cursor = firstSnapshot.parent[cursor]; firstPath += cursor }
-    firstPath.reverse()
+    val firstTarget = firstSnapshot.indices[firstSlot]
     val firstGraph = acquire(0)
-    try { partByStage[0] = makePart(firstGraph, firstPath) }
+    try {
+        val reach = firstGraph.routeToPortals(startIndex, intArrayOf(firstTarget), preference,
+            isCancelled, maxExpandedNodes, costMode, includeParentSnapshot = false)
+        if (reach.wasCancelled || reach.wasTruncated || reach.portals.isEmpty()) return failed(reach.wasCancelled, reach.wasTruncated)
+        val path = reach.pathToSolePortal ?: return failed()
+        partByStage[0] = makePart(firstGraph, path.toList())
+    }
     finally { release(0, firstGraph) }
 
     val parts = partByStage.map { it ?: CrossRoutePart() }

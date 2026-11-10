@@ -184,7 +184,6 @@ class LazyMappedRoadGraph private constructor(
                 val index = source.aIndex
                 if (source.initialCost < ws.costOf(index)) {
                     ws.set(index, source.initialCost, source.initialDistanceMeters, -1)
-                    ws.setOrigin(index, index)
                     ws.push(index, source.initialCost, source.initialCost)
                 }
             }
@@ -213,12 +212,14 @@ class LazyMappedRoadGraph private constructor(
                     val next = ws.costOf(node) + edges.distance * multiplier
                     if (next < ws.costOf(target)) {
                         ws.set(target, next, ws.distanceOf(node) + edges.distance, node)
-                        ws.setOrigin(target, ws.originOf(node))
                         ws.push(target, next, next)
                     }
                 }
             }
-            return ChainPortalReach(found, ws.snapshotParents(), expanded, cancelled, truncated)
+            val path = if (!cancelled && !truncated && portalIndices.size == 1 && found.isNotEmpty()) {
+                ws.pathTo(found.single().index)
+            } else null
+            return ChainPortalReach(found, path, expanded, cancelled, truncated)
         } finally { releaseWorkspace(ws) }
     }
 
@@ -532,8 +533,8 @@ class LazyMappedRoadGraph private constructor(
         private val cost = DoubleArray(nodeCount)
         private val distance = DoubleArray(nodeCount)
         private val parent = IntArray(nodeCount)
-        private var origin: IntArray? = null
-        private val stamp = IntArray(nodeCount)
+        // A byte generation marker is sufficient; clear it after 255 searches.
+        private val stamp = ByteArray(nodeCount)
         private var generation = 0
         private var heapNode = IntArray(1 shl 14)
         private var heapCost = DoubleArray(1 shl 14)
@@ -543,23 +544,39 @@ class LazyMappedRoadGraph private constructor(
 
         fun begin() {
             generation++
-            if (generation == Int.MAX_VALUE) { stamp.fill(0); generation = 1 }
+            if (generation > 255) { stamp.fill(0); generation = 1 }
             size = 0
         }
 
-        fun costOf(i: Int): Double = if (stamp[i] == generation) cost[i] else Double.POSITIVE_INFINITY
+        private fun isCurrent(i: Int): Boolean = (stamp[i].toInt() and 0xff) == generation
+        fun costOf(i: Int): Double = if (isCurrent(i)) cost[i] else Double.POSITIVE_INFINITY
         fun distanceOf(i: Int): Double = distance[i]
-        fun parentOf(i: Int): Int = if (stamp[i] == generation) parent[i] else -1
+        fun parentOf(i: Int): Int = if (isCurrent(i)) parent[i] else -1
 
         fun set(i: Int, c: Double, d: Double, p: Int) {
-            stamp[i] = generation; cost[i] = c; distance[i] = d; parent[i] = p
+            stamp[i] = generation.toByte(); cost[i] = c; distance[i] = d; parent[i] = p
         }
-
-        fun setOrigin(i: Int, value: Int) {
-            val values = origin ?: IntArray(cost.size).also { origin = it }
-            values[i] = value
+        /** The root of a multi-source shortest-path tree is the initial source index. */
+        fun originOf(i: Int): Int {
+            if (!isCurrent(i)) return -1
+            var cursor = i
+            var parentIndex = parentOf(cursor)
+            while (parentIndex >= 0) { cursor = parentIndex; parentIndex = parentOf(cursor) }
+            return cursor
         }
-        fun originOf(i: Int): Int = if (stamp[i] == generation) origin?.get(i) ?: -1 else -1
+        fun pathTo(i: Int): IntArray {
+            val reverse = ArrayList<Int>()
+            var cursor = i
+            reverse += cursor
+            var parentIndex = parentOf(cursor)
+            while (parentIndex >= 0) {
+                cursor = parentIndex
+                reverse += cursor
+                parentIndex = parentOf(cursor)
+            }
+            reverse.reverse()
+            return reverse.toIntArray()
+        }
         fun snapshotParents(): IntArray = IntArray(cost.size) { parentOf(it) }
 
         fun topNode(): Int = heapNode[0]
@@ -601,6 +618,9 @@ class LazyMappedRoadGraph private constructor(
     private fun acquireWorkspace(): SearchWorkspace = workspaceSlot.getAndSet(null) ?: SearchWorkspace(nodeIds.size)
 
     private fun releaseWorkspace(ws: SearchWorkspace) { workspaceSlot.set(ws) }
+
+    /** A borrowed graph may outlive a chain stage; discard its large reusable arrays afterward. */
+    internal fun clearWorkspaceCache() { workspaceSlot.set(null) }
 
     private data class EdgeRecord(
         val to: Long,

@@ -15,6 +15,7 @@ data class PortalReach(
     val expandedNodes: Int,
     val wasCancelled: Boolean = false,
     val wasTruncated: Boolean = false,
+    val pathToSolePortal: IntArray? = null,
 )
 
 data class PortalSource(
@@ -85,6 +86,7 @@ fun LazyMappedRoadGraph.routeToPortals(
     isCancelled: (() -> Boolean)? = null,
     maxExpandedNodes: Int = Int.MAX_VALUE,
     costMode: RouteCostMode = RouteCostMode.BICYCLE,
+    includeParentSnapshot: Boolean = true,
 ): PortalReach {
     require(start in 0 until nodeCount)
     require(maxExpandedNodes > 0)
@@ -125,7 +127,15 @@ fun LazyMappedRoadGraph.routeToPortals(
     val idsByIndex = HashMap<Int, Long>(foundCosts.size)
     foundCosts.keys.forEach { idsByIndex[it] = nodeAt(it).id }
     val portals = foundCosts.map { (index, v) -> PortalCost(idsByIndex.getValue(index), index, v.first, v.second) }
-    return PortalReach(start, portals, parent.copyOf(), expanded, cancelled, truncated)
+    val path = if (!includeParentSnapshot && !cancelled && !truncated && portalIndices.size == 1 && foundCosts.isNotEmpty()) {
+        val reverse = ArrayList<Int>()
+        var cursor = foundCosts.keys.single()
+        reverse += cursor
+        while (parent[cursor] >= 0) { cursor = parent[cursor]; reverse += cursor }
+        reverse.reverse()
+        reverse.toIntArray()
+    } else null
+    return PortalReach(start, portals, if (includeParentSnapshot) parent.copyOf() else IntArray(0), expanded, cancelled, truncated, path)
 }
 
 /** 各 portal を初期 g 値付きの始点として扱う一回の A*。 */
