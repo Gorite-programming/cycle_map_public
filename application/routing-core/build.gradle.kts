@@ -38,17 +38,20 @@ tasks.register<JavaExec>("routeDump") {
     }
 }
 
-// 県間経路の実グラフ計測: ./gradlew :routing-core:crossRouteBench -PgraphA=<A.graph> -PgraphB=<B.graph> -Pod="lat,lon,lat,lon[;...]"
+// 県間経路の実グラフ計測: ./gradlew :routing-core:crossRouteBench -PgraphList=<A.graph>,<B.graph>,<C.graph> -Pod="lat,lon,lat,lon[;...]"
 tasks.register<JavaExec>("crossRouteBench") {
     group = "verification"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.gorite.cyclemap.routing.CrossRouteBenchKt")
     jvmArgs("-Xmx2g")
     doFirst {
-        args(
-            project.findProperty("graphA") as String? ?: error("-PgraphA=<A.graph path> が必要です"),
-            project.findProperty("graphB") as String? ?: error("-PgraphB=<B.graph path> が必要です"),
-            project.findProperty("od") as String? ?: error("-Pod=lat,lon,lat,lon が必要です"),
+        val od = project.findProperty("od") as String? ?: error("-Pod=lat,lon,lat,lon が必要です")
+        val graphList = project.findProperty("graphList") as String?
+        if (graphList != null) args(graphList, od)
+        else args(
+            project.findProperty("graphA") as String? ?: error("-PgraphList または -PgraphA/-PgraphB が必要です"),
+            project.findProperty("graphB") as String? ?: error("-PgraphList または -PgraphA/-PgraphB が必要です"),
+            od,
         )
     }
 }

@@ -3,9 +3,40 @@ package com.gorite.cyclemap.routing
 import java.io.File
 import java.util.Locale
 
-/** ./gradlew :routing-core:crossRouteBench -PgraphA=... -PgraphB=... -Pod="lat,lon,lat,lon[;...]" */
+/** ./gradlew :routing-core:crossRouteBench -PgraphList=A.graph,B.graph,C.graph -Pod="lat,lon,lat,lon[;...]" */
 fun main(args: Array<String>) {
-    require(args.size == 3) { "Expected graphA graphB od" }
+    if (args.size == 3) return legacyMain(args)
+    require(args.size == 2) { "Expected graphList od" }
+    val files = args[0].split(',').map { File(it.trim()) }
+    require(files.size >= 2) { "At least two graphs are required" }
+    val ods = args[1].split(';').map { row ->
+        val values = row.split(',').map(String::trim).map(String::toDouble)
+        require(values.size == 4) { "Each OD must be lat,lon,lat,lon" }
+        values
+    }
+    for ((index, od) in ods.withIndex()) {
+        val graphs = files.map { file -> ChainGraph({ LazyMappedRoadGraph.load(file) }) }
+        val start = nearestNode(files.first(), od[0], od[1])
+        val goal = nearestNode(files.last(), od[2], od[3])
+        System.gc()
+        val before = usedHeapBytes()
+        val sampler = CrossChainHeapSampler().also { it.start() }
+        val routeStarted = System.nanoTime()
+        val result = try { routeAcrossChain(graphs, start, goal) } finally { sampler.finish() }
+        val elapsedMs = (System.nanoTime() - routeStarted) / 1_000_000.0
+        val after = usedHeapBytes()
+        println(String.format(Locale.US,
+            "OD%d reachable=%s elapsedMs=%.1f distanceM=%.1f cost=%.3f portals=%s stageMs=%s stageExpanded=%s graphNodes=%s partNodes=%s heapBeforeMB=%.1f heapPeakSampleMB=%.1f heapAfterMB=%.1f heapDeltaMB=%.1f cancelled=%s truncated=%s",
+            index + 1, result.isReachable, elapsedMs, result.totalDistanceMeters, result.totalCost,
+            result.portalIds.joinToString(","), result.stageSearchMs.joinToString(","), result.stageNodeCounts.joinToString(","),
+            files.map(::graphNodeCount).joinToString(","), result.parts.map { it.nodeIds.size }.joinToString(","),
+            before / 1048576.0, sampler.peakBytes / 1048576.0, after / 1048576.0,
+            (after - before) / 1048576.0, result.wasCancelled, result.wasTruncated))
+    }
+}
+
+/** Preserves the original two-graph bench format and output for existing scripts. */
+private fun legacyMain(args: Array<String>) {
     val fileA = File(args[0]); val fileB = File(args[1])
     val ods = args[2].split(';').map { row ->
         val values = row.split(',').map(String::trim).map(String::toDouble)
@@ -40,4 +71,26 @@ fun main(args: Array<String>) {
     } }
 }
 
+private fun usedHeapBytes(): Long = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
+private fun nearestNode(file: File, lat: Double, lon: Double): Int = LazyMappedRoadGraph.load(file).use { it.nearestNodeIndex(lat, lon) }
+private fun graphNodeCount(file: File): Int = java.io.RandomAccessFile(file, "r").use { input ->
+    val header = ByteArray(input.readUnsignedShort())
+    input.readFully(header)
+    input.readInt()
+}
 private fun fmt(value: Double) = String.format(Locale.US, "%.1f", value)
+
+private class CrossChainHeapSampler {
+    @Volatile var peakBytes: Long = usedHeapBytes()
+        private set
+    @Volatile private var running = true
+    private val worker = Thread({
+        while (running) {
+            peakBytes = maxOf(peakBytes, usedHeapBytes())
+            try { Thread.sleep(5) } catch (_: InterruptedException) { break }
+        }
+        peakBytes = maxOf(peakBytes, usedHeapBytes())
+    }, "cross-route-heap-sampler").apply { isDaemon = true }
+    fun start() = worker.start()
+    fun finish() { running = false; worker.join() }
+}

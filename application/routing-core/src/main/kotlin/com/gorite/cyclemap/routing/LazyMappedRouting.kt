@@ -160,6 +160,68 @@ class LazyMappedRoadGraph private constructor(
         return combinedRoutingEdgeMultiplier(base, grade, preference, costMode, 1.0)
     }
 
+    /** Multi-source Dijkstra used by chain routing. Parent state is snapshotted before the workspace is released. */
+    internal fun routeBetweenPortals(
+        sources: List<PortalSource>,
+        portalIndices: IntArray,
+        preference: RoutePreference,
+        isCancelled: (() -> Boolean)?,
+        maxExpandedNodes: Int,
+        costMode: RouteCostMode,
+    ): ChainPortalReach {
+        require(maxExpandedNodes > 0)
+        val ws = acquireWorkspace()
+        try {
+            ws.begin()
+            val pending = BooleanArray(nodeCount)
+            var remaining = 0
+            for (p in portalIndices) {
+                require(p in 0 until nodeCount)
+                if (!pending[p]) { pending[p] = true; remaining++ }
+            }
+            for (source in sources) {
+                require(source.aIndex in 0 until nodeCount)
+                val index = source.aIndex
+                if (source.initialCost < ws.costOf(index)) {
+                    ws.set(index, source.initialCost, source.initialDistanceMeters, -1)
+                    ws.setOrigin(index, index)
+                    ws.push(index, source.initialCost, source.initialCost)
+                }
+            }
+            val edges = newRoutingEdgeCursor()
+            val found = ArrayList<ChainPortalCost>()
+            var expanded = 0
+            var cancelled = false
+            var truncated = false
+            while (ws.size > 0) {
+                val node = ws.topNode(); val entry = ws.topCost(); ws.pop()
+                if (entry > ws.costOf(node)) continue
+                expanded++
+                if (isCancelled?.invoke() == true) { cancelled = true; break }
+                if (pending[node]) {
+                    pending[node] = false; remaining--
+                    found += ChainPortalCost(node, ws.costOf(node), ws.distanceOf(node), ws.originOf(node))
+                }
+                if (remaining == 0) break
+                if (expanded >= maxExpandedNodes) { truncated = true; break }
+                edges.reset(node)
+                while (edges.next()) {
+                    val target = edges.target
+                    if (target < 0) continue
+                    val multiplier = routingEdgeMultiplier(edges.type, edges.grade, preference, costMode)
+                    if (multiplier.isNaN()) continue
+                    val next = ws.costOf(node) + edges.distance * multiplier
+                    if (next < ws.costOf(target)) {
+                        ws.set(target, next, ws.distanceOf(node) + edges.distance, node)
+                        ws.setOrigin(target, ws.originOf(node))
+                        ws.push(target, next, next)
+                    }
+                }
+            }
+            return ChainPortalReach(found, ws.snapshotParents(), expanded, cancelled, truncated)
+        } finally { releaseWorkspace(ws) }
+    }
+
     private fun combinedRoutingEdgeMultiplier(
         baseMultiplier: Double,
         grade: Float,
@@ -470,6 +532,7 @@ class LazyMappedRoadGraph private constructor(
         private val cost = DoubleArray(nodeCount)
         private val distance = DoubleArray(nodeCount)
         private val parent = IntArray(nodeCount)
+        private var origin: IntArray? = null
         private val stamp = IntArray(nodeCount)
         private var generation = 0
         private var heapNode = IntArray(1 shl 14)
@@ -491,6 +554,13 @@ class LazyMappedRoadGraph private constructor(
         fun set(i: Int, c: Double, d: Double, p: Int) {
             stamp[i] = generation; cost[i] = c; distance[i] = d; parent[i] = p
         }
+
+        fun setOrigin(i: Int, value: Int) {
+            val values = origin ?: IntArray(cost.size).also { origin = it }
+            values[i] = value
+        }
+        fun originOf(i: Int): Int = if (stamp[i] == generation) origin?.get(i) ?: -1 else -1
+        fun snapshotParents(): IntArray = IntArray(cost.size) { parentOf(it) }
 
         fun topNode(): Int = heapNode[0]
         fun topCost(): Double = heapCost[0]
