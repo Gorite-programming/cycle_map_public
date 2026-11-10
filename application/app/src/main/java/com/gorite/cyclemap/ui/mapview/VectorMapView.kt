@@ -444,7 +444,19 @@ internal fun VectorMapView(
             val map = mapLibreMap ?: return@LaunchedEffect
             MapCameraCenter.center.collect { center ->
                 val (lat, lon) = center ?: return@collect
-                val path = resolveOfflinePmtilesPath(context, lat, lon) ?: return@collect
+                val path = resolveOfflinePmtilesPath(context, lat, lon)
+                if (path == null) {
+                    // 地図データの無い県 (例: 兵庫) を見ているときは、灰色のまま黙らず案内を出す
+                    val sel = TileSourceSelector.select(lat, lon)
+                    offlineMissingPrefecture = when (sel) {
+                        is TileSourceSelection.Available -> sel.prefectureName
+                        is TileSourceSelection.Unavailable -> sel.prefectureName
+                    }
+                    offlineMissingPmtilesFile = (sel as? TileSourceSelection.Available)?.fileName
+                    offlineDataMissing = true
+                    return@collect
+                }
+                offlineDataMissing = false
                 if (path != activePmtilesPath) rebuildStyle(map, path, isNightMode)
             }
         }
