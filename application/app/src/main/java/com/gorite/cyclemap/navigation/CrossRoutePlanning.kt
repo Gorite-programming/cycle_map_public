@@ -11,12 +11,6 @@ internal fun classifyLeg(startPref: String?, goalPref: String?): CrossLegKind = 
     else -> CrossLegKind.CROSS
 }
 
-private val PREFECTURE_NEIGHBORS = listOf(
-    "山口県" to "島根県", "山口県" to "広島県", "島根県" to "広島県",
-    "島根県" to "鳥取県", "広島県" to "岡山県", "広島県" to "鳥取県",
-    "岡山県" to "鳥取県",
-)
-
 /** 最少県数のチェーンを中心間距離順で最大3本返す。 */
 internal fun planPrefectureChains(
     startPref: String,
@@ -27,10 +21,9 @@ internal fun planPrefectureChains(
     if (startPref !in available || goalPref !in available) return emptyList()
     if (startPref == goalPref) return listOf(listOf(startPref))
     val adjacency = HashMap<String, MutableList<String>>()
-    PREFECTURE_NEIGHBORS.forEach { (a, b) ->
-        if (a in available && b in available) {
-            adjacency.getOrPut(a) { mutableListOf() }.add(b)
-            adjacency.getOrPut(b) { mutableListOf() }.add(a)
+    PREFECTURE_ADJACENCY.forEach { (prefecture, neighbors) ->
+        if (prefecture in available) {
+            adjacency.getOrPut(prefecture) { mutableListOf() }.addAll(neighbors.filter { it in available })
         }
     }
     var paths = listOf(listOf(startPref))
