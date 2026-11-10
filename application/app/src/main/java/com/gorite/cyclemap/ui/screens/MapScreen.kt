@@ -371,7 +371,7 @@ internal fun MapScreen(
             val minLon = points.minOf { it.longitude }
             val maxLon = points.maxOf { it.longitude }
             val expanded = expandBoundsToMinSpan(minLat, maxLat, minLon, maxLon)
-            val padding = previewPaddingPx(screenHeightPx, density.density)
+            val padding = previewPaddingPx(screenHeightPx, density.density, state.waypointsState.value.size)
             val boundsBuilder = org.maplibre.android.geometry.LatLngBounds.Builder()
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.minLat, expanded.minLon))
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.maxLat, expanded.maxLon))

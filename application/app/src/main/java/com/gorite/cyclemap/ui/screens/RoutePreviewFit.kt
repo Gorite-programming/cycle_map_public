@@ -48,14 +48,15 @@ internal fun expandBoundsToMinSpan(
 }
 
 /** Computes camera padding in pixels from the available screen height. */
-internal fun previewPaddingPx(screenHeightPx: Int, density: Float): RoutePreviewPaddingPx {
+internal fun previewPaddingPx(screenHeightPx: Int, density: Float, waypointCount: Int = 0): RoutePreviewPaddingPx {
     require(screenHeightPx > 0) { "screenHeightPx must be positive" }
     require(density > 0f) { "density must be positive" }
 
     // Keep clear of the search bar and banners (previously a fixed 220dp).
     val top = max((screenHeightPx * 0.10).toInt(), (180f * density).toInt())
     // The route-preview sheet is about 490dp tall; keep the whole route above it.
-    val preferredBottom = (490f * density).toInt()
+    // Each waypoint row in the sheet adds about 60dp.
+    val preferredBottom = ((490f + 60f * waypointCount.coerceAtLeast(0)) * density).toInt()
     // Preserve a usable camera viewport on compact windows, even when the 280dp
     // preferred minimum would otherwise consume more than 80% of its height.
     val maxBottomForViewport = (screenHeightPx * 0.80).toInt() - top
