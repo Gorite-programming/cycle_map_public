@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RoutePreference
@@ -133,6 +134,7 @@ internal fun MapScreen(
         }
     }
     val density = LocalDensity.current
+    val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
 
     val orientationAnimator = remember {
         MapOrientationAnimator(
@@ -364,38 +366,25 @@ internal fun MapScreen(
         val bounds = BoundingBox.fromGeoPoints(points)
         state.mapViewState.value?.zoomToBoundingBox(bounds, true, 64)
         state.vectorMapState.value?.let { vMap ->
-            val topPadding = with(density) { 220.dp.roundToPx() }
-            val bottomPadding = with(density) { 490.dp.roundToPx() }
-            val sidePadding = with(density) { 80.dp.roundToPx() }
-
             val minLat = points.minOf { it.latitude }
             val maxLat = points.maxOf { it.latitude }
             val minLon = points.minOf { it.longitude }
             val maxLon = points.maxOf { it.longitude }
-
-            // CRIT-03 fix: 1点ルート（または全点同一座標）の場合は LatLngBounds.build() が例外を投げるため、
-            // newLatLngZoom にフォールバックしてクラッシュを防止する
-            if (points.size < 2 || ((maxLat - minLat) < 1e-5 && (maxLon - minLon) < 1e-5)) {
-                vMap.animateCamera(
-                    org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(
-                        org.maplibre.android.geometry.LatLng(points[0].latitude, points[0].longitude),
-                        16.0,
-                    ),
-                )
-            } else {
-                val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
-                points.forEach { builder.include(org.maplibre.android.geometry.LatLng(it.latitude, it.longitude)) }
-                val latLngBounds = builder.build()
-                vMap.animateCamera(
-                    org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
-                        latLngBounds,
-                        sidePadding,
-                        topPadding,
-                        sidePadding,
-                        bottomPadding,
-                    ),
-                )
-            }
+            val expanded = expandBoundsToMinSpan(minLat, maxLat, minLon, maxLon)
+            val padding = previewPaddingPx(screenHeightPx, density.density)
+            val boundsBuilder = org.maplibre.android.geometry.LatLngBounds.Builder()
+            boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.minLat, expanded.minLon))
+            boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.maxLat, expanded.maxLon))
+            val latLngBounds = boundsBuilder.build()
+            vMap.animateCamera(
+                org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
+                    latLngBounds,
+                    padding.side,
+                    padding.top,
+                    padding.side,
+                    padding.bottom,
+                ),
+            )
         }
     }
 
