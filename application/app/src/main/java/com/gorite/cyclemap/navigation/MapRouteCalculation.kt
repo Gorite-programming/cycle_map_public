@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
 import com.gorite.cyclemap.data.findPrefectureName
+import com.gorite.cyclemap.routing.routeWithSnapFallback
 import com.gorite.cyclemap.routing.portalsBetween
 import com.gorite.cyclemap.routing.routeAcrossGraphs
 import com.gorite.cyclemap.routing.segmentGradesAlongIndices
@@ -320,26 +321,24 @@ internal fun executeRouteCalculation(
                 val legGoal = stops[i + 1]
                 val legResult = env.graphLock.read {
                     if (routeJob.isCancelled()) return@launch
-                    val startIndex = graph.nearestNodeIndex(legStart.latitude, legStart.longitude)
-                    if (routeJob.isCancelled()) return@launch
-                    val goalIndex = graph.nearestNodeIndex(legGoal.latitude, legGoal.longitude)
-                    if (i == 0) firstStartIndex = startIndex
-                    if (i == stops.size - 2) lastGoalIndex = goalIndex
-                    Log.i(
-                        "CycleMapRoute",
-                        "ROUTE_SNAP leg=$i startNode=$startIndex goalNode=$goalIndex pref=$pref",
-                    )
-                    if (routeJob.isCancelled()) return@launch
                     val t0 = SystemClock.elapsedRealtime()
-                    graph.route(
-                        startIndex,
-                        goalIndex,
+                    // 最寄りのノードで引けない (公園内などの孤立した道に当たった) ときだけ、次に近い候補で引き直す
+                    val outcome = graph.routeWithSnapFallback(
+                        legStart.latitude, legStart.longitude,
+                        legGoal.latitude, legGoal.longitude,
                         isCancelled = { routeJob.isCancelled() },
                         maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
                         preference = pref,
-                    ).also {
-                        Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes}")
-                    }
+                    )
+                    if (i == 0) firstStartIndex = outcome.startIndex
+                    if (i == stops.size - 2) lastGoalIndex = outcome.goalIndex
+                    Log.i(
+                        "CycleMapRoute",
+                        "ROUTE_SNAP leg=$i startNode=${outcome.startIndex} goalNode=${outcome.goalIndex} pref=$pref " +
+                            "fallback=${outcome.usedFallbackSnap} attempts=${outcome.attempts}",
+                    )
+                    Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes}")
+                    outcome.result
                 }
                 if (routeJob.isCancelled() || legResult.wasCancelled) return@launch
                 if (!legResult.isReachable) {

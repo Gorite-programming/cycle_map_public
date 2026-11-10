@@ -181,6 +181,34 @@ class LazyMappedRoadGraph private constructor(
         return nearestNodeIndexLinear(latitude, longitude)
     }
 
+    /**
+     * 指定地点に近いノードの候補を、近い順に返す (先頭は [nearestNodeIndex] と同じ)。
+     * 最寄りのノードが公園内の孤立した道などに当たったとき、次の候補で経路を引き直すために使う。
+     */
+    fun nearestNodeCandidates(latitude: Double, longitude: Double, radiusMeters: Double = 250.0, maxCount: Int = 6): IntArray {
+        val first = nearestNodeIndex(latitude, longitude)
+        if (first < 0) return IntArray(0)
+        val grid = spatialGrid
+        val near = if (grid != null) {
+            grid.findWithin(latitude, longitude, radiusMeters, maxCount + 1, latitudes, longitudes)
+        } else {
+            // 小さなグラフ (グリッド無し) は全走査
+            (0 until nodeCount)
+                .map { it to haversineMeters(latitude, longitude, latitudes[it], longitudes[it]) }
+                .filter { it.second <= radiusMeters }
+                .sortedBy { it.second }
+                .take(maxCount + 1)
+                .map { it.first }
+                .toIntArray()
+        }
+        val result = ArrayList<Int>(maxCount)
+        result += first
+        for (index in near) {
+            if (index != first && result.size < maxCount) result += index
+        }
+        return result.toIntArray()
+    }
+
     internal fun nearestNodeIndexLinear(latitude: Double, longitude: Double): Int {
         if (nodeCount == 0) return -1
         // 2パス探索: haversineは三角関数4回で重いため、1パス目で安価な
@@ -855,6 +883,38 @@ internal class SpatialGridIndex(
             }
         }
         return bestNode
+    }
+
+    /** 指定半径内のノードを、近い順に最大 [maxCount] 個返す。範囲が広すぎる場合は空。 */
+    fun findWithin(
+        latitude: Double,
+        longitude: Double,
+        radiusMeters: Double,
+        maxCount: Int,
+        latitudes: DoubleArray,
+        longitudes: DoubleArray,
+    ): IntArray {
+        val latDelta = radiusMeters / 110_000.0
+        val maxAbsLat = maxOf(abs(latitude - latDelta), abs(latitude + latDelta)).coerceAtMost(89.0)
+        val lonDelta = radiusMeters / (110_000.0 * cos(Math.toRadians(maxAbsLat)).coerceAtLeast(0.05))
+        val minGy = (toGridY(latitude - latDelta) - 1).coerceAtLeast(0)
+        val maxGy = (toGridY(latitude + latDelta) + 1).coerceAtMost(GRID_DIM - 1)
+        val minGx = (toGridX(longitude - lonDelta) - 1).coerceAtLeast(0)
+        val maxGx = (toGridX(longitude + lonDelta) + 1).coerceAtMost(GRID_DIM - 1)
+        if ((maxGy - minGy + 1) * (maxGx - minGx + 1) > 4096) return IntArray(0)
+        val found = ArrayList<Pair<Double, Int>>()
+        for (gy in minGy..maxGy) {
+            for (gx in minGx..maxGx) {
+                var idx = cellHead[gy * GRID_DIM + gx]
+                while (idx >= 0) {
+                    val d = haversineMeters(latitude, longitude, latitudes[idx], longitudes[idx])
+                    if (d <= radiusMeters) found += d to idx
+                    idx = nextNode[idx]
+                }
+            }
+        }
+        found.sortBy { it.first }
+        return IntArray(minOf(maxCount, found.size)) { found[it].second }
     }
 
     companion object {
