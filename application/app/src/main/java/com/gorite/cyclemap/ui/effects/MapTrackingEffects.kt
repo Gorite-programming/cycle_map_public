@@ -124,10 +124,15 @@ internal fun MapTrackingEffects(
         }
     }
 
+    // 最後に再計算を要求した地点。道路から離れた場所 (建物内など) では、再計算しても同じ経路が返り
+    // 「経路から外れた」判定が続くため、ほとんど動いていない間は再計算を繰り返さない。
+    val lastRerouteFrom = remember { arrayOfNulls<RoutePoint>(1) }
+
     LaunchedEffect(isNavigationActive) {
         if (!isNavigationActive) {
             adaptiveRerouteManager.reset()
         }
+        lastRerouteFrom[0] = null
     }
 
     // 位置追跡サービス (Foreground Service) の起動・停止ポリシー制御
@@ -218,7 +223,11 @@ internal fun MapTrackingEffects(
                         if (offRoute && autoRerouteEnabled) {
                             val now = SystemClock.elapsedRealtime()
                             val dest = destination
-                            if (dest != null && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
+                            val here = RoutePoint(location.latitude, location.longitude)
+                            val from = lastRerouteFrom[0]
+                            val movedSinceReroute = from == null || haversineMeters(from.latitude, from.longitude, here.latitude, here.longitude) >= REROUTE_MIN_MOVE_METERS
+                            if (dest != null && movedSinceReroute && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
+                                lastRerouteFrom[0] = here
                                 onTriggerReroute(
                                     GeoPoint(location.latitude, location.longitude),
                                     dest,

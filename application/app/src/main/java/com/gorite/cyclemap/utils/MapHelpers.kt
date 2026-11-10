@@ -123,6 +123,7 @@ internal class NavArrowCache {
 // ナビ案内の調整値
 internal const val ARRIVAL_RADIUS_METERS = 30.0
 internal const val REROUTE_MIN_INTERVAL_MS = 6_000L
+internal const val REROUTE_MIN_MOVE_METERS = 30.0
 internal const val ROUTE_MAX_EXPANDED_NODES = 4_000_000
 internal const val FALLBACK_LATITUDE = 34.1785 // 山口市役所 (GPS不通時の起点)
 internal const val FALLBACK_LONGITUDE = 131.4737
