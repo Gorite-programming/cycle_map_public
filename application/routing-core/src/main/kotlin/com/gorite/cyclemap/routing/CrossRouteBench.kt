@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.routing
 
 import java.io.File
+import java.security.MessageDigest
 import java.util.Locale
 
 /** ./gradlew :routing-core:crossRouteBench -PgraphList=A.graph,B.graph,C.graph -Pod="lat,lon,lat,lon[;...]" */
@@ -39,9 +40,9 @@ fun main(args: Array<String>) {
         val elapsedMs = (System.nanoTime() - routeStarted) / 1_000_000.0
         val after = usedHeapBytes()
         println(String.format(Locale.US,
-            "OD%d reachable=%s elapsedMs=%.1f distanceM=%.1f cost=%.3f portals=%s stageMs=%s stageExpanded=%s graphNodes=%s partNodes=%s heapBeforeMB=%.1f heapPeakSampleMB=%.1f heapAfterMB=%.1f heapDeltaMB=%.1f cancelled=%s truncated=%s",
+            "OD%d reachable=%s elapsedMs=%.1f distanceM=%.1f cost=%.3f portals=%s nodeSha256=%s stageMs=%s stageExpanded=%s graphNodes=%s partNodes=%s heapBeforeMB=%.1f heapPeakSampleMB=%.1f heapAfterMB=%.1f heapDeltaMB=%.1f cancelled=%s truncated=%s",
             index + 1, result.isReachable, elapsedMs, result.totalDistanceMeters, result.totalCost,
-            result.portalIds.joinToString(","), result.stageSearchMs.joinToString(","), result.stageNodeCounts.joinToString(","),
+            result.portalIds.joinToString(","), nodeIdsSha256(result.nodeIds), result.stageSearchMs.joinToString(","), result.stageNodeCounts.joinToString(","),
             files.map(::graphNodeCount).joinToString(","), result.parts.map { it.nodeIds.size }.joinToString(","),
             before / 1048576.0, sampler.peakBytes / 1048576.0, after / 1048576.0,
             (after - before) / 1048576.0, result.wasCancelled, result.wasTruncated))
@@ -96,6 +97,12 @@ private fun graphNodeCount(file: File): Int = java.io.RandomAccessFile(file, "r"
     input.readInt()
 }
 private fun fmt(value: Double) = String.format(Locale.US, "%.1f", value)
+
+private fun nodeIdsSha256(nodeIds: List<Long>): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    for (id in nodeIds) for (shift in 56 downTo 0 step 8) digest.update((id ushr shift).toByte())
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
 
 private class CrossChainHeapSampler {
     @Volatile var peakBytes: Long = usedHeapBytes()
