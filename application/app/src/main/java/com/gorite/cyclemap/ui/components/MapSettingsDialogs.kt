@@ -52,6 +52,7 @@ internal fun MapSettingsDialogs(
     onGpxTrackOverlayChanged: (Polyline?) -> Unit,
     onWarningMessage: (String) -> Unit,
     onCloseRecordPanel: () -> Unit,
+    onImportPlannedRoute: () -> Unit,
     // Cycling settings
     showCyclingSettings: Boolean,
     animationEnabled: Boolean,
@@ -209,6 +210,7 @@ internal fun MapSettingsDialogs(
             },
             hasLocationPermission = hasLocationPermission,
             onManageData = onOpenPrefectureList,
+            onImportGpx = onImportPlannedRoute,
             onLicense = onOpenLicense,
             onVersion = onOpenVersion,
             onDeveloperOptions = onOpenDeveloperOptions,

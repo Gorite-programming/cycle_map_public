@@ -85,6 +85,7 @@ internal fun MapModalsHost(
     showFavoritesOnlyInSheet: Boolean,
     calculatedRoutes: List<com.gorite.cyclemap.contract.RouteOption> = emptyList(),
     onStartNavigation: () -> Unit = {},
+    onImportPlannedRoute: () -> Unit,
     // Settings dialogs props
     showRecordPanel: Boolean,
     isRecording: Boolean,
@@ -236,6 +237,7 @@ internal fun MapModalsHost(
         onGpxTrackOverlayChanged = onGpxTrackOverlayChanged,
         onWarningMessage = onWarningMessage,
         onCloseRecordPanel = onCloseRecordPanel,
+        onImportPlannedRoute = onImportPlannedRoute,
         showCyclingSettings = showCyclingSettings,
         animationEnabled = animationEnabled,
         onAnimationEnabledChange = onAnimationEnabledChange,

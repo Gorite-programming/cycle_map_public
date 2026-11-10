@@ -20,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -70,6 +71,7 @@ fun SettingsPanelSheet(
     onAnimationEnabledChange: (Boolean) -> Unit = {},
     hasLocationPermission: Boolean,
     onManageData: () -> Unit,
+    onImportGpx: () -> Unit = {},
     onLicense: () -> Unit,
     onVersion: () -> Unit,
     onDeveloperOptions: (() -> Unit)? = null,
@@ -249,6 +251,11 @@ fun SettingsPanelSheet(
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
             ) { Text("オフラインデータ管理", fontWeight = FontWeight.Bold) }
+            OutlinedButton(
+                onClick = onImportGpx,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text("GPXを読み込む", fontWeight = FontWeight.SemiBold) }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 TextButton(onClick = onLicense) { Text("ライセンス") }
                 TextButton(onClick = onVersion) { Text("バージョン情報") }

@@ -42,6 +42,10 @@ data class RideHistorySummary(
 )
 
 object GpxParser {
+    /** Parse planned track/route geometry without changing the ride-history parser behavior. */
+    fun parseRoutePoints(inputStream: InputStream): List<com.gorite.cyclemap.routing.RoutePoint> =
+        com.gorite.cyclemap.tracking.parseRoutePoints(inputStream)
+
     internal fun parseTimestamp(text: String): Long? {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return null

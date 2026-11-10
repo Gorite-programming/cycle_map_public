@@ -43,6 +43,8 @@ internal fun MapScreenScaffold(
     handleSpotSelected: (GeoPoint) -> Unit,
     runRoutingBenchmark: (RoutingBenchmarkRequest) -> Unit,
     downloadCorridorTiles: () -> Unit,
+    exportPlannedRoute: () -> Unit,
+    importPlannedRoute: () -> Unit,
     toggleNextLayer: () -> Unit,
     startNavigation: () -> Unit,
     clearRoute: () -> Unit,
@@ -201,6 +203,7 @@ internal fun MapScreenScaffold(
             realElevProfile = state.realElevProfileState.value,
             onStartNavigation = startNavigation,
             downloadCorridorTiles = downloadCorridorTiles,
+            exportPlannedRoute = exportPlannedRoute,
             corridorTileProgressText = state.corridorTileProgressTextState.value,
             selectedRoutePreference = state.selectedRoutePreferenceState.value,
             routeChoices = com.gorite.cyclemap.ui.cycling.routeChoicesOf(state.calculatedRouteOptionsState.value),
@@ -284,6 +287,7 @@ internal fun MapScreenScaffold(
             }
         },
         onStartNavigation = startNavigation,
+        onImportPlannedRoute = importPlannedRoute,
         calculatedRoutes = state.calculatedRouteOptionsState.value,
         showRoutePanel = state.showRoutePanelState.value,
         onCloseRoutePanel = {

@@ -47,6 +47,7 @@ fun RouteInfoCardContent(
     onClearRoute: () -> Unit,
     modifier: Modifier = Modifier,
     onDownloadCorridorTiles: (() -> Unit)? = null,
+    onExportGpx: (() -> Unit)? = null,
     tileDownloadStatus: String? = null,
     selectedPreference: RoutePreference = RoutePreference.RECOMMENDED,
     onPreferenceChange: (RoutePreference) -> Unit = {},
@@ -234,10 +235,19 @@ fun RouteInfoCardContent(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimary)
             }
+        }
+        // 補助ボタンは別の行に置く (同じ行だと「ナビ開始」の文字が潰れる)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (onDownloadCorridorTiles != null) {
                 OutlinedButton(
                     onClick = onDownloadCorridorTiles,
-                    modifier = Modifier.height(48.dp),
+                    modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -250,6 +260,17 @@ fun RouteInfoCardContent(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(tileDownloadStatus ?: "回廊保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            if (onExportGpx != null) {
+                OutlinedButton(
+                    onClick = onExportGpx,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text("GPX書き出し", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

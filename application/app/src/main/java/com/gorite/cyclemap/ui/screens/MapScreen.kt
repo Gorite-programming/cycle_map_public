@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -32,6 +33,11 @@ import com.gorite.cyclemap.ui.theme.ThemeMode
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import java.util.concurrent.atomic.AtomicLong
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // ---------------------------------------------------------------------------
 // MapScreen Composable
@@ -51,6 +57,80 @@ internal fun MapScreen(
         onNavigationStateChanged = onNavigationStateChanged,
     )
     val routeExecutionGeneration = remember { AtomicLong(0L) }
+    val pendingRouteGpx = remember { mutableStateOf<String?>(null) }
+    val exportRouteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+        val xml = pendingRouteGpx.value
+        pendingRouteGpx.value = null
+        if (uri != null && xml != null) {
+            state.scope.launch(Dispatchers.IO) {
+                val result = runCatching {
+                    state.context.contentResolver.openOutputStream(uri)?.use { it.write(xml.toByteArray(Charsets.UTF_8)) }
+                        ?: error("保存先を開けませんでした")
+                }
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        state.context,
+                        if (result.isSuccess) "GPXを書き出しました" else "GPXを書き出せませんでした",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
+    val importRouteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            state.scope.launch(Dispatchers.IO) {
+                val result = runCatching {
+                    state.context.contentResolver.openInputStream(uri)?.use { com.gorite.cyclemap.tracking.GpxParser.parseRoutePoints(it) }
+                        ?: error("ファイルを開けませんでした")
+                }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { route ->
+                        routeExecutionGeneration.incrementAndGet()
+                        state.routeJobRef.getAndSet(null)?.cancel()
+                        state.pendingRouteRef.set(null)
+                        state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
+                        state.routeOverlayState.value?.let { overlay -> state.mapViewState.value?.overlays?.remove(overlay) }
+                        state.destinationMarkerState.value?.let { marker -> state.mapViewState.value?.overlays?.remove(marker) }
+                        state.waypointMarkersState.value.forEach { marker -> state.mapViewState.value?.overlays?.remove(marker) }
+                        var distance = 0.0
+                        for (index in 1 until route.size) {
+                            val previous = route[index - 1]
+                            val current = route[index]
+                            distance += com.gorite.cyclemap.utils.haversineMeters(previous.latitude, previous.longitude, current.latitude, current.longitude)
+                        }
+                        state.routeOverlayState.value = null
+                        state.navigationRouteState.value = route
+                        state.navigationManeuversState.value = com.gorite.cyclemap.routing.extractManeuvers(route)
+                        state.navigationInstructionsState.value = emptyList()
+                        state.navigationProgressState.value = null
+                        state.navStatsState.value = null
+                        state.routeSummaryState.value = RouteSummary(distance, route.size - 1)
+                        state.destinationState.value = org.osmdroid.util.GeoPoint(route.last().latitude, route.last().longitude)
+                        state.destinationMarkerState.value = null
+                        state.waypointsState.value = emptyList()
+                        state.waypointMarkersState.value = emptyList()
+                        state.calculatedRouteOptionsState.value = emptyList()
+                        state.selectedRouteIndexState.value = 0
+                        state.crossRouteElevationState.value = null
+                        state.realElevProfileState.value = emptyList()
+                        state.isNavigationActiveState.value = false
+                        state.isCalculatingRouteState.value = false
+                        state.isReroutingState.value = false
+                        state.isArrivedState.value = false
+                        state.followLocationState.value = false
+                        android.widget.Toast.makeText(state.context, "GPXルートを読み込みました", android.widget.Toast.LENGTH_SHORT).show()
+                    }.onFailure { error ->
+                        android.widget.Toast.makeText(
+                            state.context,
+                            "GPXを読み込めませんでした: ${error.message ?: "ファイルを確認してください"}",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
     val density = LocalDensity.current
 
     val orientationAnimator = remember {
@@ -545,6 +625,22 @@ internal fun MapScreen(
         )
     }
 
+    val exportPlannedRoute: () -> Unit = {
+        val name = "CycleMap_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}"
+        val xml = com.gorite.cyclemap.tracking.buildRouteGpx(state.navigationRouteState.value, name, System.currentTimeMillis())
+        if (xml == null) {
+            android.widget.Toast.makeText(state.context, "書き出すルートがありません", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            pendingRouteGpx.value = xml
+            exportRouteLauncher.launch("$name.gpx")
+        }
+    }
+
+    val launchRouteImport: () -> Unit = {
+        state.showCyclingSettingsState.value = false
+        importRouteLauncher.launch(arrayOf("application/gpx+xml", "application/octet-stream", "text/xml", "*/*"))
+    }
+
     val toggleNextLayer: () -> Unit = {
         val nextLayer = determineNextLayer(state.context, state.selectedLayerState.value)
         state.selectedLayerState.value = nextLayer
@@ -602,6 +698,8 @@ internal fun MapScreen(
         handleSpotSelected = handleSpotSelected,
         runRoutingBenchmark = runRoutingBenchmark,
         downloadCorridorTiles = downloadCorridorTiles,
+        exportPlannedRoute = exportPlannedRoute,
+        importPlannedRoute = launchRouteImport,
         toggleNextLayer = toggleNextLayer,
         startNavigation = startNavigation,
         clearRoute = clearRoute,
