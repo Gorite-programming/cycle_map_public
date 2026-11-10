@@ -14,7 +14,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import com.gorite.cyclemap.R
-import com.gorite.cyclemap.routing.HsaMode
 import com.gorite.cyclemap.speech.ShikokuMetanAudioEngine
 import com.gorite.cyclemap.speech.VoicePhraseCatalog
 import com.gorite.cyclemap.speech.VoiceTestController
@@ -36,9 +35,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,7 +70,6 @@ fun DeveloperOptionsScreen(
 ) {
     val context = LocalContext.current
     val readings = rememberSensorReadings(context, hasLocationPermission)
-    var selectedBenchmarkMode by remember { mutableStateOf(HsaMode.B) }
     var startLatitude by remember { mutableStateOf("34.1785") }
     var startLongitude by remember { mutableStateOf("131.4737") }
     var goalLatitude by remember { mutableStateOf("34.1700") }
@@ -261,18 +257,9 @@ fun DeveloperOptionsScreen(
                         ) {
                             Text("ルーティング実機ベンチマーク", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(
-                                "mmapグラフでA*と選択したHSA*を比較します。始点・終点を変更できます。",
+                                "mmapグラフで本番 A* の経路探索を計測します。始点・終点を変更できます。",
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            ScrollableTabRow(selectedTabIndex = selectedBenchmarkMode.ordinal) {
-                                HsaMode.entries.forEach { mode ->
-                                    Tab(
-                                        selected = selectedBenchmarkMode == mode,
-                                        onClick = { selectedBenchmarkMode = mode },
-                                        text = { Text("HSA*-${mode.name}") },
-                                    )
-                                }
-                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = startLatitude,
@@ -309,7 +296,6 @@ fun DeveloperOptionsScreen(
                                 onClick = {
                                     val request = runCatching {
                                         RoutingBenchmarkRequest(
-                                            mode = selectedBenchmarkMode,
                                             startLatitude = startLatitude.toDouble(),
                                             startLongitude = startLongitude.toDouble(),
                                             goalLatitude = goalLatitude.toDouble(),
@@ -353,7 +339,6 @@ fun DeveloperOptionsScreen(
 }
 
 data class RoutingBenchmarkRequest(
-    val mode: HsaMode,
     val startLatitude: Double,
     val startLongitude: Double,
     val goalLatitude: Double,

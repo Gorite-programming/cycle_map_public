@@ -10,29 +10,20 @@ data class RoutingBenchmarkSample(
     val totalCost: Double,
     val distanceMeters: Double,
     val peakHeapIncreaseBytes: Long,
-    val expandedNodes: Int? = null,
-    val segmentCount: Int? = null,
-    val usedFallback: Boolean? = null,
 )
 
 data class RoutingBenchmarkResult(
     val algorithm: String,
     val samples: List<RoutingBenchmarkSample>,
 ) {
-    val medianElapsedMillis: Long
-        get() = samples.map { it.elapsedMillis }.sorted().let { it[it.size / 2].roundToLong() }
-
     val medianElapsedSeconds: Double
-        get() = samples.map { it.elapsedMillis }.sorted().let { it[it.size / 2] / 1_000.0 }
+        get() = samples.map { it.elapsedMillis }.sorted()[samples.size / 2] / 1_000.0
 
     val medianDistanceMeters: Double
-        get() = samples.map { it.distanceMeters }.sorted().let { it[it.size / 2] }
-
-    val medianExpandedNodes: Int?
-        get() = samples.mapNotNull { it.expandedNodes }.takeIf { it.isNotEmpty() }?.sorted()?.let { it[it.size / 2] }
+        get() = samples.map { it.distanceMeters }.sorted()[samples.size / 2]
 
     val medianPeakHeapIncreaseBytes: Long
-        get() = samples.map { it.peakHeapIncreaseBytes }.sorted().let { it[it.size / 2] }
+        get() = samples.map { it.peakHeapIncreaseBytes }.sorted()[samples.size / 2]
 }
 
 data class RoutingBenchmarkReport(
@@ -41,7 +32,7 @@ data class RoutingBenchmarkReport(
     val results: List<RoutingBenchmarkResult>,
 )
 
-/** Runs repeatable A-star and HSA-star measurements on one immutable graph and one query. */
+/** Runs repeatable A-star measurements on one immutable graph and one query. */
 fun benchmarkRoutingAlgorithms(
     graph: RoadGraph,
     startId: Long,
@@ -49,34 +40,21 @@ fun benchmarkRoutingAlgorithms(
     warmupRuns: Int = 1,
     measuredRuns: Int = 3,
     edgeCostModel: EdgeCostModel = DistanceCostModel,
-    modes: List<HsaMode> = listOf(HsaMode.O, HsaMode.B, HsaMode.F),
 ): RoutingBenchmarkReport {
     require(warmupRuns >= 0) { "warmupRuns must not be negative" }
     require(measuredRuns >= 1) { "measuredRuns must be positive" }
-    require(modes.isNotEmpty()) { "modes must not be empty" }
 
-    val algorithms = listOf("A*") + modes.map { "HSA*-${it.name}" }
-    repeat(warmupRuns) {
-        runAStarSample(graph, startId, goalId, edgeCostModel)
-        modes.forEach { runHsaSample(graph, startId, goalId, edgeCostModel, it) }
-    }
-
-    val samples = algorithms.associateWith { ArrayList<RoutingBenchmarkSample>(measuredRuns) }
-    repeat(measuredRuns) {
-        samples.getValue("A*") += runAStarSample(graph, startId, goalId, edgeCostModel)
-        modes.forEach { mode ->
-            samples.getValue("HSA*-${mode.name}") += runHsaSample(graph, startId, goalId, edgeCostModel, mode)
-        }
-    }
+    repeat(warmupRuns) { runAStarSample(graph, startId, goalId, edgeCostModel) }
+    val samples = List(measuredRuns) { runAStarSample(graph, startId, goalId, edgeCostModel) }
     return RoutingBenchmarkReport(
         warmupRuns = warmupRuns,
         measuredRuns = measuredRuns,
-        results = algorithms.map { RoutingBenchmarkResult(it, samples.getValue(it)) },
+        results = listOf(RoutingBenchmarkResult("A*", samples)),
     )
 }
 
 fun RoutingBenchmarkReport.formatTable(): String = buildString {
-    appendLine("algorithm\tmedianSeconds\tmedianMemoryMiB\tmedianDistanceM\tmedianExpandedNodes\treachable\tsegments\tfallback")
+    appendLine("algorithm\tmedianSeconds\tmedianMemoryMiB\tmedianDistanceM\treachable")
     for (result in results) {
         val last = result.samples.last()
         appendLine(
@@ -85,13 +63,40 @@ fun RoutingBenchmarkReport.formatTable(): String = buildString {
                 "%.3f".format(Locale.US, result.medianElapsedSeconds),
                 "%.1f".format(Locale.US, result.medianPeakHeapIncreaseBytes / (1024.0 * 1024.0)),
                 result.medianDistanceMeters.roundToLong(),
-                result.medianExpandedNodes ?: "-",
                 last.reachable,
-                last.segmentCount ?: "-",
-                last.usedFallback ?: "-",
             ).joinToString("\t"),
         )
     }
+}
+
+data class MappedRoutingBenchmarkResult(
+    val algorithm: String,
+    val elapsedSeconds: Double,
+    val peakHeapIncreaseBytes: Long,
+    val route: MappedRouteResult,
+    val expandedNodes: Int,
+)
+
+/** Measures the production mmap A* route used by the app. */
+fun benchmarkMappedRouting(
+    graph: LazyMappedRoadGraph,
+    startIndex: Int,
+    goalIndex: Int,
+): List<MappedRoutingBenchmarkResult> {
+    val before = usedHeapBytes()
+    val sampler = HeapSampler().start()
+    lateinit var route: MappedRouteResult
+    val elapsedNanos = measureNanoTime { route = graph.route(startIndex, goalIndex) }
+    val peakIncrease = sampler.stopAndGetPeak().minus(before).coerceAtLeast(0L)
+    return listOf(
+        MappedRoutingBenchmarkResult(
+            algorithm = "A*",
+            elapsedSeconds = elapsedNanos / 1_000_000_000.0,
+            peakHeapIncreaseBytes = peakIncrease,
+            route = route,
+            expandedNodes = graph.lastExpandedNodes,
+        ),
+    )
 }
 
 private fun runAStarSample(
@@ -113,34 +118,6 @@ private fun runAStarSample(
         totalCost = result.totalCost,
         distanceMeters = routeDistanceMeters(graph, result.nodeIds),
         peakHeapIncreaseBytes = peakIncrease,
-    )
-}
-
-private fun runHsaSample(
-    graph: RoadGraph,
-    startId: Long,
-    goalId: Long,
-    edgeCostModel: EdgeCostModel,
-    mode: HsaMode,
-): RoutingBenchmarkSample {
-    val router = HsaStarRouter(graph, edgeCostModel)
-    lateinit var result: RouteResult
-    val before = usedHeapBytes()
-    val sampler = HeapSampler().start()
-    val elapsedNanos = measureNanoTime {
-        result = router.route(startId, goalId, HsaOptions.fromMode(mode))
-    }
-    val peakIncrease = sampler.stopAndGetPeak().minus(before).coerceAtLeast(0L)
-    val metrics = router.lastMetrics
-    return RoutingBenchmarkSample(
-        elapsedMillis = elapsedNanos / 1_000_000.0,
-        reachable = result.isReachable,
-        totalCost = result.totalCost,
-        distanceMeters = routeDistanceMeters(graph, result.nodeIds),
-        peakHeapIncreaseBytes = peakIncrease,
-        expandedNodes = metrics.expandedNodes,
-        segmentCount = metrics.segmentCount,
-        usedFallback = metrics.usedFallback,
     )
 }
 

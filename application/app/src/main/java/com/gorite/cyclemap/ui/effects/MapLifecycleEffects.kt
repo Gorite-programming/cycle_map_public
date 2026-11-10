@@ -245,18 +245,22 @@ internal fun MapLifecycleEffects(
             is SearchDbSelection.Unavailable -> null
         }
         if (dbSelection is SearchDbSelection.Available) {
-            Log.i(
-                "CycleMapGeo",
-                "GEO_DB location=${location.latitude},${location.longitude} " +
-                    "prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} exists=${dbFile?.isFile}",
-            )
+            if (BuildConfig.DEBUG) {
+                Log.i(
+                    "CycleMapGeo",
+                    "GEO_DB location=${location.latitude},${location.longitude} " +
+                        "prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} exists=${dbFile?.isFile}",
+                )
+            }
         } else {
             val unsupportedName = (dbSelection as? SearchDbSelection.Unavailable)?.prefectureName
-            Log.w(
-                "CycleMapGeo",
-                "GEO_DB location=${location.latitude},${location.longitude} " +
-                    "reason=unsupported prefecture=${unsupportedName ?: "(unknown)"}",
-            )
+            if (BuildConfig.DEBUG) {
+                Log.w(
+                    "CycleMapGeo",
+                    "GEO_DB location=${location.latitude},${location.longitude} " +
+                        "reason=unsupported prefecture=${unsupportedName ?: "(unknown)"}",
+                )
+            }
         }
         val accuracy = if (location.hasAccuracy()) location.accuracy else Float.NaN
         val prefectureName = (dbSelection as? SearchDbSelection.Available)?.prefectureName

@@ -153,11 +153,13 @@ internal fun MapGraphEffects(
         when (val sel = RoutingGraphSelector.select(loc.latitude, loc.longitude)) {
             is RoutingGraphSelection.Available -> {
                 if (sel.fileName != loadedGraphName && (mappedGraph != null || loadedGraphName == null)) {
-                    Log.i(
-                        "CycleMapRoute",
-                        "GRAPH_SELECT location=${loc.latitude},${loc.longitude} prefecture=${sel.prefectureName} " +
-                            "file=${sel.fileName} trigger=location-update",
-                    )
+                    if (BuildConfig.DEBUG) {
+                        Log.i(
+                            "CycleMapRoute",
+                            "GRAPH_SELECT location=${loc.latitude},${loc.longitude} prefecture=${sel.prefectureName} " +
+                                "file=${sel.fileName} trigger=location-update",
+                        )
+                    }
                     switchRef.get()?.invoke(sel)
                 }
             }

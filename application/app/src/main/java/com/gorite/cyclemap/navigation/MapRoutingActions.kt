@@ -9,7 +9,6 @@ import android.util.Log
 import android.widget.Toast
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.TileDownloader
-import com.gorite.cyclemap.routing.HsaOptions
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.OffRouteDetector
 import com.gorite.cyclemap.routing.RoutePoint
@@ -150,7 +149,6 @@ internal fun executeRoutingBenchmark(
                             graph = graph,
                             startIndex = startIndex,
                             goalIndex = goalIndex,
-                            options = HsaOptions.fromMode(request.mode),
                         )
                     }
                 }
@@ -162,25 +160,9 @@ internal fun executeRoutingBenchmark(
                     sample.elapsedSeconds,
                     memoryMb,
                     sample.route.totalDistanceMeters / 1_000.0,
-                ) + if (sample.algorithm.startsWith("HSA")) {
-                    " / segments=${sample.segmentCount} fallback=${sample.usedFallback}" +
-                        sample.fallbackReason?.let { " reason=$it" }.orEmpty()
-                } else {
-                    ""
-                } + " / expanded=${sample.expandedNodes}"
+                ) + " / expanded=${sample.expandedNodes}"
             } ?: "ルートグラフが読み込まれていません"
-            val deltaText = result?.firstOrNull { it.algorithm == "A*" }?.let { aStar ->
-                result.firstOrNull { it.algorithm.startsWith("HSA") }?.let { hsa ->
-                    "差分: 時間 %+.3fs / メモリ %+.1fMB / 距離 %+.1fkm / 展開 %+.0f".format(
-                        Locale.US,
-                        hsa.elapsedSeconds - aStar.elapsedSeconds,
-                        (hsa.peakHeapIncreaseBytes - aStar.peakHeapIncreaseBytes) / (1024.0 * 1024.0),
-                        (hsa.route.totalDistanceMeters - aStar.route.totalDistanceMeters) / 1_000.0,
-                        (hsa.expandedNodes - aStar.expandedNodes).toDouble(),
-                    )
-                }
-            }
-            val resultText = listOfNotNull(sampleText, deltaText).joinToString("\n")
+            val resultText = sampleText
             val logPath = result?.let { samples ->
                 saveRoutingBenchmarkLog(context, request, resultText, samples)
             }

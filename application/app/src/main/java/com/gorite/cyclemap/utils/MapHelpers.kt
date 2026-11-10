@@ -236,16 +236,15 @@ internal fun saveRoutingBenchmarkLog(
     samples: List<com.gorite.cyclemap.routing.MappedRoutingBenchmarkResult>,
 ): File {
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-    val output = File(cycleMapDataDir(context), "benchmarks/hsa_${timestamp}.log")
+    val output = File(cycleMapDataDir(context), "benchmarks/astar_${timestamp}.log")
     output.parentFile?.mkdirs()
     val details = buildString {
         appendLine("CycleMap routing benchmark")
         appendLine("timestamp=$timestamp")
-        appendLine("mode=${request.mode}")
         appendLine("start=${request.startLatitude},${request.startLongitude}")
         appendLine("goal=${request.goalLatitude},${request.goalLongitude}")
         appendLine("graph=LazyMappedRoadGraph")
-        appendLine("qualityGate=HSA cost <= A* cost * 1.05")
+        appendLine("algorithm=A*")
         appendLine()
         appendLine(resultText)
         appendLine()
@@ -255,10 +254,7 @@ internal fun saveRoutingBenchmarkLog(
                     "heapIncreaseBytes=${sample.peakHeapIncreaseBytes}\t" +
                     "expandedNodes=${sample.expandedNodes}\t" +
                     "distanceMeters=${sample.route.totalDistanceMeters}\t" +
-                    "cost=${sample.route.totalCost}\t" +
-                    "segments=${sample.segmentCount}\t" +
-                    "fallback=${sample.usedFallback}\t" +
-                    "reason=${sample.fallbackReason ?: ""}",
+                    "cost=${sample.route.totalCost}",
             )
         }
     }

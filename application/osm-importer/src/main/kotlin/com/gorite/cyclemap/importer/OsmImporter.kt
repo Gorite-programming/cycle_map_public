@@ -2,10 +2,8 @@ package com.gorite.cyclemap.importer
 
 import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.GraphBinaryReader
-import com.gorite.cyclemap.routing.LandmarkIndex
 import com.gorite.cyclemap.routing.GraphNode
 import com.gorite.cyclemap.routing.AStarRouter
-import com.gorite.cyclemap.routing.benchmarkRoutingVariants
 import com.gorite.cyclemap.routing.CyclingCostModel
 import com.gorite.cyclemap.routing.RoadGraph
 import com.gorite.cyclemap.routing.benchmarkRoutingAlgorithms
@@ -750,24 +748,6 @@ fun main(args: Array<String>) {
                 )
                 return
             }
-            "--benchmark-alt" -> {
-                require(rest.size == 5) {
-                    "Usage: osm-importer --benchmark-alt <graph> <startLat> <startLon> <goalLat> <goalLon>"
-                }
-                runAltBenchmark(
-                    File(rest[0]),
-                    rest[1].toDouble(), rest[2].toDouble(),
-                    rest[3].toDouble(), rest[4].toDouble(),
-                )
-                return
-            }
-            "--build-alt-index" -> {
-                require(rest.size == 3) {
-                    "Usage: osm-importer --build-alt-index <graph> <landmarks> <output.alt>"
-                }
-                buildAltIndex(File(rest[0]), rest[1].toInt(), File(rest[2]))
-                return
-            }
             "--search-index" -> {
                 require(rest.size == 2) {
                     "Usage: osm-importer --search-index [--bbox japan|yamaguchi|none] " +
@@ -984,39 +964,3 @@ private fun runRoutingBenchmark(
     print(report.formatTable())
 }
 
-private fun runAltBenchmark(
-    file: File,
-    startLat: Double, startLon: Double,
-    goalLat: Double, goalLon: Double,
-) {
-    require(file.isFile) { "Graph file does not exist: ${file.absolutePath}" }
-    println("loadingGraph=${file.absolutePath}")
-    val graph = GraphBinaryReader.read(file)
-    fun nearest(lat: Double, lon: Double): GraphNode = graph.nodes.values.minBy {
-        com.gorite.cyclemap.routing.haversineMeters(lat, lon, it.latitude, it.longitude)
-    }
-    val start = nearest(startLat, startLon)
-    val goal = nearest(goalLat, goalLon)
-    println("startNode=${start.id} goalNode=${goal.id} nodes=${graph.nodes.size} edges=${graph.outgoing.values.sumOf { it.size }}")
-    val report = benchmarkRoutingVariants(
-        graph = graph,
-        startId = start.id,
-        goalId = goal.id,
-        edgeCostModel = CyclingCostModel,
-    )
-    println("baselineDistanceMeters=${report.baselineDistanceMeters} baselineCost=${report.baselineCost}")
-    print(report.formatTable())
-}
-
-private fun buildAltIndex(file: File, landmarkCount: Int, output: File) {
-    require(file.isFile) { "Graph file does not exist: ${file.absolutePath}" }
-    val graph = GraphBinaryReader.read(file)
-    val startedAt = System.nanoTime()
-    val index = LandmarkIndex.build(graph, landmarkCount, CyclingCostModel)
-    index.write(output)
-    val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
-    println(
-        "altIndex=${output.absolutePath} landmarks=${index.landmarkCount} " +
-            "nodes=${index.nodeIds.size} sizeBytes=${index.estimatedBytes} buildMs=$elapsedMs",
-    )
-}

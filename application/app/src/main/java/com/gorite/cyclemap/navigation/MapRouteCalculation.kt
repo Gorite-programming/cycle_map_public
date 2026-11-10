@@ -116,11 +116,13 @@ internal fun executeRouteCalculation(
         env.onReroutingChanged(true)
     }
     val graph = env.getGraph()
-    Log.i(
-        "CycleMapRoute",
-        "ROUTE_REQUEST isReroute=$isReroute start=${start.latitude},${start.longitude} " +
-            "goal=${goal.latitude},${goal.longitude} graphLoaded=${graph != null}",
-    )
+    if (BuildConfig.DEBUG) {
+        Log.i(
+            "CycleMapRoute",
+            "ROUTE_REQUEST isReroute=$isReroute start=${start.latitude},${start.longitude} " +
+                "goal=${goal.latitude},${goal.longitude} graphLoaded=${graph != null}",
+        )
+    }
     when (val selection = RoutingGraphSelector.select(start.latitude, start.longitude)) {
         is RoutingGraphSelection.Unavailable -> {
             env.onCalculatingRouteChanged(false)
@@ -132,12 +134,14 @@ internal fun executeRouteCalculation(
         }
         is RoutingGraphSelection.Available -> {
             val goalPref = goalPrefecture
-            Log.i(
-                "CycleMapRoute",
-                "GRAPH_SELECT location=${start.latitude},${start.longitude} " +
-                    "prefecture=${selection.prefectureName} file=${selection.fileName} " +
-                    "loaded=${env.getLoadedGraphName()} goalPrefecture=${goalPref ?: "(unknown)"}",
-            )
+            if (BuildConfig.DEBUG) {
+                Log.i(
+                    "CycleMapRoute",
+                    "GRAPH_SELECT location=${start.latitude},${start.longitude} " +
+                        "prefecture=${selection.prefectureName} file=${selection.fileName} " +
+                        "loaded=${env.getLoadedGraphName()} goalPrefecture=${goalPref ?: "(unknown)"}",
+                )
+            }
             if (goalPref != null && goalPref != selection.prefectureName) {
                 Log.w(
                     "CycleMapRoute",

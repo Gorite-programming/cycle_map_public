@@ -149,11 +149,13 @@ internal fun MapScreen(
         } else {
             GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
         }
-        Log.i(
-            "CycleMapRoute",
-            "DESTINATION_SET dest=${point.latitude},${point.longitude} " +
-                "currentLocation=${if (loc != null) "${loc.latitude},${loc.longitude} acc=${loc.accuracy}" else "null->FALLBACK $FALLBACK_LATITUDE,$FALLBACK_LONGITUDE"}",
-        )
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                "CycleMapRoute",
+                "DESTINATION_SET dest=${point.latitude},${point.longitude} " +
+                    "currentLocation=${if (loc != null) "${loc.latitude},${loc.longitude} acc=${loc.accuracy}" else "null->FALLBACK $FALLBACK_LATITUDE,$FALLBACK_LONGITUDE"}",
+            )
+        }
         runRouteCalculation(start, point, false, null, null)
     }
 
@@ -452,13 +454,15 @@ internal fun MapScreen(
         val navRoute = state.navigationRouteState.value
         val navInst = state.navigationInstructionsState.value
         val dest = state.destinationState.value
-        Log.i(
-            "CycleMapRoute",
-            "GUIDANCE_START currentLocation=${if (loc != null) "${loc.latitude},${loc.longitude} acc=${loc.accuracy}" else "(null)"} " +
-                "destination=${dest?.let { "${it.latitude},${it.longitude}" } ?: "(null)"} " +
-                "routeNodeCount=${navRoute.size} instructionCount=${navInst.size} " +
-                "wasActive=${state.isNavigationActiveState.value}",
-        )
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                "CycleMapRoute",
+                "GUIDANCE_START currentLocation=${if (loc != null) "${loc.latitude},${loc.longitude} acc=${loc.accuracy}" else "(null)"} " +
+                    "destination=${dest?.let { "${it.latitude},${it.longitude}" } ?: "(null)"} " +
+                    "routeNodeCount=${navRoute.size} instructionCount=${navInst.size} " +
+                    "wasActive=${state.isNavigationActiveState.value}",
+            )
+        }
         if (navRoute.isNotEmpty()) {
             state.followLocationState.value = true
             state.navStartElapsedMsState.value = SystemClock.elapsedRealtime()
