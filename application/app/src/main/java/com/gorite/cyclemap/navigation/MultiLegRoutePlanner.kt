@@ -58,6 +58,8 @@ internal fun calculateMultiLegCrossRoute(
     var portalMs = 0L
     var aMs = 0L
     var bMs = 0L
+    var endpointSnapMs = 0L
+    var guidanceElevationMs = 0L
     val usedChains = ArrayList<String>()
 
     fun open(pref: String): LazyMappedRoadGraph? {
@@ -80,12 +82,14 @@ internal fun calculateMultiLegCrossRoute(
         return true
     }
     fun addPart(graph: LazyMappedRoadGraph, indices: List<Int>, ids: List<Long>, coords: List<Pair<Double, Double>>, distance: Double, cost: Double) {
+        val started = SystemClock.elapsedRealtime()
         val grades = graph.segmentGradesAlongIndices(indices)
         val elevations = graph.nodeElevationsAt(indices)
         val actualDistance = if (grades.isNotEmpty()) grades.sumOf { it.distanceMeters } else distance
         routeParts += CrossRoutePathPart(ids, coords, actualDistance, cost, indices)
         instructionParts += CrossInstructionPart(buildRouteInstructions(graph, ids, coords), ids.size, actualDistance)
         elevationParts += CrossElevationPart(grades, elevations)
+        guidanceElevationMs += SystemClock.elapsedRealtime() - started
     }
 
     for (leg in 0 until stops.lastIndex) {
@@ -116,7 +120,7 @@ internal fun calculateMultiLegCrossRoute(
                     val fileName = namesByPref[pref] ?: return null
                     val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
                     if (fileName == jobGraphName) ChainGraph(open = { jobGraph }, borrowed = true,
-                        openIdIndex = { jobGraph.sortedNodeIdIndex() })
+                        openIdIndex = { jobGraph.sortedNodeIdIndex() }, stageName = pref)
                     else ChainGraph(open = {
                         val loadStarted = SystemClock.elapsedRealtime()
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
@@ -126,7 +130,7 @@ internal fun calculateMultiLegCrossRoute(
                     }, openIdIndex = {
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
                         LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
-                    })
+                    }, stageName = pref)
                 }
                 val indices = IntArray(chain.size)
                 val crossParts: List<CrossRoutePart>
@@ -134,10 +138,12 @@ internal fun calculateMultiLegCrossRoute(
                 val routeCost: Double
                 try {
                     val firstPref = chain.first(); val lastPref = chain.last()
+                    val endpointSnapStarted = SystemClock.elapsedRealtime()
                     val startIdx = if (namesByPref[firstPref] == jobGraphName) graphLock.read { jobGraph.nearestNodeIndex(from.latitude, from.longitude) }
                         else sources.first().open().let { g -> try { g.nearestNodeIndex(from.latitude, from.longitude) } finally { sources.first().close(g) } }
                     val goalIdx = if (namesByPref[lastPref] == jobGraphName) graphLock.read { jobGraph.nearestNodeIndex(to.latitude, to.longitude) }
                         else sources.last().open().let { g -> try { g.nearestNodeIndex(to.latitude, to.longitude) } finally { sources.last().close(g) } }
+                    endpointSnapMs += SystemClock.elapsedRealtime() - endpointSnapStarted
                     if (startIdx < 0 || goalIdx < 0) continue
                     chain.forEachIndexed { i, pref ->
                         if (namesByPref[pref] == jobGraphName) indices[i] = if (i == 0) startIdx else goalIdx
@@ -163,8 +169,10 @@ internal fun calculateMultiLegCrossRoute(
                         }
                     } else {
                         val cross = if (sources.any { it.borrowed }) graphLock.read {
-                            routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
-                        } else routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
+                            routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                                stageTimingSink = { Log.i("CycleMapGraph", it) })
+                        } else routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                            stageTimingSink = { Log.i("CycleMapGraph", it) })
                         if (!cross.isReachable) continue
                         crossParts = cross.parts; routeDistance = cross.totalDistanceMeters; routeCost = cross.totalCost
                     }
@@ -197,6 +205,8 @@ internal fun calculateMultiLegCrossRoute(
         }
     }
     if (isCancelled()) return null
+    Log.i("CycleMapGraph", "CHAIN_STAGE name=endpoint_snap ms=$endpointSnapMs")
+    Log.i("CycleMapGraph", "CHAIN_STAGE name=guidance_elevation ms=$guidanceElevationMs")
     val merged = mergeRoutePathParts(routeParts)
     return MultiLegRouteResult(
         MappedRouteResult(merged.nodeIds, totalDistance, totalCost, merged.coordinates, nodeIndices = emptyList()),

@@ -7,6 +7,8 @@ data class ChainGraph(
     val borrowed: Boolean = false,
     /** Optional ID-only access path used to find portals without opening the neighbor's routing graph. */
     val openIdIndex: (() -> SortedNodeIdIndex)? = null,
+    /** Human-readable label used by optional stage timing logs. */
+    val stageName: String? = null,
 )
 
 data class CrossChainResult(
@@ -49,6 +51,7 @@ fun routeAcrossChain(
     isCancelled: (() -> Boolean)? = null,
     maxExpandedNodes: Int = Int.MAX_VALUE,
     costMode: RouteCostMode = RouteCostMode.BICYCLE,
+    stageTimingSink: ((String) -> Unit)? = null,
 ): CrossChainResult {
     require(graphs.size >= 3) { "A chain requires at least three graphs" }
     require(maxExpandedNodes > 0)
@@ -57,27 +60,53 @@ fun routeAcrossChain(
     val snapshots = arrayOfNulls<ChainStageSnapshot>(graphs.size - 1)
     val stageInputs = arrayOfNulls<List<ChainSeed>>(graphs.size)
     var seeds: List<ChainSeed> = emptyList()
+    val graphOpenNanos = LongArray(graphs.size)
+    var portalMatchNanos = 0L
+    var startSearchNanos = 0L
+    var middleSearchNanos = 0L
+    var goalSearchNanos = 0L
+    var reconstructionNanos = 0L
 
     fun acquire(i: Int) = graphs[i].open().also { if (graphs[i].borrowed) it.clearWorkspaceCache() }
+    fun timedAcquire(i: Int): LazyMappedRoadGraph {
+        val started = System.nanoTime()
+        return try { acquire(i) } finally { graphOpenNanos[i] += System.nanoTime() - started }
+    }
+    fun emitStages() {
+        val sink = stageTimingSink ?: return
+        fun emit(name: String, nanos: Long) { sink("CHAIN_STAGE name=$name ms=${nanos / 1_000_000}") }
+        emit("portal_match", portalMatchNanos)
+        graphOpenNanos.forEachIndexed { i, nanos -> emit("graph_open_${graphs[i].stageName ?: i}", nanos) }
+        emit("start_search", startSearchNanos)
+        emit("middle_dijkstra", middleSearchNanos)
+        emit("goal_search", goalSearchNanos)
+        emit("reconstruction", reconstructionNanos)
+    }
+
     fun release(i: Int, graph: LazyMappedRoadGraph) { if (!graphs[i].borrowed) graphs[i].close(graph) }
-    fun failed(cancelled: Boolean = false, truncated: Boolean = false) = CrossChainResult(
-        emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, emptyList(), emptyList(),
-        cancelled, truncated, stageMs.toList(), nodeCounts.toList(),
-    )
+    fun failed(cancelled: Boolean = false, truncated: Boolean = false): CrossChainResult {
+        emitStages()
+        return CrossChainResult(
+            emptyList(), emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, emptyList(), emptyList(),
+            cancelled, truncated, stageMs.toList(), nodeCounts.toList(),
+        )
+    }
 
     for (i in 0 until graphs.lastIndex) {
         val started = System.nanoTime()
-        val current = acquire(i)
+        val current = timedAcquire(i)
         var next: LazyMappedRoadGraph? = null
         try {
             val hasIdOnlyPath = graphs[i + 1].openIdIndex != null
+            val portalStarted = System.nanoTime()
             var nextIdIndex = graphs[i + 1].openIdIndex?.invoke()
             val portals = if (nextIdIndex != null) {
                 portalsBetween(current, nextIdIndex)
             } else {
-                next = acquire(i + 1)
+                next = timedAcquire(i + 1)
                 portalsBetween(current, next!!)
             }
+            portalMatchNanos += System.nanoTime() - portalStarted
             nextIdIndex = null
             if (hasIdOnlyPath && !graphs[i + 1].borrowed) System.gc()
             if (portals.size == 0) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed() }
@@ -89,8 +118,10 @@ fun routeAcrossChain(
                 System.gc()
             }
             if (i == 0) {
+                val searchStarted = System.nanoTime()
                 val reach = current.routeToPortals(startIndex, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode,
                     includeParentSnapshot = false)
+                startSearchNanos += System.nanoTime() - searchStarted
                 nodeCounts[i] = reach.expandedNodes
                 if (reach.wasCancelled || reach.wasTruncated) {
                     stageMs[i] = (System.nanoTime() - started) / 1_000_000
@@ -107,7 +138,9 @@ fun routeAcrossChain(
             } else {
                 stageInputs[i] = seeds
                 val sources = seeds.map { PortalSource(it.id, it.index, -1, it.cost, it.distance) }
+                val searchStarted = System.nanoTime()
                 val reach = current.routeBetweenPortals(sources, portals.aIndices, preference, isCancelled, maxExpandedNodes, costMode)
+                middleSearchNanos += System.nanoTime() - searchStarted
                 nodeCounts[i] = reach.expandedNodes
                 if (reach.wasCancelled || reach.wasTruncated) {
                     stageMs[i] = (System.nanoTime() - started) / 1_000_000
@@ -142,11 +175,13 @@ fun routeAcrossChain(
     }
 
     val finalStarted = System.nanoTime()
-    val last = acquire(graphs.lastIndex)
+    val last = timedAcquire(graphs.lastIndex)
     val finalResult: PortalSearchResult
     try {
         val sources = seeds.map { PortalSource(it.id, -1, it.index, it.cost, it.distance) }
+        val searchStarted = System.nanoTime()
         finalResult = last.routeFromPortals(sources, goalIndex, preference, isCancelled, maxExpandedNodes, costMode)
+        goalSearchNanos += System.nanoTime() - searchStarted
         nodeCounts[nodeCounts.lastIndex] = finalResult.expandedNodes
     } finally { release(graphs.lastIndex, last) }
     stageMs[stageMs.lastIndex] = (System.nanoTime() - finalStarted) / 1_000_000
@@ -154,9 +189,10 @@ fun routeAcrossChain(
         return failed(finalResult.wasCancelled, finalResult.wasTruncated)
     }
 
+    val reconstructionStarted = System.nanoTime()
     val partByStage = arrayOfNulls<CrossRoutePart>(graphs.size)
     run {
-        val graph = acquire(graphs.lastIndex)
+        val graph = timedAcquire(graphs.lastIndex)
         try { partByStage[graphs.lastIndex] = makePart(graph, finalResult.nodeIndices) }
         finally { release(graphs.lastIndex, graph) }
     }
@@ -170,7 +206,7 @@ fun routeAcrossChain(
         if (exitSlot < 0) return failed()
         val incoming = stageInputs[i] ?: return failed()
         val sources = incoming.map { PortalSource(it.id, it.index, -1, it.cost, it.distance) }
-        val graph = acquire(i)
+        val graph = timedAcquire(i)
         try {
             val reach = graph.routeBetweenPortals(sources, intArrayOf(snapshot.indices[exitSlot]), preference,
                 isCancelled, maxExpandedNodes, costMode)
@@ -187,7 +223,7 @@ fun routeAcrossChain(
     val firstSlot = firstSnapshot.ids.indexOf(selectedId)
     if (firstSlot < 0) return failed()
     val firstTarget = firstSnapshot.indices[firstSlot]
-    val firstGraph = acquire(0)
+    val firstGraph = timedAcquire(0)
     try {
         val reach = firstGraph.routeToPortals(startIndex, intArrayOf(firstTarget), preference,
             isCancelled, maxExpandedNodes, costMode, includeParentSnapshot = false)
@@ -204,6 +240,8 @@ fun routeAcrossChain(
         ids += part.nodeIds.drop(skip); coords += part.coordinates.drop(skip)
     }
     selectedPortals.reverse()
+    reconstructionNanos += System.nanoTime() - reconstructionStarted
+    emitStages()
     return CrossChainResult(ids, coords, finalResult.totalDistanceMeters, finalResult.totalCost, parts, selectedPortals,
         stageSearchMs = stageMs.toList(), stageNodeCounts = nodeCounts.toList())
 }

@@ -14,10 +14,13 @@ fun main(args: Array<String>) {
         require(values.size == 4) { "Each OD must be lat,lon,lat,lon" }
         values
     }
+    val stageTotalsMs = linkedMapOf<String, Long>()
+    var stageSamples = 0
     for ((index, od) in ods.withIndex()) {
         val graphs = files.map { file -> ChainGraph(
             open = { LazyMappedRoadGraph.load(file) },
             openIdIndex = { LazyMappedRoadGraph.loadSortedNodeIdIndex(file) },
+            stageName = file.nameWithoutExtension,
         ) }
         val start = nearestNode(files.first(), od[0], od[1])
         val goal = nearestNode(files.last(), od[2], od[3])
@@ -25,7 +28,14 @@ fun main(args: Array<String>) {
         val before = usedHeapBytes()
         val sampler = CrossChainHeapSampler().also { it.start() }
         val routeStarted = System.nanoTime()
-        val result = try { routeAcrossChain(graphs, start, goal) } finally { sampler.finish() }
+        val result = try {
+            routeAcrossChain(graphs, start, goal, stageTimingSink = { line ->
+                println(line)
+                val name = line.substringAfter("name=").substringBefore(' ')
+                val ms = line.substringAfter("ms=").toLongOrNull() ?: return@routeAcrossChain
+                stageTotalsMs[name] = (stageTotalsMs[name] ?: 0L) + ms
+            }).also { stageSamples++ }
+        } finally { sampler.finish() }
         val elapsedMs = (System.nanoTime() - routeStarted) / 1_000_000.0
         val after = usedHeapBytes()
         println(String.format(Locale.US,
@@ -35,6 +45,10 @@ fun main(args: Array<String>) {
             files.map(::graphNodeCount).joinToString(","), result.parts.map { it.nodeIds.size }.joinToString(","),
             before / 1048576.0, sampler.peakBytes / 1048576.0, after / 1048576.0,
             (after - before) / 1048576.0, result.wasCancelled, result.wasTruncated))
+    }
+    if (stageSamples > 0) {
+        println("CHAIN_STAGE_SUMMARY stage=average_ms samples=$stageSamples")
+        for ((name, total) in stageTotalsMs) println("$name\t${"%.1f".format(Locale.US, total.toDouble() / stageSamples)}")
     }
 }
 
