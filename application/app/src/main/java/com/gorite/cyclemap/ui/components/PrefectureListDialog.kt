@@ -67,7 +67,7 @@ internal fun PrefectureListDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("都道府県を選択してDL") },
+        title = { Text("地図タイルを保存する県を選択") },
         text = {
             Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
                 // Region Tab
@@ -84,6 +84,13 @@ internal fun PrefectureListDialog(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別で、現在は中国 5 県のみ対応。
+                Text(
+                    "※ 経路探索・検索のデータは中国5県のみ対応です。ここでは地図タイルのみ保存します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Prefecture List in selected region
