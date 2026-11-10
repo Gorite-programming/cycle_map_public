@@ -65,6 +65,7 @@ internal fun calculateMultiLegCrossRoute(
         if (fileName == jobGraphName) return jobGraph
         val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
         val started = SystemClock.elapsedRealtime()
+        loadTimingSink = { Log.i("CycleMapGraph", it) }
         val graph = LazyMappedRoadGraph.load(files.first, files.second)
         totalLoadMs += SystemClock.elapsedRealtime() - started
         return graph
@@ -114,12 +115,17 @@ internal fun calculateMultiLegCrossRoute(
                 val sources = chain.map { pref ->
                     val fileName = namesByPref[pref] ?: return null
                     val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
-                    if (fileName == jobGraphName) ChainGraph(open = { jobGraph }, borrowed = true)
+                    if (fileName == jobGraphName) ChainGraph(open = { jobGraph }, borrowed = true,
+                        openIdIndex = { jobGraph.sortedNodeIdIndex() })
                     else ChainGraph(open = {
                         val loadStarted = SystemClock.elapsedRealtime()
+                        loadTimingSink = { Log.i("CycleMapGraph", it) }
                         LazyMappedRoadGraph.load(files.first, files.second).also {
                             totalLoadMs += SystemClock.elapsedRealtime() - loadStarted
                         }
+                    }, openIdIndex = {
+                        loadTimingSink = { Log.i("CycleMapGraph", it) }
+                        LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
                     })
                 }
                 val indices = IntArray(chain.size)

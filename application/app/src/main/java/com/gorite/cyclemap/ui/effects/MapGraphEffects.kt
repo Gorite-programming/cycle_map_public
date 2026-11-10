@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
+import com.gorite.cyclemap.routing.loadTimingSink
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.tracking.LocationTrackingService
@@ -92,6 +93,7 @@ internal fun MapGraphEffects(
                     wasInterrupted = activeJob != null
                     activeJob?.cancelAndJoin()
                     val t0 = SystemClock.elapsedRealtime()
+                    loadTimingSink = { Log.i("CycleMapGraph", it) }
                     val g = LazyMappedRoadGraph.load(graphFile, graphIndex)
                     val elapsed = SystemClock.elapsedRealtime() - t0
                     Pair(g, elapsed)
@@ -149,6 +151,7 @@ internal fun MapGraphEffects(
                 val result = withContext(Dispatchers.IO) {
                     val before = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
                     val start = SystemClock.elapsedRealtime()
+                    loadTimingSink = { Log.i("CycleMapGraph", it) }
                     val graph = LazyMappedRoadGraph.load(graphFile, graphIndex)
                     val elapsed = SystemClock.elapsedRealtime() - start
                     val after = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }

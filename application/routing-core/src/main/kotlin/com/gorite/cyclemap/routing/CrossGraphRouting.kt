@@ -62,17 +62,23 @@ data class CrossRouteResult(
 
 /** ノードID昇順のプリミティブ配列同士をマージする。 */
 fun portalsBetween(a: LazyMappedRoadGraph, b: LazyMappedRoadGraph): CrossPortals {
-    val (aIds, aOrder) = a.sortedNodeIdIndex()
-    val (bIds, bOrder) = b.sortedNodeIdIndex()
-    val ai = IntArray(minOf(a.nodeCount, b.nodeCount))
+    return portalsBetween(a.sortedNodeIdIndex(), b.sortedNodeIdIndex())
+}
+
+/** Match a live graph with an ID-only mapped index, without opening the neighboring graph's routing data. */
+fun portalsBetween(a: LazyMappedRoadGraph, bIds: SortedNodeIdIndex): CrossPortals =
+    portalsBetween(a.sortedNodeIdIndex(), bIds)
+
+private fun portalsBetween(aIds: SortedNodeIdIndex, bIds: SortedNodeIdIndex): CrossPortals {
+    val ai = IntArray(minOf(aIds.size, bIds.size))
     val bi = IntArray(ai.size)
     val ids = LongArray(ai.size)
     var i = 0; var j = 0; var n = 0
     while (i < aIds.size && j < bIds.size) {
         when {
-            aIds[i] < bIds[j] -> i++
-            aIds[i] > bIds[j] -> j++
-            else -> { ai[n] = aOrder[i]; bi[n] = bOrder[j]; ids[n] = aIds[i]; n++; i++; j++ }
+            aIds.nodeId(i) < bIds.nodeId(j) -> i++
+            aIds.nodeId(i) > bIds.nodeId(j) -> j++
+            else -> { ai[n] = aIds.nodeIndex(i); bi[n] = bIds.nodeIndex(j); ids[n] = aIds.nodeId(i); n++; i++; j++ }
         }
     }
     return CrossPortals(ai.copyOf(n), bi.copyOf(n), ids.copyOf(n))

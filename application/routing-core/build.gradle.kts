@@ -16,7 +16,7 @@ tasks.register<JavaExec>("benchmarkRealGraph") {
     description = "実グラフで経路品質を条件別に比較する"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.gorite.cyclemap.routing.GraphBenchmarkRunnerKt")
-    jvmArgs("-Xmx2g")
+    jvmArgs("-Xmx${project.findProperty("maxHeap") ?: "2g"}")
     doFirst {
         val graph = project.findProperty("graph") as String? ?: error("-Pgraph=<.graph path> が必要です")
         args(graph, (project.findProperty("od") ?: "200").toString(), (project.findProperty("seed") ?: "20261108").toString())
@@ -28,7 +28,7 @@ tasks.register<JavaExec>("routeDump") {
     group = "verification"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.gorite.cyclemap.routing.RouteDumpKt")
-    jvmArgs("-Xmx2g")
+    jvmArgs("-Xmx${project.findProperty("maxHeap") ?: "2g"}")
     doFirst {
         args(
             project.findProperty("graph") as String? ?: error("-Pgraph が必要です"),
@@ -43,7 +43,7 @@ tasks.register<JavaExec>("crossRouteBench") {
     group = "verification"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.gorite.cyclemap.routing.CrossRouteBenchKt")
-    jvmArgs("-Xmx2g")
+    jvmArgs("-Xmx${project.findProperty("maxHeap") ?: "2g"}")
     doFirst {
         val od = project.findProperty("od") as String? ?: error("-Pod=lat,lon,lat,lon が必要です")
         val graphList = project.findProperty("graphList") as String?

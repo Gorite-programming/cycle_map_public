@@ -15,7 +15,10 @@ fun main(args: Array<String>) {
         values
     }
     for ((index, od) in ods.withIndex()) {
-        val graphs = files.map { file -> ChainGraph({ LazyMappedRoadGraph.load(file) }) }
+        val graphs = files.map { file -> ChainGraph(
+            open = { LazyMappedRoadGraph.load(file) },
+            openIdIndex = { LazyMappedRoadGraph.loadSortedNodeIdIndex(file) },
+        ) }
         val start = nearestNode(files.first(), od[0], od[1])
         val goal = nearestNode(files.last(), od[2], od[3])
         System.gc()

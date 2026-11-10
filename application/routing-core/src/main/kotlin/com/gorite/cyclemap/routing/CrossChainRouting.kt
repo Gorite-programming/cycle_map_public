@@ -5,6 +5,8 @@ data class ChainGraph(
     val open: () -> LazyMappedRoadGraph,
     val close: (LazyMappedRoadGraph) -> Unit = { it.close() },
     val borrowed: Boolean = false,
+    /** Optional ID-only access path used to find portals without opening the neighbor's routing graph. */
+    val openIdIndex: (() -> SortedNodeIdIndex)? = null,
 )
 
 data class CrossChainResult(
@@ -68,13 +70,21 @@ fun routeAcrossChain(
         val current = acquire(i)
         var next: LazyMappedRoadGraph? = null
         try {
-            next = acquire(i + 1)
-            val portals = portalsBetween(current, next)
+            val hasIdOnlyPath = graphs[i + 1].openIdIndex != null
+            var nextIdIndex = graphs[i + 1].openIdIndex?.invoke()
+            val portals = if (nextIdIndex != null) {
+                portalsBetween(current, nextIdIndex)
+            } else {
+                next = acquire(i + 1)
+                portalsBetween(current, next!!)
+            }
+            nextIdIndex = null
+            if (hasIdOnlyPath && !graphs[i + 1].borrowed) System.gc()
             if (portals.size == 0) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed() }
             // The next graph is needed only to find the portal pairs. Search this stage
             // with the current graph alone so two large owned graphs are not live together.
-            if (!graphs[i + 1].borrowed) {
-                release(i + 1, next)
+            if (next != null && !graphs[i + 1].borrowed) {
+                release(i + 1, next!!)
                 next = null
                 System.gc()
             }

@@ -13,19 +13,79 @@ import kotlin.math.cos
 
 private const val DEG_LAT_METERS = 111_320.0
 
+/** Optional app-provided sink for graph loading diagnostics. */
+@Volatile
+var loadTimingSink: ((String) -> Unit)? = null
+
+private fun reportLoadStage(stage: String, startedAtNanos: Long) {
+    val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
+    try {
+        loadTimingSink?.invoke("LOAD_STAGE name=$stage ms=$elapsedMs")
+    } catch (_: Throwable) {
+        // Diagnostics must never affect graph loading or routing.
+    }
+}
+
+internal class MappedLongColumn private constructor(private val buffer: ByteBuffer?, private val base: Int, val size: Int, private val stride: Int, private val field: Int, private val values: LongArray?) {
+    constructor(buffer: ByteBuffer, base: Int, size: Int, stride: Int, field: Int) : this(buffer, base, size, stride, field, null)
+    constructor(values: LongArray) : this(null, 0, values.size, 0, 0, values)
+    val indices: IntRange get() = 0 until size
+    operator fun get(index: Int): Long = values?.get(index) ?: buffer!!.getLong(base + index * stride + field)
+}
+internal class MappedDoubleColumn private constructor(private val buffer: ByteBuffer?, private val base: Int, val size: Int, private val stride: Int, private val values: DoubleArray?, @Suppress("UNUSED_PARAMETER") marker: Unit) {
+    constructor(buffer: ByteBuffer, base: Int, size: Int, stride: Int, values: DoubleArray? = null) : this(buffer, base, size, stride, values, Unit)
+    constructor(values: DoubleArray) : this(null, 0, values.size, 0, values, Unit)
+    val indices: IntRange get() = 0 until size
+    operator fun get(index: Int): Double = values?.get(index) ?: buffer!!.getDouble(base + index * stride)
+}
+internal class MappedIntColumn private constructor(private val buffer: ByteBuffer?, private val base: Int, val size: Int, private val stride: Int, private val values: IntArray?) {
+    constructor(buffer: ByteBuffer, base: Int, size: Int, stride: Int) : this(buffer, base, size, stride, null)
+    constructor(values: IntArray) : this(null, 0, values.size, 0, values)
+    operator fun get(index: Int): Int = values?.get(index) ?: buffer!!.getInt(base + index * stride)
+}
+
+/** Sorted node IDs packed with their original indices in one Long per node. */
+class SortedNodeIdIndex private constructor(private val packed: LongArray?, private val ids: LongArray?, private val order: IntArray?) {
+    internal constructor(packed: LongArray, packedIds: Boolean) : this(if (packedIds) packed else null, null, null)
+    internal constructor(ids: LongArray, order: IntArray) : this(null, ids, order)
+    val size: Int get() = packed?.size ?: ids!!.size
+    fun nodeId(index: Int): Long = packed?.let { it[index] ushr 24 } ?: ids!![index]
+    fun nodeIndex(index: Int): Int = packed?.let { (it[index] and 0xFFFFFF).toInt() } ?: order!![index]
+    fun binarySearch(id: Long): Int {
+        var low = 0; var high = size - 1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            val value = nodeId(mid)
+            when { value < id -> low = mid + 1; value > id -> high = mid - 1; else -> return mid }
+        }
+        return -(low + 1)
+    }
+}
+
 /** V1 graph reader that maps the file and decodes edge records only when routing. */
 class LazyMappedRoadGraph private constructor(
     private val graphChannel: FileChannel,
+    private val indexChannel: FileChannel,
     private val mapped: ByteBuffer,
-    private val nodeIds: LongArray,
-    private val latitudes: DoubleArray,
-    private val longitudes: DoubleArray,
-    private val edgeStarts: LongArray,
-    private val edgeFirstOrdinals: IntArray,
-    private val edgeCounts: IntArray,
-    private val edgeTargets: IntArray,
+    private val nodeIds: MappedLongColumn,
+    private val latitudes: MappedDoubleColumn,
+    private val longitudes: MappedDoubleColumn,
+    private val edgeStarts: MappedLongColumn,
+    private val edgeFirstOrdinals: MappedIntColumn,
+    private val edgeCounts: MappedIntColumn,
+    private val edgeTargets: MappedIntColumn,
     val edgeCount: Int,
 ) : AutoCloseable {
+    /** Compatibility constructor used by in-module synthetic graph fixtures. */
+    private constructor(
+        graphChannel: FileChannel, mapped: ByteBuffer, nodeIds: LongArray, latitudes: DoubleArray,
+        longitudes: DoubleArray, edgeStarts: LongArray, edgeFirstOrdinals: IntArray,
+        edgeCounts: IntArray, edgeTargets: IntArray, edgeCount: Int,
+    ) : this(graphChannel, graphChannel, mapped,
+        MappedLongColumn(nodeIds), MappedDoubleColumn(latitudes), MappedDoubleColumn(longitudes),
+        MappedLongColumn(edgeStarts), MappedIntColumn(edgeFirstOrdinals), MappedIntColumn(edgeCounts),
+        MappedIntColumn(edgeTargets), edgeCount)
+
     data class SearchBounds(
         val minLatitude: Double,
         val maxLatitude: Double,
@@ -78,7 +138,10 @@ class LazyMappedRoadGraph private constructor(
         private set
 
     private val spatialGrid: SpatialGridIndex? by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        if (nodeCount >= 64) SpatialGridIndex(latitudes, longitudes) else null
+        if (nodeCount >= 64) {
+            val startedAt = System.nanoTime()
+            SpatialGridIndex(latitudes, longitudes).also { reportLoadStage("spatial_grid", startedAt) }
+        } else null
     }
 
     fun nodeAt(index: Int): GraphNode {
@@ -89,35 +152,39 @@ class LazyMappedRoadGraph private constructor(
     fun nodeIndexOf(nodeId: Long): Int {
         // 以前は nodeIds.indexOf の線形探索 (広島 186 万件) で、案内の指示を作るだけで実機 5 秒以上かかっていた。
         // ID を並べ替えた表を一度だけ作り、二分探索で引く (広島で約 22MB)。
-        val (sortedIds, order) = sortedIdIndex()
-        val k = java.util.Arrays.binarySearch(sortedIds, nodeId)
+        val sorted = sortedIdIndex()
+        val k = sorted.binarySearch(nodeId)
         require(k >= 0) { "Unknown node id: $nodeId" }
-        return order[k]
+        return sorted.nodeIndex(k)
     }
 
-    @Volatile private var sortedIdIndexCache: Pair<LongArray, IntArray>? = null
+    @Volatile private var sortedIdIndexCache: SortedNodeIdIndex? = null
 
-    private fun sortedIdIndex(): Pair<LongArray, IntArray> {
+    private fun sortedIdIndex(): SortedNodeIdIndex {
         sortedIdIndexCache?.let { return it }
         synchronized(this) {
             sortedIdIndexCache?.let { return it }
             val n = nodeIds.size
-            val packable = n < (1 shl 24) && nodeIds.all { it in 0 until (1L shl 39) }
+            val startedAt = System.nanoTime()
+            val packable = n < (1 shl 24) && (0 until n).all { nodeIds[it] in 0 until (1L shl 39) }
             val result = if (packable) {
                 // ID (39 ビット) と番号 (24 ビット) を 1 つの Long に詰めてプリミティブのまま並べ替える (箱詰めを避ける)
                 val packed = LongArray(n) { (nodeIds[it] shl 24) or it.toLong() }
                 packed.sort()
-                LongArray(n) { packed[it] ushr 24 } to IntArray(n) { (packed[it] and 0xFFFFFF).toInt() }
+                SortedNodeIdIndex(packed, true)
             } else {
                 val order = (0 until n).sortedBy { nodeIds[it] }.toIntArray()
-                LongArray(n) { nodeIds[order[it]] } to order
+                SortedNodeIdIndex(LongArray(n) { nodeIds[order[it]] }, order)
             }
-            return result.also { sortedIdIndexCache = it }
+            return result.also {
+                sortedIdIndexCache = it
+                reportLoadStage("sorted_node_id_index", startedAt)
+            }
         }
     }
 
     /** ノードID昇順の (ID, 元の番号)。県間 portal 突き合わせ用。 */
-    internal fun sortedNodeIdIndex(): Pair<LongArray, IntArray> = sortedIdIndex()
+    fun sortedNodeIdIndex(): SortedNodeIdIndex = sortedIdIndex()
 
     /** 探索ごとに一つ生成し、ノード間で再利用する辺カーソル。ノードごとのラムダ割り当てを避ける。 */
     internal inner class RoutingEdgeCursor {
@@ -716,7 +783,7 @@ class LazyMappedRoadGraph private constructor(
     private fun isArterial(type: Int): Boolean =
         type == TYPE_PRIMARY || type == TYPE_SECONDARY || type == TYPE_TERTIARY
 
-    override fun close() = graphChannel.close()
+    override fun close() { graphChannel.close(); indexChannel.close() }
 
     companion object {
         /**
@@ -750,6 +817,7 @@ class LazyMappedRoadGraph private constructor(
         private const val TYPE_TRACK = 9; private const val TYPE_PATH = 10
 
         fun load(file: File, indexFile: File = File(file.path + ".idx")): LazyMappedRoadGraph {
+            val totalStartedAt = System.nanoTime()
             require(indexFile.isFile) { "Missing graph index: ${indexFile.absolutePath}" }
             val channel = RandomAccessFile(file, "r").channel
             try {
@@ -757,26 +825,123 @@ class LazyMappedRoadGraph private constructor(
                 require(channel.size() <= Int.MAX_VALUE) {
                     "Graph file is larger than 2 GiB and cannot be mapped: ${file.absolutePath} (${channel.size()} bytes)"
                 }
+                var stageStartedAt = System.nanoTime()
                 val mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.BIG_ENDIAN)
                 val headerLength = mapped.short.toInt() and 0xffff
                 val header = ByteArray(headerLength); mapped.get(header)
                 check(String(header, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1")
                 val nodeCount = mapped.int
-                val ids = LongArray(nodeCount); val lats = DoubleArray(nodeCount); val lons = DoubleArray(nodeCount)
-                repeat(nodeCount) { i -> ids[i] = mapped.long; lats[i] = mapped.double; lons[i] = mapped.double }
-                DataInputStream(BufferedInputStream(FileInputStream(indexFile))).use { input ->
-                    check(input.readUTF() == "CYCLEMAP_INDEX_V2")
-                    check(input.readInt() == nodeCount)
-                    val starts = LongArray(nodeCount) { input.readLong() }
-                    val first = IntArray(nodeCount) { input.readInt() }
-                    val counts = IntArray(nodeCount) { input.readInt() }
-                    val edgeCount = input.readInt()
-                    val targets = IntArray(edgeCount) { input.readInt() }
-                    val graph = LazyMappedRoadGraph(channel, mapped, ids, lats, lons, starts, first, counts, targets, edgeCount)
+                val nodeBase = mapped.position()
+                check(nodeBase.toLong() + nodeCount.toLong() * 24L <= mapped.limit()) { "Truncated graph node table: ${file.absolutePath}" }
+                reportLoadStage("graph_mmap_and_header", stageStartedAt)
+                val indexChannel = RandomAccessFile(indexFile, "r").channel
+                try {
+                    require(indexChannel.size() <= Int.MAX_VALUE) {
+                        "Graph index file is larger than 2 GiB and cannot be mapped: ${indexFile.absolutePath} (${indexChannel.size()} bytes)"
+                    }
+                    stageStartedAt = System.nanoTime()
+                    val indexMapped = indexChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexChannel.size()).order(ByteOrder.BIG_ENDIAN)
+                    val indexHeader = indexMapped.duplicate().order(ByteOrder.BIG_ENDIAN)
+                    val headerLength = indexHeader.short.toInt() and 0xffff
+                    check(headerLength <= indexHeader.remaining() - 4) { "Truncated graph index header: ${indexFile.absolutePath}" }
+                    val header = ByteArray(headerLength); indexHeader.get(header)
+                    check(String(header, Charsets.UTF_8) == "CYCLEMAP_INDEX_V2")
+                    check(indexHeader.int == nodeCount)
+                    val startsOffset = indexHeader.position()
+                    val rawIndexInput = FileInputStream(indexFile)
+                    rawIndexInput.channel.position(startsOffset.toLong())
+                    DataInputStream(BufferedInputStream(rawIndexInput, 1 shl 20)).use { input ->
+                    val firstOffset = Math.addExact(startsOffset, Math.multiplyExact(nodeCount, 8))
+                    val countsOffset = Math.addExact(firstOffset, Math.multiplyExact(nodeCount, 4))
+                    val edgeCountOffset = Math.addExact(countsOffset, Math.multiplyExact(nodeCount, 4))
+                    check(edgeCountOffset.toLong() + 4L <= indexMapped.limit()) { "Truncated graph index: ${indexFile.absolutePath}" }
+                    val edgeCount = indexMapped.getInt(edgeCountOffset)
+                    require(edgeCount >= 0) { "Invalid edge count: $edgeCount" }
+                    val targetsOffset = edgeCountOffset + 4
+                    check(targetsOffset.toLong() + edgeCount.toLong() * 4L <= indexMapped.limit()) { "Truncated graph targets: ${indexFile.absolutePath}" }
+                    skipFully(input, 8L * nodeCount + 4L * nodeCount + 4L * nodeCount + 4L + 4L * edgeCount)
+                    reportLoadStage("index_mmap_offsets_and_stream_skip", stageStartedAt)
+                    stageStartedAt = System.nanoTime()
+                    val latitudes = MappedDoubleColumn(mapped, nodeBase + 8, nodeCount, 24, DoubleArray(nodeCount) { mapped.getDouble(nodeBase + 8 + it * 24) })
+                    val longitudes = MappedDoubleColumn(mapped, nodeBase + 16, nodeCount, 24, DoubleArray(nodeCount) { mapped.getDouble(nodeBase + 16 + it * 24) })
+                    reportLoadStage("latitude_longitude_columns", stageStartedAt)
+                    stageStartedAt = System.nanoTime()
+                    val ids = MappedLongColumn(mapped, nodeBase, nodeCount, 24, 0)
+                    reportLoadStage("ids_column_view", stageStartedAt)
+                    stageStartedAt = System.nanoTime()
+                    val starts = MappedLongColumn(indexMapped, startsOffset, nodeCount, 8, 0)
+                    val firstOrdinals = MappedIntColumn(indexMapped, firstOffset, nodeCount, 4)
+                    val counts = MappedIntColumn(indexMapped, countsOffset, nodeCount, 4)
+                    reportLoadStage("starts_first_counts_column_views", stageStartedAt)
+                    stageStartedAt = System.nanoTime()
+                    val targets = MappedIntColumn(indexMapped, targetsOffset, edgeCount, 4)
+                    reportLoadStage("targets_column_view", stageStartedAt)
+                    stageStartedAt = System.nanoTime()
+                    val graph = LazyMappedRoadGraph(channel, indexChannel, mapped,
+                        ids,
+                        latitudes,
+                        longitudes,
+                        starts,
+                        firstOrdinals,
+                        counts,
+                        targets, edgeCount)
                     readTrailingSections(input, graph, nodeCount, edgeCount)
+                    reportLoadStage("trailing_sections", stageStartedAt)
+                    reportLoadStage("total", totalStartedAt)
                     return graph
+                    }
+                } catch (t: Throwable) {
+                    indexChannel.close()
+                    throw t
                 }
             } catch (t: Throwable) { channel.close(); throw t }
+        }
+
+        /** Read only the fixed-width node ID column for cross-prefecture portal matching. */
+        fun loadSortedNodeIdIndex(file: File): SortedNodeIdIndex {
+            val totalStartedAt = System.nanoTime()
+            val channel = RandomAccessFile(file, "r").channel
+            try {
+                require(channel.size() <= Int.MAX_VALUE) {
+                    "Graph file is larger than 2 GiB and cannot be mapped: ${file.absolutePath} (${channel.size()} bytes)"
+                }
+                val stageStartedAt = System.nanoTime()
+                val mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.BIG_ENDIAN)
+                val headerLength = mapped.short.toInt() and 0xffff
+                val header = ByteArray(headerLength); mapped.get(header)
+                check(String(header, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1")
+                val n = mapped.int
+                val base = mapped.position()
+                check(base.toLong() + n.toLong() * 24L <= mapped.limit()) { "Truncated graph node table: ${file.absolutePath}" }
+                if (n < (1 shl 24)) {
+                    val packed = LongArray(n)
+                    var packable = true
+                    for (i in 0 until n) {
+                        val id = mapped.getLong(base + i * 24)
+                        if (id !in 0 until (1L shl 39)) { packable = false; break }
+                        packed[i] = (id shl 24) or i.toLong()
+                    }
+                    if (packable) {
+                    packed.sort()
+                    reportLoadStage("sorted_id_index_mmap_and_build", stageStartedAt)
+                    reportLoadStage("sorted_id_index_total", totalStartedAt)
+                    return SortedNodeIdIndex(packed, true)
+                    }
+                }
+                val ids = LongArray(n) { mapped.getLong(base + it * 24) }
+                val order = (0 until n).sortedBy { ids[it] }.toIntArray()
+                reportLoadStage("sorted_id_index_mmap_and_build", stageStartedAt)
+                reportLoadStage("sorted_id_index_total", totalStartedAt)
+                return SortedNodeIdIndex(LongArray(n) { ids[order[it]] }, order)
+            } finally { channel.close() }
+        }
+
+        private fun skipFully(input: DataInputStream, byteCount: Long) {
+            var remaining = byteCount
+            while (remaining > 0) {
+                val skipped = input.skip(remaining)
+                if (skipped <= 0) { input.readByte(); remaining-- } else remaining -= skipped
+            }
         }
         const val UNKNOWN_ELEVATION: Short = Short.MIN_VALUE
         private const val ELEVATION_SECTION_MAGIC = "CYCLEMAP_ELEVATION_V1"
@@ -859,8 +1024,8 @@ enum class RoutePreference(val label: String) {
  * 全走査と100%同一の最近傍ノード結果を保証しつつ、探索対象セルを絞り込む。
  */
 internal class SpatialGridIndex(
-    latitudes: DoubleArray,
-    longitudes: DoubleArray,
+    latitudes: MappedDoubleColumn,
+    longitudes: MappedDoubleColumn,
 ) {
     private val minLat: Double
     private val maxLat: Double
@@ -909,8 +1074,8 @@ internal class SpatialGridIndex(
     fun findNearest(
         latitude: Double,
         longitude: Double,
-        latitudes: DoubleArray,
-        longitudes: DoubleArray,
+        latitudes: MappedDoubleColumn,
+        longitudes: MappedDoubleColumn,
     ): Int {
         val centerGy = toGridY(latitude)
         val centerGx = toGridX(longitude)
@@ -981,8 +1146,8 @@ internal class SpatialGridIndex(
         longitude: Double,
         radiusMeters: Double,
         maxCount: Int,
-        latitudes: DoubleArray,
-        longitudes: DoubleArray,
+        latitudes: MappedDoubleColumn,
+        longitudes: MappedDoubleColumn,
     ): IntArray {
         val latDelta = radiusMeters / 110_000.0
         val maxAbsLat = maxOf(abs(latitude - latDelta), abs(latitude + latDelta)).coerceAtMost(89.0)
