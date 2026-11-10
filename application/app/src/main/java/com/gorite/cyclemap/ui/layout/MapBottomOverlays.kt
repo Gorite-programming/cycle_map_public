@@ -79,6 +79,9 @@ internal fun BoxScope.MapBottomOverlays(
     isSwitchingGraph: Boolean,
     effectiveAnimationEnabled: Boolean,
     destination: GeoPoint?,
+    waypoints: List<GeoPoint>,
+    onMoveWaypoint: (Int, Int) -> Unit,
+    onRemoveWaypoint: (Int) -> Unit,
     realElevProfile: List<ElevationSample>,
     navigationRoute: List<RoutePoint>,
     navigationProgress: RouteProgress?,
@@ -214,6 +217,15 @@ internal fun BoxScope.MapBottomOverlays(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (waypoints.isNotEmpty()) {
+                            com.gorite.cyclemap.ui.cycling.WaypointList(
+                                waypoints = waypoints,
+                                isEnabled = false,
+                                onMove = onMoveWaypoint,
+                                onRemove = onRemoveWaypoint,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
                     }
                 }
 
@@ -272,6 +284,10 @@ internal fun BoxScope.MapBottomOverlays(
                             routeChoices = routeChoices,
                             selectedRouteChoice = selectedRouteChoice,
                             onSelectRouteChoice = onSelectRouteChoice,
+                            waypoints = waypoints,
+                            isCalculatingRoute = isCalculatingRoute || isSwitchingGraph,
+                            onMoveWaypoint = onMoveWaypoint,
+                            onRemoveWaypoint = onRemoveWaypoint,
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant,

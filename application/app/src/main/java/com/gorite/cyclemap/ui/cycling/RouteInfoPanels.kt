@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.routing.RoutePreference
+import org.osmdroid.util.GeoPoint
 
 /**
  * ルート情報カードの中身 (Google Maps 風ライトスタイルプレビュー)。
@@ -54,6 +55,10 @@ fun RouteInfoCardContent(
     routeChoices: List<RouteChoice> = emptyList(),
     selectedRouteChoice: Int = 0,
     onSelectRouteChoice: (Int) -> Unit = {},
+    waypoints: List<GeoPoint> = emptyList(),
+    isCalculatingRoute: Boolean = false,
+    onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
+    onRemoveWaypoint: (Int) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (started) {
@@ -103,6 +108,16 @@ fun RouteInfoCardContent(
                     }
                 }
             }
+        }
+
+        if (waypoints.isNotEmpty()) {
+            WaypointList(
+                waypoints = waypoints,
+                isEnabled = !isCalculatingRoute,
+                onMove = onMoveWaypoint,
+                onRemove = onRemoveWaypoint,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
         }
 
         // ルート選好切替チップ (推奨 / 平坦 / 最短)

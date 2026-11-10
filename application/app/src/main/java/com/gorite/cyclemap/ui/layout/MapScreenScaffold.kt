@@ -21,6 +21,8 @@ import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.ui.RoutingBenchmarkRequest
 import com.gorite.cyclemap.ui.cycling.CyclingTab
 import com.gorite.cyclemap.ui.cycling.SpotQuickCategory
+import com.gorite.cyclemap.ui.cycling.moveWaypoint
+import com.gorite.cyclemap.ui.cycling.removeWaypointAt
 import com.gorite.cyclemap.ui.theme.LocalAnimationEnabled
 import com.gorite.cyclemap.ui.theme.Motion
 import com.gorite.cyclemap.ui.theme.ThemeMode
@@ -60,6 +62,18 @@ internal fun MapScreenScaffold(
     )
     val batteryStatus by state.batteryMonitor.status.collectAsState()
     val isLowPowerMode = batteryStatus.isLowPower
+    val applyWaypointEdit: (List<GeoPoint>) -> Unit = { newWaypoints ->
+        if (!state.isCalculatingRouteState.value && !state.isSwitchingGraphState.value) {
+            val destination = state.destinationState.value
+            if (destination != null) {
+                state.waypointsState.value = newWaypoints
+                val location = state.currentLocationState.value
+                val start = if (location != null) GeoPoint(location.latitude, location.longitude)
+                else GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
+                runRouteCalculation(start, destination, false, newWaypoints, null)
+            }
+        }
+    }
 
     CompositionLocalProvider(LocalAnimationEnabled provides effectiveAnimationEnabled) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -200,6 +214,13 @@ internal fun MapScreenScaffold(
             },
             onClearRoute = clearRoute,
             destination = state.destinationState.value,
+            waypoints = state.waypointsState.value,
+            onMoveWaypoint = { index, delta ->
+                applyWaypointEdit(moveWaypoint(state.waypointsState.value, index, delta))
+            },
+            onRemoveWaypoint = { index ->
+                applyWaypointEdit(removeWaypointAt(state.waypointsState.value, index))
+            },
             realElevProfile = state.realElevProfileState.value,
             onStartNavigation = startNavigation,
             downloadCorridorTiles = downloadCorridorTiles,
