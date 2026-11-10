@@ -339,10 +339,12 @@ object TileDownloader {
                             saved = true
                         }
                     } catch (_: Exception) {
-                        attempt++
+                        // リトライまたはスキップ
                     } finally {
                         connection?.disconnect()
                     }
+                    // HTTP 200 以外 (404/503 など) でも必ず試行回数を進める (以前は例外時だけで、無限に再接続していた)
+                    attempt++
                 }
                 if (saved) {
                     successCount.incrementAndGet()
