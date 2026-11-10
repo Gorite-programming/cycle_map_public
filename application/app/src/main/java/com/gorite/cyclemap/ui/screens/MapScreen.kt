@@ -88,6 +88,7 @@ internal fun MapScreen(
                     result.onSuccess { route ->
                         routeExecutionGeneration.incrementAndGet()
                         state.routeJobRef.getAndSet(null)?.cancel()
+                        state.inFlightRouteRef.set(null)
                         state.pendingRouteRef.set(null)
                         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
                         state.routeOverlayState.value?.let { overlay -> state.mapViewState.value?.overlays?.remove(overlay) }
@@ -156,13 +157,13 @@ internal fun MapScreen(
         context = state.context,
         routeJobRef = state.routeJobRef,
         routeExecutionGeneration = routeExecutionGeneration,
+        inFlightRouteRef = state.inFlightRouteRef,
         graphLock = state.graphLock,
         pendingRouteRef = state.pendingRouteRef,
         getGraph = { latestGraph },
         getLoadedGraphName = { state.loadedGraphNameState.value },
         isSwitchingGraph = { state.isSwitchingGraphState.value },
         onSwitchGraph = {
-            routeExecutionGeneration.incrementAndGet()
             state.switchRef.get()?.invoke(it)
         },
         getMapView = { latestMapView },
@@ -180,6 +181,9 @@ internal fun MapScreen(
         onWaypointMarkersChanged = { state.waypointMarkersState.value = it },
         onCalculatingRouteChanged = { state.isCalculatingRouteState.value = it },
         onReroutingChanged = { state.isReroutingState.value = it },
+        onLongCalculationNoticeCleared = {
+            if (state.warningMessageState.value == LONG_CROSS_PREFECTURE_CALCULATION_MESSAGE) state.warningMessageState.value = null
+        },
         onWarningMessageChanged = { state.warningMessageState.value = it },
         onRouteCalculated = { overlay, route, maneuvers, instructions, summary, isReroute, crossElevation ->
             state.routeOverlayState.value = overlay
@@ -221,6 +225,17 @@ internal fun MapScreen(
     val runRouteCalculation: (start: GeoPoint, goal: GeoPoint, isReroute: Boolean, waypointsOverride: List<GeoPoint>?, preferenceOverride: RoutePreference?) -> Unit = { start, goal, isReroute, waypointsOverride, preferenceOverride ->
         executeRouteCalculation(routeExecutionContext, start, goal, isReroute, waypointsOverride, preferenceOverride)
     }
+    val retryRouteCalculation: (RouteRequest, Boolean) -> Unit = { request, retriedAfterSwitch ->
+        executeRouteCalculation(
+            routeExecutionContext,
+            request.start,
+            request.goal,
+            request.isReroute,
+            request.waypoints,
+            request.preference,
+            retriedAfterSwitch,
+        )
+    }
 
     val startRouteToDestination: (GeoPoint) -> Unit = { point ->
         val loc = latestLocation
@@ -251,6 +266,8 @@ internal fun MapScreen(
         context = state.context,
         scope = state.scope,
         routeJobRef = state.routeJobRef,
+        inFlightRouteRef = state.inFlightRouteRef,
+        routeExecutionGeneration = routeExecutionGeneration,
         graphLock = state.graphLock,
         pendingRouteRef = state.pendingRouteRef,
         switchRef = state.switchRef,
@@ -262,10 +279,14 @@ internal fun MapScreen(
         onSwitchingGraphChanged = { state.isSwitchingGraphState.value = it },
         onCalculatingRouteChanged = { state.isCalculatingRouteState.value = it },
         onReroutingChanged = { state.isReroutingState.value = it },
+        onLongCalculationNoticeCleared = {
+            if (state.warningMessageState.value == LONG_CROSS_PREFECTURE_CALCULATION_MESSAGE) state.warningMessageState.value = null
+        },
         onWarningMessageChanged = { state.warningMessageState.value = it },
         currentLocation = state.currentLocationState.value,
         onLocationUpdate = onLocationUpdate,
         runRouteCalculation = runRouteCalculation,
+        retryRouteCalculation = retryRouteCalculation,
         onGpxRecordingStarted = {
             state.isRecordingState.value = true
             state.gpxPointCountState.value = 0
@@ -584,6 +605,7 @@ internal fun MapScreen(
 
     val clearRoute: () -> Unit = {
         routeExecutionGeneration.incrementAndGet()
+        state.inFlightRouteRef.set(null)
         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
         executeClearRoute(
             routeJobRef = state.routeJobRef,

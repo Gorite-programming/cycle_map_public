@@ -36,6 +36,8 @@ internal fun MapGraphEffects(
     context: Context,
     scope: CoroutineScope,
     routeJobRef: AtomicReference<RouteCalculationJob?>,
+    inFlightRouteRef: AtomicReference<InFlightRouteRequest?>,
+    routeExecutionGeneration: java.util.concurrent.atomic.AtomicLong,
     graphLock: ReentrantReadWriteLock,
     pendingRouteRef: AtomicReference<RouteRequest?>,
     switchRef: AtomicReference<((RoutingGraphSelection.Available) -> Unit)?>,
@@ -47,10 +49,12 @@ internal fun MapGraphEffects(
     onSwitchingGraphChanged: (Boolean) -> Unit,
     onCalculatingRouteChanged: (Boolean) -> Unit,
     onReroutingChanged: (Boolean) -> Unit,
+    onLongCalculationNoticeCleared: () -> Unit,
     onWarningMessageChanged: (String?) -> Unit,
     currentLocation: Location?,
     onLocationUpdate: ((Location) -> Unit)?,
     runRouteCalculation: (start: GeoPoint, goal: GeoPoint, isReroute: Boolean, waypointsOverride: List<GeoPoint>?, preferenceOverride: RoutePreference?) -> Unit,
+    retryRouteCalculation: (request: RouteRequest, retriedAfterSwitch: Boolean) -> Unit,
     onGpxRecordingStarted: () -> Unit,
     onGpxRecordingEmpty: () -> Unit,
     onGpxRecordingSaved: (points: Int, fileName: String) -> Unit,
@@ -71,15 +75,22 @@ internal fun MapGraphEffects(
             )
             return@switch
         }
+        routeExecutionGeneration.incrementAndGet()
         val (graphFile, graphIndex) = resolvedFiles
         onSwitchingGraphChanged(true)
         onCalculatingRouteChanged(false)
         onReroutingChanged(false)
+        onLongCalculationNoticeCleared()
         Log.i("CycleMapRoute", "GRAPH_SWITCH_BEGIN to=${selection.fileName} prefecture=${selection.prefectureName}")
         scope.launch {
+            var interruptedRequest: InFlightRouteRequest? = null
+            var wasInterrupted = false
             try {
                 val loaded = withContext(Dispatchers.IO) {
-                    routeJobRef.getAndSet(null)?.cancelAndJoin()
+                    val activeJob = routeJobRef.getAndSet(null)
+                    interruptedRequest = inFlightRouteRef.getAndSet(null)
+                    wasInterrupted = activeJob != null
+                    activeJob?.cancelAndJoin()
                     val t0 = SystemClock.elapsedRealtime()
                     val g = LazyMappedRoadGraph.load(graphFile, graphIndex)
                     val elapsed = SystemClock.elapsedRealtime() - t0
@@ -96,8 +107,19 @@ internal fun MapGraphEffects(
                 )
                 pendingRouteRef.getAndSet(null)?.let { req ->
                     runRouteCalculation(req.start, req.goal, req.isReroute, req.waypoints, req.preference)
+                    interruptedRequest = null
+                }
+                if (wasInterrupted && interruptedRequest != null) {
+                    val interrupted = interruptedRequest!!
+                    if (shouldRetryAfterGraphSwitch(interrupted)) {
+                        retryRouteCalculation(interrupted.request, true)
+                    } else {
+                        onWarningMessageChanged("地図データの切替でルート計算が中断されました。もう一度お試しください")
+                        Log.e("CycleMapRoute", "ROUTE_FAILURE reason=graph-switch-retry-exhausted")
+                    }
                 }
             } catch (t: Throwable) {
+                interruptedRequest?.let { inFlightRouteRef.compareAndSet(it, null) }
                 pendingRouteRef.set(null)
                 onWarningMessageChanged("${selection.prefectureName}のグラフを読み込めませんでした: ${t.message}")
                 Log.e(

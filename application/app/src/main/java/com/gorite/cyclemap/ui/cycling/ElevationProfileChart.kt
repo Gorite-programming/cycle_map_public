@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.roundToInt
 
+internal fun formatElevationAxisDistance(totalDistanceM: Double): String =
+    "${"%.1f".format(Locale.US, totalDistanceM / 1000.0)}km"
+
 /**
  * 標高グラフ (横軸=距離, 縦軸=標高)。
  * Canvas直接描画で軽量にし、再描画はプロファイル・進捗更新時のみ。
@@ -68,6 +71,7 @@ fun ElevationProfileChart(
             fontSize = 10.sp,
             color = labelColor,
         )
+        val distanceLabelStyle = labelStyle.copy(fontSize = 9.sp)
         listOf(0.0, 0.5, 1.0).forEach { f ->
             val e = lo + (hi - lo) * f
             val y = yOf(e)
@@ -83,19 +87,23 @@ fun ElevationProfileChart(
         // 距離ラベル (0 / 中間 / 合計)
         val kmTotal = totalDistanceM / 1000.0
         val midKm = kmTotal / 2
-        drawText(measurer, "0km", style = labelStyle, topLeft = Offset(leftPad, topPad + h + 4.dp.toPx()))
+        val axisY = topPad + h + 4.dp.toPx()
+        drawText(measurer, "0km", style = distanceLabelStyle, topLeft = Offset(leftPad, axisY))
+        val middleLabel = "${"%.1f".format(Locale.US, midKm)}km"
+        val middleLayout = measurer.measure(middleLabel, distanceLabelStyle)
         drawText(
             measurer,
-            "${"%.1f".format(Locale.US, midKm)}km",
-            style = labelStyle,
-            topLeft = Offset(leftPad + w / 2 - 14.dp.toPx(), topPad + h + 4.dp.toPx()),
+            middleLabel,
+            style = distanceLabelStyle,
+            topLeft = Offset(leftPad + w / 2 - middleLayout.size.width / 2f, axisY),
         )
-        val totalLabel = "${"%.1f".format(Locale.US, kmTotal)}km"
+        val totalLabel = formatElevationAxisDistance(totalDistanceM)
+        val totalLayout = measurer.measure(totalLabel, distanceLabelStyle)
         drawText(
             measurer,
             totalLabel,
-            style = labelStyle,
-            topLeft = Offset(leftPad + w - 30.dp.toPx(), topPad + h + 4.dp.toPx()),
+            style = distanceLabelStyle,
+            topLeft = Offset(size.width - 8.dp.toPx() - totalLayout.size.width, axisY),
         )
 
         // 全体エリア + ライン

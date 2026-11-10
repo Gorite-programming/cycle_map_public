@@ -345,6 +345,7 @@ internal fun rememberMapScreenState(
     }
 
     val pendingRouteRef = remember { AtomicReference<RouteRequest?>(null) }
+    val inFlightRouteRef = remember { AtomicReference<InFlightRouteRequest?>(null) }
     val switchRef = remember { AtomicReference<((RoutingGraphSelection.Available) -> Unit)?>(null) }
 
     val isRecordingState = remember { mutableStateOf(false) }
@@ -394,6 +395,7 @@ internal fun rememberMapScreenState(
         graphLock = graphLock,
         routeJobRef = routeJobRef,
         pendingRouteRef = pendingRouteRef,
+        inFlightRouteRef = inFlightRouteRef,
         switchRef = switchRef,
         viewModel = viewModel,
         connectivityState = connectivityState,

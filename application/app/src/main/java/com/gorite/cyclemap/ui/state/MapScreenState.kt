@@ -101,6 +101,7 @@ internal class MapScreenState(
     val graphLock: ReentrantReadWriteLock,
     val routeJobRef: AtomicReference<RouteCalculationJob?>,
     val pendingRouteRef: AtomicReference<RouteRequest?>,
+    val inFlightRouteRef: AtomicReference<InFlightRouteRequest?>,
     val switchRef: AtomicReference<((RoutingGraphSelection.Available) -> Unit)?>,
     val viewModel: MapViewModel,
     val connectivityState: ConnectivityState,

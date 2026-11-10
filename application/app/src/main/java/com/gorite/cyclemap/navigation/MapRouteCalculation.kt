@@ -41,6 +41,7 @@ internal class RouteExecutionContext(
     val context: Context,
     val routeJobRef: AtomicReference<RouteCalculationJob?>,
     val routeExecutionGeneration: AtomicLong,
+    val inFlightRouteRef: AtomicReference<InFlightRouteRequest?>,
     val graphLock: ReentrantReadWriteLock,
     val pendingRouteRef: AtomicReference<RouteRequest?>,
     val getGraph: () -> LazyMappedRoadGraph?,
@@ -62,6 +63,7 @@ internal class RouteExecutionContext(
     val onWaypointMarkersChanged: (List<Marker>) -> Unit,
     val onCalculatingRouteChanged: (Boolean) -> Unit,
     val onReroutingChanged: (Boolean) -> Unit,
+    val onLongCalculationNoticeCleared: () -> Unit,
     val onWarningMessageChanged: (String?) -> Unit,
     val onRouteCalculated: (
         overlay: Polyline?,
@@ -75,6 +77,18 @@ internal class RouteExecutionContext(
     val onRouteOptionsCalculated: ((List<com.gorite.cyclemap.contract.RouteOption>) -> Unit)? = null,
 )
 
+internal data class InFlightRouteRequest(
+    val request: RouteRequest,
+    val executionGeneration: Long,
+    val retriedAfterSwitch: Boolean,
+)
+
+internal fun shouldRetryAfterGraphSwitch(request: InFlightRouteRequest?): Boolean =
+    request != null && !request.retriedAfterSwitch
+
+internal fun isCurrentRouteExecution(executionGeneration: Long, currentGeneration: Long): Boolean =
+    executionGeneration == currentGeneration
+
 internal fun executeRouteCalculation(
     env: RouteExecutionContext,
     start: GeoPoint,
@@ -82,6 +96,7 @@ internal fun executeRouteCalculation(
     isReroute: Boolean,
     waypointsOverride: List<GeoPoint>?,
     preferenceOverride: RoutePreference?,
+    retriedAfterSwitch: Boolean = false,
 ) {
     val requestStartedAt = SystemClock.elapsedRealtime()
     val executionGeneration = env.routeExecutionGeneration.incrementAndGet()
@@ -135,6 +150,7 @@ internal fun executeRouteCalculation(
         is RoutingGraphSelection.Unavailable -> {
             env.onCalculatingRouteChanged(false)
             env.onReroutingChanged(false)
+            env.onLongCalculationNoticeCleared()
             val prefLabel = selection.prefectureName ?: "判定不能地域"
             env.onWarningMessageChanged("${prefLabel}のルートグラフがありません")
             Log.e("CycleMapRoute", "ROUTE_FAILURE reason=graph_not_available prefecture=$prefLabel")
@@ -155,6 +171,7 @@ internal fun executeRouteCalculation(
                 if (!env.isSwitchingGraph()) env.onSwitchGraph(selection)
                 env.onCalculatingRouteChanged(false)
                 env.onReroutingChanged(false)
+                env.onLongCalculationNoticeCleared()
                 env.onWarningMessageChanged("${selection.prefectureName}のグラフに切替中です")
                 Log.i(
                     "CycleMapRoute",
@@ -167,6 +184,7 @@ internal fun executeRouteCalculation(
     }
 
     val currentWaypoints = waypointsOverride ?: env.getWaypoints()
+    val currentPreference = preferenceOverride ?: env.getRoutePreference()
     if (!isReroute) {
         (env.context as? ComponentActivity)?.runOnUiThread {
             val view = env.getMapView() ?: return@runOnUiThread
@@ -208,6 +226,12 @@ internal fun executeRouteCalculation(
 
     val routeJob = RouteCalculationJob()
     env.routeJobRef.set(routeJob)
+    val inFlightRequest = InFlightRouteRequest(
+        RouteRequest(start, goal, isReroute, currentWaypoints, currentPreference),
+        executionGeneration,
+        retriedAfterSwitch,
+    )
+    env.inFlightRouteRef.set(inFlightRequest)
     val jobGraphName = env.getLoadedGraphName()
     val jobGraph = graph
     routeJob.job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -237,7 +261,7 @@ internal fun executeRouteCalculation(
             var crossBMs = 0L
             var crossTotalMs = 0L
 
-            val pref = preferenceOverride ?: env.getRoutePreference()
+            val pref = currentPreference
 
             val needsCrossPlanning = stops.zipWithNext().any { (a, b) ->
                 classifyLeg(findPrefectureName(a.latitude, a.longitude), findPrefectureName(b.latitude, b.longitude)) == CrossLegKind.CROSS
@@ -354,7 +378,8 @@ internal fun executeRouteCalculation(
             val primaryDisplayed = CompletableDeferred<Boolean>()
             val activityForDisplay = env.context as? ComponentActivity ?: return@launch
             activityForDisplay.runOnUiThread {
-                if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration || env.routeJobRef.get() !== routeJob) {
+                if (routeJob.isCancelled() || !isCurrentRouteExecution(executionGeneration, env.routeExecutionGeneration.get()) || env.routeJobRef.get() !== routeJob) {
+                    env.inFlightRouteRef.compareAndSet(inFlightRequest, null)
                     primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
@@ -523,6 +548,12 @@ internal fun executeRouteCalculation(
                 env.routeJobRef.compareAndSet(routeJob, null)
             }
         } finally {
+            if (isCurrentRouteExecution(executionGeneration, env.routeExecutionGeneration.get())) {
+                env.inFlightRouteRef.compareAndSet(inFlightRequest, null)
+                (env.context as? ComponentActivity)?.runOnUiThread {
+                    env.onLongCalculationNoticeCleared()
+                }
+            }
             (env.context as? ComponentActivity)?.runOnUiThread {
                 if (env.routeJobRef.get() === routeJob) {
                     env.routeJobRef.compareAndSet(routeJob, null)
