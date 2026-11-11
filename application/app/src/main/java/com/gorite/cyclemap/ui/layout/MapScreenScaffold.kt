@@ -14,6 +14,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
@@ -97,6 +103,8 @@ internal fun MapScreenScaffold(
             }
         }
     }
+
+    var showStopNavigationConfirm by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(
         LocalAnimationEnabled provides effectiveAnimationEnabled,
@@ -235,10 +243,7 @@ internal fun MapScreenScaffold(
             isRecording = state.isRecordingState.value,
             gpxPointCount = state.gpxPointCountState.value,
             onWarningMessage = { state.warningMessageState.value = it },
-            onStopNavigation = {
-                state.isNavigationActiveState.value = false
-                clearRoute()
-            },
+            onStopNavigation = { showStopNavigationConfirm = true },
             onClearRoute = clearRoute,
             destination = state.destinationState.value,
             waypoints = state.waypointsState.value,
@@ -563,6 +568,23 @@ internal fun MapScreenScaffold(
         onLocationLabelChanged = { state.locationLabelState.value = it },
         headingDegrees = state.headingDegreesState.floatValue,
     )
+            if (showStopNavigationConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showStopNavigationConfirm = false },
+                    title = { Text("ナビを終了しますか?") },
+                    text = { Text("案内を止めて、設定したルートも消去します。") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showStopNavigationConfirm = false
+                            state.isNavigationActiveState.value = false
+                            clearRoute()
+                        }) { Text("終了") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showStopNavigationConfirm = false }) { Text("続ける") }
+                    },
+                )
+            }
         }
     }
 }
