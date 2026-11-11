@@ -11,6 +11,8 @@
   6. 検証   : 県ごとに 検索DBの整合・件数の増減・graph のサイズ・ZIP の構成・タイルの検証、
              経路の回帰チェック (新旧 graph で同じ OD を引き、到達率と距離の中央値を比べる)
   7. 昇格   : 検証を通した県だけを packages/ に置換。通らなかった県は現行の成果物のまま (検索DBも退避から戻す)
+  7b. 通り口: build_portals.py (県またぎの通り口 <A>__<B>.portals)。昇格後の packages/ の graph の組で作る
+             (組の両方の県が確定してからでないと識別が合わないため、CH の直後ではなく昇格の後に置く)
   8. 記録   : packages/data_manifest.json (出典と時点) と、ステージングの report.md
 
 実機への転送はしない (scripts/push_data.sh を別途実行する)。
@@ -199,6 +201,11 @@ def build_ch(names, stage, log):
     """CH (<県>.graph.ch) を、ステージングの ZIP から作る。ZIP の外の別成果物。"""
     run_cmd([sys.executable, ROOT / "scripts" / "build_ch.py", "--only", ",".join(names), "--force",
              "--source-dir", stage / "packages", "--out", stage / "packages"], log)
+
+
+def build_portals(log):
+    """県またぎの通り口 (<A>__<B>.portals) を、昇格後の packages/ の ZIP から作る。古い組だけ作り直される。"""
+    run_cmd([sys.executable, ROOT / "scripts" / "build_portals.py"], log)
 
 
 def build_tiles(names, stage, log):
@@ -420,7 +427,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
     ap.add_argument("--source-pbf", type=Path, help="使う OSM PBF (省略時は Geofabrik の chugoku-latest を取得)")
-    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,ch,tiles,regression")
+    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,ch,portals,tiles,regression")
     ap.add_argument("--overture-release", help="Overture の版 (例 2026-09-23.1)。'latest' で最新")
     ap.add_argument("--dry-run", action="store_true", help="計画だけ表示する")
     args = ap.parse_args()
@@ -438,7 +445,7 @@ def main():
 
     print("対象: %s / 省略: %s / ステージング: %s" % (",".join(names), ",".join(sorted(skip)) or "なし", stage))
     if args.dry_run:
-        print("計画: 事前確認 → 退避 → OSM取得 → 検索DB → graph → CH → タイル → 検証 → 昇格 → 記録 (何も実行しません)")
+        print("計画: 事前確認 → 退避 → OSM取得 → 検索DB → graph → CH → タイル → 検証 → 昇格 → 通り口 → 記録 (何も実行しません)")
         return 0
 
     stage.mkdir(parents=True, exist_ok=True)
@@ -495,6 +502,9 @@ def main():
             info["promoted"] = True
         else:
             restore_search_db(name, prev)  # 検索DBも現行のものに戻す
+    if "graph" not in skip and "portals" not in skip and any(i["promoted"] for i in results.values()):
+        # 失敗しても昇格は取り消さない (古い .portals は識別が合わず、アプリは従来の照合に戻る)
+        steps.run("通り口", lambda: build_portals(log))
     write_manifest(sources, results)
     report = write_report(stage, stamp, steps, results, sources)
     print("\nレポート: %s" % report)

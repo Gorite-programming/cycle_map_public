@@ -83,7 +83,25 @@ tasks.register<JavaExec>("benchmarkAttach") {
     doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("ch") as String? ?: error("-Pch=<.graph.ch> required"), (project.findProperty("od") ?: "1000").toString(), (project.findProperty("seed") ?: "20261108").toString()) }
 }
 
-// 県またぎ CH vs A* チェーンの突き合わせ: -Pgraphs=A.graph,B.graph[,C.graph] -Pchs=A.graph.ch,B.graph.ch[,...] [-Pod=20] [-Pseed=..] [-Pheap=6g]
+// 通り口ファイルの生成: -Pa=<A.graph> -Pb=<B.graph> -Pout=<file.portals>、または全組: -Pgraphs=A.graph,B.graph,... -PoutDir=<dir>
+tasks.register<JavaExec>("buildPortals") {
+    group = "verification"
+    description = "Precompute cross-prefecture portals (<A>__<B>.portals)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.routing.ChPortalsMain")
+    jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
+    doFirst {
+        val graphs = project.findProperty("graphs") as String?
+        if (graphs != null) args(listOf("--all", project.findProperty("outDir") as String? ?: error("-PoutDir=<dir> required")) + graphs.split(',').map { it.trim() })
+        else args(
+            project.findProperty("a") as String? ?: error("-Pa=<A.graph> -Pb=<B.graph> -Pout=<file>, or -Pgraphs=<comma list> -PoutDir=<dir> required"),
+            project.findProperty("b") as String? ?: error("-Pb=<B.graph> required"),
+            project.findProperty("out") as String? ?: error("-Pout=<file.portals> required"),
+        )
+    }
+}
+
+// 県またぎ CH vs A* チェーンの突き合わせ: -Pgraphs=A.graph,B.graph[,C.graph] -Pchs=A.graph.ch,B.graph.ch[,...] [-Pod=20] [-Pseed=..] [-Pheap=6g] [-Pportals=<.portals のあるフォルダ>]
 tasks.register<JavaExec>("benchmarkChainCh") {
     group = "verification"
     description = "Compare routeAcrossChainCh against the A* chain on real graphs"
@@ -95,6 +113,7 @@ tasks.register<JavaExec>("benchmarkChainCh") {
             project.findProperty("graphs") as String? ?: error("-Pgraphs=<comma list of .graph> required"),
             project.findProperty("chs") as String? ?: error("-Pchs=<comma list of .graph.ch> required"),
             (project.findProperty("od") ?: "20").toString(), (project.findProperty("seed") ?: "20261108").toString(),
+            (project.findProperty("portals") ?: "").toString(),
         )
     }
 }

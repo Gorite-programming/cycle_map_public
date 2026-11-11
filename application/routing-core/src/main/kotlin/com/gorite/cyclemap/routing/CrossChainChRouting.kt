@@ -58,6 +58,15 @@ fun routeAcrossChainCh(
     var seeds: List<ChSeed> = emptyList()
     /** 前の段で読んだ「この段の県」の ID 索引。現在の県を開き直して再ソートするのを避ける。 */
     var carriedIdIndex: SortedNodeIdIndex? = null
+    /** 今の seeds の番号 (次の県のノード番号) が通り口ファイル由来か。次の県を開いたときに確かめる。 */
+    var seedsFromFile = false
+    fun verifiedSeeds(graph: LazyMappedRoadGraph, current: List<ChSeed>): List<ChSeed> {
+        if (!seedsFromFile || portalSideMatches(graph, current.size, { current[it].index }, { current[it].id })) return current
+        // ファイルの b 側がこの graph と合わない (識別をすり抜けた古いファイル)。ID から番号を引き直す。
+        stageTimingSink?.invoke("CHAIN_PORTALS repair=b_side count=${current.size}")
+        val index = graph.sortedNodeIdIndex()
+        return current.mapNotNull { s -> index.binarySearch(s.id).let { k -> if (k < 0) null else ChSeed(s.id, index.nodeIndex(k), s.cost) } }
+    }
     for (i in 0 until graphs.lastIndex) {
         if (isCancelled?.invoke() == true) return failed(true)
         val started = System.nanoTime()
@@ -65,18 +74,26 @@ fun routeAcrossChainCh(
         var next: LazyMappedRoadGraph? = null
         try {
             val ch = current.attachedHierarchy ?: return null
+            if (i > 0) seeds = verifiedSeeds(current, seeds)
             val hasIdOnlyPath = graphs[i + 1].openIdIndex != null
             val portalStarted = System.nanoTime()
-            val nextIdIndex = graphs[i + 1].openIdIndex?.invoke()
-            val portals = nextIdIndex?.let { portalsBetween(carriedIdIndex ?: current.sortedNodeIdIndex(), it) }
-                ?: run {
-                    next = timedAcquire(i + 1)
-                    if (next!!.attachedHierarchy == null) return null
-                    portalsBetween(current, next!!)
-                }
+            // 事前計算した通り口があれば、隣県の ID 索引も現在の県の索引も作らない。使えなければ従来の照合。
+            val filePortals = graphs[i].portalsToNext?.let { usablePortals(current, it) }
+            var nextIdIndex: SortedNodeIdIndex? = null
+            val portals = filePortals ?: run {
+                nextIdIndex = graphs[i + 1].openIdIndex?.invoke()
+                nextIdIndex?.let { portalsBetween(carriedIdIndex ?: current.sortedNodeIdIndex(), it) }
+                    ?: run {
+                        next = timedAcquire(i + 1)
+                        if (next!!.attachedHierarchy == null) return null
+                        portalsBetween(current, next!!)
+                    }
+            }
             portalMatchNanos += System.nanoTime() - portalStarted
+            stageTimingSink?.invoke("CHAIN_PORTALS stage=$i source=${if (filePortals != null) "file" else "match"} count=${portals.size}")
             carriedIdIndex = nextIdIndex
-            if (hasIdOnlyPath && !graphs[i + 1].borrowed) System.gc()
+            seedsFromFile = filePortals != null
+            if (filePortals == null && hasIdOnlyPath && !graphs[i + 1].borrowed) System.gc()
             if (portals.size == 0) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed() }
             if (next != null && !graphs[i + 1].borrowed) { release(i + 1, next!!); next = null; System.gc() }
 
@@ -116,6 +133,8 @@ fun routeAcrossChainCh(
     val last = timedAcquire(graphs.lastIndex)
     try {
         val ch = last.attachedHierarchy ?: return null
+        seeds = verifiedSeeds(last, seeds)
+        if (seeds.isEmpty()) return failed()
         val searchStarted = System.nanoTime()
         val many = ch.searchMany(IntArray(seeds.size) { seeds[it].index }, DoubleArray(seeds.size) { seeds[it].cost }, intArrayOf(goalIndex))
         goalNanos += System.nanoTime() - searchStarted
@@ -173,6 +192,28 @@ fun routeAcrossChainCh(
     return CrossChainResult(ids, coords, distances.sum(), totalCost, parts, selectedPortals,
         stageSearchMs = stageMs.toList(), stageNodeCounts = nodeCounts.toList())
 }
+
+/** 読み込んだ通り口の a 側が [graph] のものか確かめる。使えない (無い・例外・0 件・graph と合わない) なら null。 */
+private fun usablePortals(graph: LazyMappedRoadGraph, load: () -> CrossPortals?): CrossPortals? {
+    val portals = try { load() } catch (e: Exception) { null } ?: return null
+    if (portals.size == 0 || portals.aIndices.size != portals.size || portals.bIndices.size != portals.size) return null
+    return portals.takeIf { p -> portalSideMatches(graph, p.size, { p.aIndices[it] }, { p.nodeIds[it] }) }
+}
+
+/**
+ * 番号がすべて範囲内で、抜き取った最大 [PORTAL_ID_SAMPLES] 件の ID が graph のノードと一致するか。
+ * 別の graph 向けのファイルならほぼ全件ずれるので抜き取りで足り、ノード表を広く読まずに済む (本体の破損は CRC で検出済み)。
+ */
+private fun portalSideMatches(graph: LazyMappedRoadGraph, count: Int, indexAt: (Int) -> Int, idAt: (Int) -> Long): Boolean {
+    val n = graph.nodeCount
+    for (p in 0 until count) if (indexAt(p) !in 0 until n) return false
+    val step = maxOf(1, count / PORTAL_ID_SAMPLES)
+    var p = 0
+    while (p < count) { if (graph.nodeAt(indexAt(p)).id != idAt(p)) return false; p += step }
+    return count == 0 || graph.nodeAt(indexAt(count - 1)).id == idAt(count - 1)
+}
+
+private const val PORTAL_ID_SAMPLES = 64
 
 private fun chMakePart(graph: LazyMappedRoadGraph, indices: IntArray): CrossRoutePart = CrossRoutePart(
     indices.map { graph.nodeAt(it).id }, indices.map { val n = graph.nodeAt(it); n.latitude to n.longitude }, indices.toList(),

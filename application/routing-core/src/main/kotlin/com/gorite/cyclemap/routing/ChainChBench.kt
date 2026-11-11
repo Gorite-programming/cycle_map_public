@@ -6,7 +6,7 @@ import kotlin.system.exitProcess
 
 object ChainChBenchMain { @JvmStatic fun main(args: Array<String>) = mainBenchmarkChainCh(args) }
 
-/** args: graphs(comma) chs(comma) odCount seed. Compares the A* chain (routeAcrossGraphs for 2 graphs) against routeAcrossChainCh. */
+/** args: graphs(comma) chs(comma) odCount seed [portalsDir]. With portalsDir, the CH chain reads `.portals` files from it. Compares the A* chain (routeAcrossGraphs for 2 graphs) against routeAcrossChainCh. */
 fun mainBenchmarkChainCh(args: Array<String>) {
     if (args[0] == "--many") return benchmarkSearchMany(args)
     val graphFiles = args[0].split(',').map { File(it.trim()) }
@@ -14,6 +14,8 @@ fun mainBenchmarkChainCh(args: Array<String>) {
     require(graphFiles.size >= 2 && graphFiles.size == chFiles.size)
     val wanted = args.getOrNull(2)?.toInt() ?: 20
     val seed = args.getOrNull(3)?.toLong() ?: 20261108L
+    val portalsDir = args.getOrNull(4)?.takeIf { it.isNotBlank() }?.let { File(it) }
+    var portalFileStages = 0; var portalMatchStages = 0
     val counts = graphFiles.map { f -> LazyMappedRoadGraph.load(f).use { it.nodeCount } }
     val rnd = java.util.Random(seed)
 
@@ -24,6 +26,7 @@ fun mainBenchmarkChainCh(args: Array<String>) {
             open = { LazyMappedRoadGraph.load(f).also { g -> g.attachContractionHierarchy(ContractionHierarchy.open(c, f)) } },
             close = { g -> g.attachedHierarchy?.close(); g.close() },
             openIdIndex = { LazyMappedRoadGraph.loadSortedNodeIdIndex(f) }, stageName = f.nameWithoutExtension,
+            portalsToNext = if (portalsDir == null || i == graphFiles.lastIndex) null else ({ loadCrossPortals(f, graphFiles[i + 1], portalsDir) }),
         )
     }
     fun astar(start: Int, goal: Int): CrossChainResult {
@@ -47,6 +50,7 @@ fun mainBenchmarkChainCh(args: Array<String>) {
         val stages = linkedMapOf<String, Double>()
         val t0 = System.nanoTime()
         val c = routeAcrossChainCh(chGraphs(), start, goal) { line ->
+            if (line.startsWith("CHAIN_PORTALS stage=")) { if (line.contains("source=file")) portalFileStages++ else portalMatchStages++ }
             if (!line.contains("name=") || !line.contains(" ms=")) return@routeAcrossChainCh
             stages[line.substringAfter("name=").substringBefore(' ')] = line.substringAfter("ms=").toDouble()
         } ?: error("CH missing for a graph (null result)")
@@ -69,6 +73,7 @@ fun mainBenchmarkChainCh(args: Array<String>) {
     }
     fun st(x: List<Double>): String { if (x.isEmpty()) return "n/a"; val s = x.sorted(); val med = if (s.size % 2 == 0) (s[s.size / 2 - 1] + s[s.size / 2]) / 2 else s[s.size / 2]; return "avg=%.1f median=%.1f p95=%.1f".format(x.average(), med, s[((s.size - 1) * .95).toInt()]) }
     println("graphs=${graphFiles.joinToString(",") { it.nameWithoutExtension }} compared_reachable=${aTimes.size} unreachable_both_checked=$unreachableBoth mismatches=$mismatches distance_differences_with_equal_cost=$distTies")
+    println("portals=${portalsDir ?: "id matching"} stages_from_file=$portalFileStages stages_matched=$portalMatchStages")
     println("A* chain ms: ${st(aTimes)}")
     println("CH chain ms (incl. open): ${st(cTimes)}")
     println("CH chain ms (excl. graph_open+portal_match): ${st(cNoOpen)}")
