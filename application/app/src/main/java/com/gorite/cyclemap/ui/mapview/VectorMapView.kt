@@ -605,6 +605,16 @@ internal fun VectorMapView(
         LaunchedEffect(selectedPoiSpot, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val spot = selectedPoiSpot
+            // 選択中の地点は強調ピンで描くので、通常のピンは隠す (二重表示の防止)
+            map.getStyle { style ->
+                (style.getLayer("cyclemap-dynamic-poi-symbols") as? org.maplibre.android.style.layers.SymbolLayer)?.setFilter(
+                    if (spot == null) org.maplibre.android.style.expressions.Expression.literal(true)
+                    else org.maplibre.android.style.expressions.Expression.neq(
+                        org.maplibre.android.style.expressions.Expression.get("pointKey"),
+                        org.maplibre.android.style.expressions.Expression.literal(poiPointKey(spot.latitude, spot.longitude)),
+                    ),
+                )
+            }
             if (spot == null) {
                 map.getStyle { style ->
                     style.getSourceAs<GeoJsonSource>("cyclemap-poi-source")
