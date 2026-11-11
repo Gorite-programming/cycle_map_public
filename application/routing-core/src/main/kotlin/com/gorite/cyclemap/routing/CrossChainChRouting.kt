@@ -56,6 +56,8 @@ fun routeAcrossChainCh(
     }
 
     var seeds: List<ChSeed> = emptyList()
+    /** 前の段で読んだ「この段の県」の ID 索引。現在の県を開き直して再ソートするのを避ける。 */
+    var carriedIdIndex: SortedNodeIdIndex? = null
     for (i in 0 until graphs.lastIndex) {
         if (isCancelled?.invoke() == true) return failed(true)
         val started = System.nanoTime()
@@ -65,13 +67,15 @@ fun routeAcrossChainCh(
             val ch = current.attachedHierarchy ?: return null
             val hasIdOnlyPath = graphs[i + 1].openIdIndex != null
             val portalStarted = System.nanoTime()
-            val portals = graphs[i + 1].openIdIndex?.invoke()?.let { portalsBetween(current, it) }
+            val nextIdIndex = graphs[i + 1].openIdIndex?.invoke()
+            val portals = nextIdIndex?.let { portalsBetween(carriedIdIndex ?: current.sortedNodeIdIndex(), it) }
                 ?: run {
                     next = timedAcquire(i + 1)
                     if (next!!.attachedHierarchy == null) return null
                     portalsBetween(current, next!!)
                 }
             portalMatchNanos += System.nanoTime() - portalStarted
+            carriedIdIndex = nextIdIndex
             if (hasIdOnlyPath && !graphs[i + 1].borrowed) System.gc()
             if (portals.size == 0) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed() }
             if (next != null && !graphs[i + 1].borrowed) { release(i + 1, next!!); next = null; System.gc() }
