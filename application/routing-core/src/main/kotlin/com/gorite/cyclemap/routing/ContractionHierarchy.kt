@@ -231,11 +231,13 @@ class ContractionHierarchy private constructor(
     @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
         require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
         if (start == goal) return ChRouteResult(intArrayOf(start), 0.0, 0.0)
+        val r0 = System.nanoTime(); var settledR = 0
         ws.begin(); ws.setF(start, 0.0, -1); ws.setB(goal, 0.0, -1); ws.pushF(start, 0.0); ws.pushB(goal, 0.0)
         var best = Double.POSITIVE_INFINITY; var meet = -1
         while (true) {
             val expandF = ws.hasF() && ws.minF() < best; val expandB = ws.hasB() && ws.minB() < best
             if (!expandF && !expandB) break
+            settledR++
             if (expandF && (!expandB || ws.minF() <= ws.minB())) {
                 val (v, d) = ws.popF(); if (d > ws.fCost(v)) continue
                 if (d + ws.bCost(v) < best) { best = d + ws.bCost(v); meet = v }
@@ -247,14 +249,16 @@ class ContractionHierarchy private constructor(
             }
         }
         if (meet < 0 || best.isInfinite()) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+        val r1 = System.nanoTime()
         val path = IntArrayList(); path.add(start); var v = meet; var guard = 0
         val upPath = IntArrayList()
         while (v != start) { check(++guard <= nodeCount); val e = ws.fEdge(v); check(e >= 0); upPath.add(e); v = edgeSource(e) }
         for (i in upPath.size - 1 downTo 0) unpack(edgeSource(upPath[i]), store.upT(upPath[i]), store.upM(upPath[i]), graph, path)
         v = meet; guard = 0
         while (v != goal) { check(++guard <= nodeCount); val e = ws.bEdge(v); check(e >= 0); val low = downOwner(e); unpack(v, low, store.downM(e), graph, path); v = low }
+        val r2 = System.nanoTime()
         var totalDistance = 0.0
-        val cursor = graph.newRoutingEdgeCursor()
+        val cursor = graph.newRoutingEdgeCursor(lazyTypes = true)
         for (i in 0 until path.size - 1) {
             val a = path[i]; val b = path[i + 1]; cursor.reset(a); var bestCost = Double.POSITIVE_INFINITY; var selectedDistance = Double.POSITIVE_INFINITY
             while (cursor.next()) if (cursor.target == b) {
@@ -264,8 +268,11 @@ class ContractionHierarchy private constructor(
             }
             check(selectedDistance.isFinite()) { "Expanded CH arc $a->$b missing in source graph" }; totalDistance += selectedDistance
         }
+        lastRouteStats = "searchMs=${(r1 - r0) / 1_000_000} iter=$settledR unpackMs=${(r2 - r1) / 1_000_000} distMs=${(System.nanoTime() - r2) / 1_000_000} nodes=${path.size}"
         return ChRouteResult(path.toArray(), best, totalDistance)
     }
+
+    @Volatile internal var lastRouteStats: String = ""
 
     /** [searchMany] の結果。bestSource は sources 配列の添字 (到達不能は -1)。 */
     class ManyResult(val bestCost: DoubleArray, val bestSource: IntArray)

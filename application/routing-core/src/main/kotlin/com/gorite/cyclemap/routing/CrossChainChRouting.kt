@@ -138,14 +138,23 @@ fun routeAcrossChainCh(
         if (exitSlot < 0) return failed()
         val fromIndex = if (i == 0) startIndex else snapshot.seedIndices[exitSlot]
         val nextId = if (i == 0) 0L else snapshot.seedIds[exitSlot]
+        val tOpen = System.nanoTime()
         val graph = timedAcquire(i)
+        val tOpened = System.nanoTime()
+        var tRoute = 0L; var tPart = 0L; var pathLen = 0
         try {
             val ch = graph.attachedHierarchy ?: return null
+            val a = System.nanoTime()
             val route = ch.route(fromIndex, snapshot.indices[exitSlot], graph)
+            val b = System.nanoTime(); tRoute = b - a
             if (!route.isReachable) return failed()
+            pathLen = route.nodeIndices.size
             partByStage[i] = chMakePart(graph, route.nodeIndices); distances[i] = route.totalDistance
+            tPart = System.nanoTime() - b
         } finally { release(i, graph) }
+        val g0 = System.nanoTime()
         if (!graphs[i].borrowed) System.gc()
+        stageTimingSink?.invoke("CHAIN_DETAIL recon stage=$i openMs=${(tOpened - tOpen) / 1_000_000} routeMs=${tRoute / 1_000_000} pathNodes=$pathLen partMs=${tPart / 1_000_000} ${graph.attachedHierarchy?.lastRouteStats} gcMs=${(System.nanoTime() - g0) / 1_000_000}")
         if (i > 0) { selectedId = nextId; selectedPortals += selectedId }
     }
     selectedPortals.reverse()

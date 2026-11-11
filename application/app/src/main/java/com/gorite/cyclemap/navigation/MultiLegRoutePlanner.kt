@@ -125,7 +125,7 @@ internal fun calculateMultiLegCrossRoute(
                     else ChainGraph(open = {
                         val loadStarted = SystemClock.elapsedRealtime()
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
-                        LazyMappedRoadGraph.load(files.first, files.second).also {
+                        LazyMappedRoadGraph.load(files.first, files.second, readRichSections = false).also {
                             loadContractionHierarchy(it, files.first)
                             totalLoadMs += SystemClock.elapsedRealtime() - loadStarted
                         }
@@ -133,6 +133,18 @@ internal fun calculateMultiLegCrossRoute(
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
                         LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
                     }, stageName = pref)
+                }
+                if (preference == RoutePreference.RECOMMENDED) {
+                    // 県またぎの復元で CH とグラフを冷たいまま読まないよう、裏で順に先読みする。
+                    val prefetch = ArrayList<java.io.File>()
+                    for (pref in chain) {
+                        val fileName = namesByPref[pref] ?: continue
+                        if (fileName == jobGraphName) continue
+                        val gf = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName)?.first ?: continue
+                        com.gorite.cyclemap.routing.findContractionHierarchyFile(gf)?.let { prefetch += it }
+                        prefetch += gf
+                    }
+                    if (prefetch.isNotEmpty()) prefetchFilesInBackground(prefetch)
                 }
                 val indices = IntArray(chain.size)
                 val crossParts: List<CrossRoutePart>

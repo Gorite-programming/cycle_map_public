@@ -187,8 +187,9 @@ class LazyMappedRoadGraph private constructor(
     fun sortedNodeIdIndex(): SortedNodeIdIndex = sortedIdIndex()
 
     /** 探索ごとに一つ生成し、ノード間で再利用する辺カーソル。ノードごとのラムダ割り当てを避ける。 */
-    internal inner class RoutingEdgeCursor {
-        private val types = edgeTypeCodes()
+    /** [lazyTypes] なら全辺の種別表 (初回に全グラフを走査) を作らず、読んだ辺ごとに種別を引く。少数の辺だけ読む用途向け。 */
+    internal inner class RoutingEdgeCursor(lazyTypes: Boolean = false) {
+        private val types: ByteArray? = if (lazyTypes) null else edgeTypeCodes()
         private var position = 0
         private var ordinal = 0
         private var end = 0
@@ -206,6 +207,7 @@ class LazyMappedRoadGraph private constructor(
 
         fun next(): Boolean {
             if (ordinal >= end) return false
+            val edgeBase = position
             distance = mapped.getDouble(position + 16)
             val typeLength = mapped.getShort(position + 24).toInt() and 0xffff
             val gradeFlag = position + 26 + typeLength + 1
@@ -213,13 +215,13 @@ class LazyMappedRoadGraph private constructor(
             grade = if (hasGrade) mapped.getDouble(gradeFlag + 1).toFloat() else Float.NaN
             position = if (hasGrade) gradeFlag + 9 else gradeFlag + 1
             target = edgeTargets[ordinal]
-            type = types[ordinal].toInt()
+            type = types?.get(ordinal)?.toInt() ?: typeCodeAt(edgeBase + 26, typeLength)
             ordinal++
             return true
         }
     }
 
-    internal fun newRoutingEdgeCursor(): RoutingEdgeCursor = RoutingEdgeCursor()
+    internal fun newRoutingEdgeCursor(lazyTypes: Boolean = false): RoutingEdgeCursor = RoutingEdgeCursor(lazyTypes)
 
     internal fun routingEdgeMultiplier(type: Int, grade: Float, preference: RoutePreference, costMode: RouteCostMode): Double {
         val base = multiplierTable(costMode)[type]
@@ -886,7 +888,8 @@ class LazyMappedRoadGraph private constructor(
         private const val TYPE_RESIDENTIAL = 6; private const val TYPE_UNCLASSIFIED = 7; private const val TYPE_SERVICE = 8
         private const val TYPE_TRACK = 9; private const val TYPE_PATH = 10
 
-        fun load(file: File, indexFile: File = File(file.path + ".idx")): LazyMappedRoadGraph {
+        /** [readRichSections] を false にすると標高・道路名・車線の表を読まない (経路探索だけに使うグラフ向け。読み込みが速い)。 */
+        fun load(file: File, indexFile: File = File(file.path + ".idx"), readRichSections: Boolean = true): LazyMappedRoadGraph {
             val totalStartedAt = System.nanoTime()
             require(indexFile.isFile) { "Missing graph index: ${indexFile.absolutePath}" }
             val channel = RandomAccessFile(file, "r").channel
@@ -955,7 +958,7 @@ class LazyMappedRoadGraph private constructor(
                         firstOrdinals,
                         counts,
                         targets, edgeCount)
-                    readTrailingSections(input, graph, nodeCount, edgeCount)
+                    if (readRichSections) readTrailingSections(input, graph, nodeCount, edgeCount)
                     reportLoadStage("trailing_sections", stageStartedAt)
                     reportLoadStage("total", totalStartedAt)
                     return graph
