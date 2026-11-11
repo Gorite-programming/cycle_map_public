@@ -293,7 +293,8 @@ internal fun MapLifecycleEffects(
             if (!file.isFile) return@withContext null
             SearchDbReverseGeocoder(file, available.prefectureName).lookup(lat, lon)?.formattedAddress
         }
-        if (label != null) onLocationLabelChanged(label)
+        // データの無い県・住所が引けない場所では、前の場所の地名を残さず案内文に置き換える
+        onLocationLabelChanged(label ?: "名称なし")
     }
 
     // Compass Orientation: 端末コンパスは地図回転にだけ使う。矢印の向きには使わない。
