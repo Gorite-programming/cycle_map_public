@@ -10,7 +10,7 @@ object ChBenchmarkMain { @JvmStatic fun main(args: Array<String>) = mainBenchmar
 fun mainBuildCh(args: Array<String>) {
     val input = File(args.getOrNull(0) ?: error("graph path required")); val out = File(args.getOrNull(1) ?: error("output path required"))
     LazyMappedRoadGraph.load(input).use { graph ->
-        val r = ContractionHierarchyBuilder().build(graph); out.parentFile?.mkdirs(); r.hierarchy.write(out)
+        val r = ContractionHierarchyBuilder().build(graph, GraphFingerprint.fromFile(input)); out.parentFile?.mkdirs(); r.hierarchy.write(out)
         println("CH build ms=${r.elapsedMillis} nodes=${graph.nodeCount} original_edges=${r.inputEdgeCount} shortcuts=${r.shortcutCount} stored_arcs=${r.inputEdgeCount + r.shortcutCount} upward_arcs=${r.hierarchy.edgeCount} bytes=${out.length()} graph_bytes=${input.length()} size_ratio=${out.length().toDouble() / input.length()}")
         println("witness_max_settled=${ContractionHierarchyBuilder.DEFAULT_MAX_WITNESS_SETTLED} witness_max_cost=${ContractionHierarchyBuilder.DEFAULT_MAX_WITNESS_COST}")
     }
@@ -20,16 +20,16 @@ fun mainBenchmarkCh(args: Array<String>) {
     val graphFile = File(args.getOrNull(0) ?: error("graph path required")); val chFile = File(args.getOrNull(1) ?: error("CH path required"))
     val count = args.getOrNull(2)?.toInt() ?: 1000; val seed = args.getOrNull(3)?.toLong() ?: 20261108L
     LazyMappedRoadGraph.load(graphFile).use { graph ->
-        val ch = ContractionHierarchy.read(chFile); require(ch.nodeCount == graph.nodeCount)
+        val ch = ContractionHierarchy.read(chFile, graphFile); require(ch.nodeCount == graph.nodeCount)
         val od = pickBenchOdPairs(graph, count, seed)
         // Warm both paths before collecting timings.
-        for (p in od.take(20)) { graph.route(p.start, p.goal); ch.route(p.start, p.goal) }
+        for (p in od.take(20)) { graph.route(p.start, p.goal); ch.route(p.start, p.goal, graph) }
         val aTimes = DoubleArray(od.size); val cTimes = DoubleArray(od.size); var mismatch = 0; var distMismatch = 0
         val report = ArrayList<String>()
         for ((i, p) in od.withIndex()) {
             lateinit var a: MappedRouteResult; lateinit var c: ChRouteResult
             aTimes[i] = measureNanoTime { a = graph.route(p.start, p.goal, preference = RoutePreference.RECOMMENDED, costMode = RouteCostMode.BICYCLE) } / 1e6
-            cTimes[i] = measureNanoTime { c = ch.route(p.start, p.goal) } / 1e6
+            cTimes[i] = measureNanoTime { c = ch.route(p.start, p.goal, graph) } / 1e6
             val ok = a.isReachable == c.isReachable
             val costOk = !a.isReachable || abs(a.totalCost - c.totalCost) <= maxOf(1e-12, abs(a.totalCost) * 1e-9)
             if (!ok || !costOk) { mismatch++; if (report.size < 20) report += "OD ${p.start}->${p.goal} A*=${a.totalCost}/${a.totalDistanceMeters}/${a.isReachable} CH=${c.totalCost}/${c.totalDistance}/${c.isReachable}" }

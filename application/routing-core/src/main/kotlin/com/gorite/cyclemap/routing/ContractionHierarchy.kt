@@ -5,6 +5,9 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.util.zip.CRC32
 import java.util.PriorityQueue
 import kotlin.math.max
 
@@ -17,7 +20,7 @@ class ContractionHierarchyBuilder(
 
     data class BuildResult(val hierarchy: ContractionHierarchy, val shortcutCount: Int, val inputEdgeCount: Int, val elapsedMillis: Long)
 
-    fun build(graph: LazyMappedRoadGraph): BuildResult {
+    fun build(graph: LazyMappedRoadGraph, graphFingerprint: GraphFingerprint): BuildResult {
         val started = System.nanoTime()
         val n = graph.nodeCount
         require(graph.edgeCount < Int.MAX_VALUE / 2) { "Graph edge count too large for S1 arrays: ${graph.edgeCount}" }
@@ -98,7 +101,7 @@ class ContractionHierarchyBuilder(
             for (i in 0 until ins.size) { val u = from[ins[i]]; if (active[u]) { deletedNeighbors[u]++; depth[u] = max(depth[u], depth[v] + 1); queue += QueueNode(u, priority(u), contracted) } }
             for (i in 0 until outs.size) { val w = to[outs[i]]; if (active[w]) { deletedNeighbors[w]++; depth[w] = max(depth[w], depth[v] + 1); queue += QueueNode(w, priority(w), contracted) } }
         }
-        val hierarchy = ContractionHierarchy.create(n, edgeN, rank, from, to, cost, dist, middle, childA, childB)
+        val hierarchy = ContractionHierarchy.create(n, edgeN, rank, from, to, cost, dist, middle, childA, childB, graphFingerprint)
         return BuildResult(hierarchy, shortcuts, originalCount, (System.nanoTime() - started) / 1_000_000)
     }
 
@@ -143,147 +146,149 @@ data class ChRouteResult(val nodeIndices: IntArray, val totalCost: Double, val t
     val isReachable get() = nodeIndices.isNotEmpty()
 }
 
-/** S1 CSR hierarchy. Every stored arc is directed from lower to higher rank. */
+/** File-level identity stored with a hierarchy so it cannot be paired with another graph. */
+data class GraphFingerprint(val size: Long, val firstCrc: Long, val lastCrc: Long) {
+    companion object {
+        val UNKNOWN = GraphFingerprint(-1L, 0L, 0L)
+        fun fromFile(file: File): GraphFingerprint = FileChannel.open(file.toPath()).use { channel ->
+            val size = channel.size(); val chunk = minOf(size, 1L shl 20).toInt()
+            fun crc(position: Long): Long {
+                val crc = CRC32(); val buffer = ByteBuffer.allocate(chunk); var p = position
+                while (buffer.hasRemaining()) { val n = channel.read(buffer, p); if (n <= 0) break; p += n }
+                crc.update(buffer.array(), 0, buffer.position()); return crc.value
+            }
+            GraphFingerprint(size, crc(0), crc((size - chunk).coerceAtLeast(0)))
+        }
+    }
+}
+
+/** Compact hierarchy: exactly one 16-byte record per arc across upward and downward CSR. */
 class ContractionHierarchy private constructor(
-    val nodeCount: Int, val edgeCount: Int, private val rank: IntArray,
-    private val offsets: IntArray, private val targets: IntArray, private val costs: DoubleArray,
-    private val distances: DoubleArray, private val middles: IntArray,
-    private val reverseOffsets: IntArray, private val reverseEdges: IntArray, private val reverseTargets: IntArray, private val reverseCosts: DoubleArray,
-    private val queryToAll: IntArray, private val allFrom: IntArray, private val allTargets: IntArray, private val allCosts: DoubleArray, private val allDistances: DoubleArray,
-    private val allChildrenA: IntArray, private val allChildrenB: IntArray,
+    val nodeCount: Int,
+    private val rank: IntArray,
+    private val offsets: IntArray, private val upTargets: IntArray, private val upCosts: DoubleArray, private val upMiddles: IntArray,
+    private val reverseOffsets: IntArray, private val downTargets: IntArray, private val downCosts: DoubleArray, private val downMiddles: IntArray,
+    private val fingerprint: GraphFingerprint,
 ) {
+    val edgeCount: Int get() = upTargets.size
     private val ws = QueryWorkspace(nodeCount)
 
-    @Synchronized fun route(start: Int, goal: Int): ChRouteResult {
-        require(start in 0 until nodeCount && goal in 0 until nodeCount)
+    @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
+        require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
         if (start == goal) return ChRouteResult(intArrayOf(start), 0.0, 0.0)
         ws.begin(); ws.setF(start, 0.0, -1); ws.setB(goal, 0.0, -1); ws.pushF(start, 0.0); ws.pushB(goal, 0.0)
         var best = Double.POSITIVE_INFINITY; var meet = -1
         while (true) {
-            // The forward upward graph and backward reversed-downward graph are
-            // different search spaces. The ordinary bidirectional sum bound can
-            // stop before the other side reaches a valid CH peak, so retire each
-            // side only when its own lower bound cannot improve the best route.
-            val expandF = ws.hasF() && ws.minF() < best
-            val expandB = ws.hasB() && ws.minB() < best
+            val expandF = ws.hasF() && ws.minF() < best; val expandB = ws.hasB() && ws.minB() < best
             if (!expandF && !expandB) break
             if (expandF && (!expandB || ws.minF() <= ws.minB())) {
                 val (v, d) = ws.popF(); if (d > ws.fCost(v)) continue
                 if (d + ws.bCost(v) < best) { best = d + ws.bCost(v); meet = v }
-                for (e in offsets[v] until offsets[v + 1]) { val w = targets[e]; val nd = d + costs[e]; if (nd < ws.fCost(w)) { ws.setF(w, nd, e); ws.pushF(w, nd); if (nd + ws.bCost(w) < best) { best = nd + ws.bCost(w); meet = w } } }
+                for (e in offsets[v] until offsets[v + 1]) { val w = upTargets[e]; val nd = d + upCosts[e]; if (nd < ws.fCost(w)) { ws.setF(w, nd, e); ws.pushF(w, nd); if (nd + ws.bCost(w) < best) { best = nd + ws.bCost(w); meet = w } } }
             } else {
                 val (v, d) = ws.popB(); if (d > ws.bCost(v)) continue
                 if (d + ws.fCost(v) < best) { best = d + ws.fCost(v); meet = v }
-                for (i in reverseOffsets[v] until reverseOffsets[v + 1]) { val e = i; val w = reverseTargets[e]; val nd = d + reverseCosts[e]; if (nd < ws.bCost(w)) { ws.setB(w, nd, e); ws.pushB(w, nd); if (nd + ws.fCost(w) < best) { best = nd + ws.fCost(w); meet = w } } }
+                for (e in reverseOffsets[v] until reverseOffsets[v + 1]) { val w = downTargets[e]; val nd = d + downCosts[e]; if (nd < ws.bCost(w)) { ws.setB(w, nd, e); ws.pushB(w, nd); if (nd + ws.fCost(w) < best) { best = nd + ws.fCost(w); meet = w } } }
             }
         }
         if (meet < 0 || best.isInfinite()) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
-        val arcList = IntArrayList()
-        var v = meet
-        var guard = 0
-        while (v != start) { check(++guard <= nodeCount) { "Forward parent cycle at node $v" }; val e = ws.fEdge(v); if (e < 0) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY); arcList.add(queryToAll[e]); v = edgeSource(e) }
-        val path = IntArrayList(); path.add(start)
-        for (i in arcList.size - 1 downTo 0) expand(arcList[i], path)
-        v = meet
-        guard = 0
-        while (v != goal) { check(++guard <= nodeCount) { "Backward parent cycle at node $v" }; val q = ws.bEdge(v); if (q < 0) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY); val e = reverseEdges[q]; expand(e, path); v = allTargets[e] }
-        var totalDist = 0.0
-        for (i in 0 until arcList.size) totalDist += allDistances[arcList[i]]
-        v = meet; while (v != goal) { val e = ws.bEdge(v); totalDist += allDistances[reverseEdges[e]]; v = allTargets[reverseEdges[e]] }
-        return ChRouteResult(path.toArray(), best, totalDist)
+        val path = IntArrayList(); path.add(start); var v = meet; var guard = 0
+        val upPath = IntArrayList()
+        while (v != start) { check(++guard <= nodeCount); val e = ws.fEdge(v); check(e >= 0); upPath.add(e); v = edgeSource(e) }
+        for (i in upPath.size - 1 downTo 0) unpack(edgeSource(upPath[i]), upTargets[upPath[i]], upMiddles[upPath[i]], graph, path)
+        v = meet; guard = 0
+        while (v != goal) { check(++guard <= nodeCount); val e = ws.bEdge(v); check(e >= 0); val low = downOwner(e); unpack(v, low, downMiddles[e], graph, path); v = low }
+        var totalDistance = 0.0
+        val cursor = graph.newRoutingEdgeCursor()
+        for (i in 0 until path.size - 1) {
+            val a = path[i]; val b = path[i + 1]; cursor.reset(a); var bestCost = Double.POSITIVE_INFINITY; var selectedDistance = Double.POSITIVE_INFINITY
+            while (cursor.next()) if (cursor.target == b) {
+                val multiplier = graph.routingEdgeMultiplier(cursor.type, cursor.grade, RoutePreference.RECOMMENDED, RouteCostMode.BICYCLE)
+                val c = cursor.distance * multiplier
+                if (!multiplier.isNaN() && (c < bestCost || (c == bestCost && cursor.distance < selectedDistance))) { bestCost = c; selectedDistance = cursor.distance }
+            }
+            check(selectedDistance.isFinite()) { "Expanded CH arc $a->$b missing in source graph" }; totalDistance += selectedDistance
+        }
+        return ChRouteResult(path.toArray(), best, totalDistance)
     }
 
-    private fun edgeSource(edge: Int): Int { // lower endpoint is recoverable from CSR offset through binary search
-        var lo = 0; var hi = nodeCount
-        while (lo < hi) { val mid = (lo + hi) ushr 1; if (offsets[mid + 1] <= edge) lo = mid + 1 else hi = mid }
-        return lo
-    }
-    private fun expand(edge: Int, out: IntArrayList) {
-        // Explicit expansion stack; push right then left to preserve traversal order.
-        val stack = IntArrayList(); stack.add(edge)
+    private fun edgeSource(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (offsets[mid + 1] <= edge) lo = mid + 1 else hi = mid }; return lo }
+    private fun downOwner(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (reverseOffsets[mid + 1] <= edge) lo = mid + 1 else hi = mid }; return lo }
+    private fun unpack(from: Int, to: Int, middle: Int, graph: LazyMappedRoadGraph, out: IntArrayList) {
+        val stackA = IntArrayList(); val stackB = IntArrayList(); val stackMid = IntArrayList(); stackA.add(from); stackB.add(to); stackMid.add(middle)
         var steps = 0
-        while (stack.size > 0) {
-            check(++steps < 50_000_000) { "Shortcut expansion exceeded limit; edge=$edge, stack=${stack.size}" }
-            val e = stack.removeLast(); val a = allChildrenA[e]
-            if (a < 0) out.add(allTargets[e]) else { val b = allChildrenB[e]; check(a < e && b < e) { "Invalid shortcut decomposition edge=$e children=$a,$b" }; stack.add(b); stack.add(a) }
+        while (stackA.size > 0) {
+            check(++steps < 50_000_000) { "Shortcut expansion exceeded limit" }
+            val a = stackA.removeLast(); val b = stackB.removeLast(); val m = stackMid.removeLast()
+            if (m < 0) { out.add(b); continue }
+            val left = findDown(m, a); val right = findUp(m, b)
+            check(left >= 0 && right >= 0) { "Missing shortcut child for $a->$b via $m" }
+            stackA.add(m); stackB.add(b); stackMid.add(upMiddles[right])
+            stackA.add(a); stackB.add(m); stackMid.add(downMiddles[left])
         }
     }
+    private fun findUp(owner: Int, target: Int): Int { var selected = -1; for (e in offsets[owner] until offsets[owner + 1]) if (upTargets[e] == target && (selected < 0 || upCosts[e] < upCosts[selected])) selected = e; return selected }
+    private fun findDown(owner: Int, target: Int): Int { var selected = -1; for (e in reverseOffsets[owner] until reverseOffsets[owner + 1]) if (downTargets[e] == target && (selected < 0 || downCosts[e] < downCosts[selected])) selected = e; return selected }
 
     private class QueryWorkspace(n: Int) {
-        private val genF = IntArray(n); private val genB = IntArray(n); private var generation = 0
-        private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val pf = IntArray(n); private val pb = IntArray(n)
-        private val qf = MinHeap(); private val qb = MinHeap()
+        private val genF = IntArray(n); private val genB = IntArray(n); private var generation = 0; private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val pf = IntArray(n); private val pb = IntArray(n); private val qf = MinHeap(); private val qb = MinHeap()
         fun begin() { generation++; if (generation == 0) { genF.fill(0); genB.fill(0); generation = 1 }; qf.clear(); qb.clear() }
-        fun setF(n: Int, d: Double, e: Int) { genF[n] = generation; cf[n] = d; pf[n] = e }
-        fun setB(n: Int, d: Double, e: Int) { genB[n] = generation; cb[n] = d; pb[n] = e }
-        fun fCost(n: Int) = if (genF[n] == generation) cf[n] else Double.POSITIVE_INFINITY
-        fun bCost(n: Int) = if (genB[n] == generation) cb[n] else Double.POSITIVE_INFINITY
-        fun fEdge(n: Int) = if (genF[n] == generation) pf[n] else -1
-        fun bEdge(n: Int) = if (genB[n] == generation) pb[n] else -1
-        fun pushF(n: Int, d: Double) { qf.add(n, d) }; fun pushB(n: Int, d: Double) { qb.add(n, d) }
-        fun hasF() = !qf.isEmpty; fun hasB() = !qb.isEmpty
-        fun minF() = qf.minCost; fun minB() = qb.minCost
+        fun setF(n: Int, d: Double, e: Int) { genF[n] = generation; cf[n] = d; pf[n] = e }; fun setB(n: Int, d: Double, e: Int) { genB[n] = generation; cb[n] = d; pb[n] = e }
+        fun fCost(n: Int) = if (genF[n] == generation) cf[n] else Double.POSITIVE_INFINITY; fun bCost(n: Int) = if (genB[n] == generation) cb[n] else Double.POSITIVE_INFINITY
+        fun fEdge(n: Int) = if (genF[n] == generation) pf[n] else -1; fun bEdge(n: Int) = if (genB[n] == generation) pb[n] else -1
+        fun pushF(n: Int, d: Double) = qf.add(n, d); fun pushB(n: Int, d: Double) = qb.add(n, d); fun hasF() = !qf.isEmpty; fun hasB() = !qb.isEmpty; fun minF() = qf.minCost; fun minB() = qb.minCost
         fun popF() = qf.remove().let { it to qf.removedCost }; fun popB() = qb.remove().let { it to qb.removedCost }
-        private class MinHeap {
-            private var nodes = IntArray(32); private var keys = DoubleArray(32); private var size = 0
-            var removedCost = 0.0; private set
-            val isEmpty get() = size == 0
-            val minCost get() = if (size == 0) Double.POSITIVE_INFINITY else keys[0]
-            fun clear() { size = 0 }
-            fun add(node: Int, key: Double) {
-                if (size == nodes.size) { nodes = nodes.copyOf(nodes.size * 2); keys = keys.copyOf(keys.size * 2) }
-                var i = size++; while (i > 0) { val p = (i - 1) ushr 1; if (keys[p] <= key) break; nodes[i] = nodes[p]; keys[i] = keys[p]; i = p }
-                nodes[i] = node; keys[i] = key
-            }
-            fun remove(): Int {
-                check(size > 0); val result = nodes[0]; removedCost = keys[0]
-                val lastN = nodes[--size]; val lastK = keys[size]
-                if (size > 0) { var i = 0; while (true) { val l = i * 2 + 1; if (l >= size) break; val r = l + 1; val c = if (r < size && keys[r] < keys[l]) r else l; if (keys[c] >= lastK) break; nodes[i] = nodes[c]; keys[i] = keys[c]; i = c }; nodes[i] = lastN; keys[i] = lastK }
-                return result
-            }
-        }
+        private class MinHeap { private var nodes = IntArray(32); private var keys = DoubleArray(32); private var size = 0; var removedCost = 0.0; private set; val isEmpty get() = size == 0; val minCost get() = if (size == 0) Double.POSITIVE_INFINITY else keys[0]; fun clear() { size = 0 }; fun add(node: Int, key: Double) { if (size == nodes.size) { nodes = nodes.copyOf(size * 2); keys = keys.copyOf(size * 2) }; var i = size++; while (i > 0) { val p = (i - 1) ushr 1; if (keys[p] <= key) break; nodes[i] = nodes[p]; keys[i] = keys[p]; i = p }; nodes[i] = node; keys[i] = key }; fun remove(): Int { val result = nodes[0]; removedCost = keys[0]; val ln = nodes[--size]; val lk = keys[size]; if (size > 0) { var i = 0; while (true) { val l = i * 2 + 1; if (l >= size) break; val r = l + 1; val c = if (r < size && keys[r] < keys[l]) r else l; if (keys[c] >= lk) break; nodes[i] = nodes[c]; keys[i] = keys[c]; i = c }; nodes[i] = ln; keys[i] = lk }; return result } }
     }
     private class IntArrayList { private var a = IntArray(16); var size = 0; private set; operator fun get(i: Int) = a[i]; fun add(v: Int) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = v }; fun removeLast() = a[--size]; fun toArray() = a.copyOf(size) }
 
     fun write(file: File) {
         DataOutputStream(FileOutputStream(file)).use { o ->
-            o.writeInt(MAGIC); o.writeInt(VERSION); o.writeInt(nodeCount); o.writeInt(edgeCount); o.writeInt(allTargets.size); o.writeInt(reverseEdges.size)
+            o.writeInt(MAGIC); o.writeInt(VERSION); o.writeInt(nodeCount); o.writeInt(upTargets.size); o.writeInt(downTargets.size)
+            o.writeLong(fingerprint.size); o.writeLong(fingerprint.firstCrc); o.writeLong(fingerprint.lastCrc)
             rank.forEach(o::writeInt); offsets.forEach(o::writeInt); reverseOffsets.forEach(o::writeInt)
-            queryToAll.forEach(o::writeInt)
-            reverseEdges.forEach(o::writeInt)
-            for (e in allTargets.indices) { o.writeInt(allFrom[e]); o.writeInt(allTargets[e]); o.writeDouble(allCosts[e]); o.writeDouble(allDistances[e]); o.writeInt(allChildrenA[e]); o.writeInt(allChildrenB[e]) }
+            for (e in upTargets.indices) { o.writeInt(upTargets[e]); o.writeDouble(upCosts[e]); o.writeInt(upMiddles[e]) }
+            for (e in downTargets.indices) { o.writeInt(downTargets[e]); o.writeDouble(downCosts[e]); o.writeInt(downMiddles[e]) }
         }
     }
 
     companion object {
-        private const val MAGIC = 0x43484A31; private const val VERSION = 1
-        internal fun create(n: Int, edgeN: Int, ranks: IntArray, from: IntArray, to: IntArray, cost: DoubleArray, distance: DoubleArray, middle: IntArray, childA: IntArray, childB: IntArray): ContractionHierarchy {
-            var count = 0; for (e in 0 until edgeN) if (ranks[from[e]] < ranks[to[e]]) count++
-            val offsets = IntArray(n + 1); for (e in 0 until edgeN) if (ranks[from[e]] < ranks[to[e]]) offsets[from[e] + 1]++
-            for (i in 1..n) offsets[i] += offsets[i - 1]
-            val targets = IntArray(count); val costs = DoubleArray(count); val dists = DoubleArray(count); val mids = IntArray(count); val queryMap = IntArray(count); val fill = offsets.copyOf()
-            for (e in 0 until edgeN) if (ranks[from[e]] < ranks[to[e]]) { val p = fill[from[e]]++; targets[p] = to[e]; costs[p] = cost[e]; dists[p] = distance[e]; mids[p] = middle[e]; queryMap[p] = e }
-            val downCount = (0 until edgeN).count { ranks[from[it]] > ranks[to[it]] }
-            val revOffsets = IntArray(n + 1); for (e in 0 until edgeN) if (ranks[from[e]] > ranks[to[e]]) revOffsets[to[e] + 1]++
-            for (i in 1..n) revOffsets[i] += revOffsets[i - 1]
-            val rev = IntArray(downCount); val revTargets = IntArray(downCount); val revCosts = DoubleArray(downCount); val rfill = revOffsets.copyOf()
-            for (e in 0 until edgeN) if (ranks[from[e]] > ranks[to[e]]) { val p = rfill[to[e]]++; rev[p] = e; revTargets[p] = from[e]; revCosts[p] = cost[e] }
-            return ContractionHierarchy(n, count, ranks, offsets, targets, costs, dists, mids, revOffsets, rev, revTargets, revCosts, queryMap, from.copyOf(edgeN), to.copyOf(edgeN), cost.copyOf(edgeN), distance.copyOf(edgeN), childA.copyOf(edgeN), childB.copyOf(edgeN))
+        private const val MAGIC = 0x43484A31; private const val VERSION = 2
+        internal fun create(n: Int, edgeN: Int, ranks: IntArray, from: IntArray, to: IntArray, cost: DoubleArray, distance: DoubleArray, middle: IntArray, childA: IntArray, childB: IntArray, fingerprint: GraphFingerprint): ContractionHierarchy {
+            // Keep one minimum-cost record for each ordered pair, tie-breaking by distance then original encounter order.
+            val keys = LongArray(edgeN) { e -> (from[e].toLong() shl 32) or (to[e].toLong() and 0xffffffffL) }
+            val order = IntArray(edgeN) { it }
+            fun sort(lo0: Int, hi0: Int) {
+                var lo = lo0; var hi = hi0; val pivot = keys[order[(lo + hi) ushr 1]]; val pivotId = order[(lo + hi) ushr 1]
+                while (lo <= hi) { while (keys[order[lo]] < pivot || (keys[order[lo]] == pivot && order[lo] < pivotId)) lo++; while (keys[order[hi]] > pivot || (keys[order[hi]] == pivot && order[hi] > pivotId)) hi--; if (lo <= hi) { val t = order[lo]; order[lo] = order[hi]; order[hi] = t; lo++; hi-- } }
+                if (lo0 < hi) sort(lo0, hi); if (lo < hi0) sort(lo, hi0)
+            }
+            if (edgeN > 1) sort(0, edgeN - 1)
+            val chosen = IntArray(edgeN); var unique = 0; var p = 0
+            while (p < edgeN) {
+                var q = p + 1; var bestEdge = order[p]
+                while (q < edgeN && keys[order[q]] == keys[order[p]]) { val e = order[q]; if (cost[e] < cost[bestEdge] || (cost[e] == cost[bestEdge] && (distance[e] < distance[bestEdge] || (distance[e] == distance[bestEdge] && e < bestEdge)))) bestEdge = e; q++ }
+                chosen[unique++] = bestEdge; p = q
+            }
+            val upCount = (0 until unique).count { val e = chosen[it]; ranks[from[e]] < ranks[to[e]] }; val downCount = unique - upCount
+            val offsets = IntArray(n + 1); val reverseOffsets = IntArray(n + 1)
+            for (i in 0 until unique) { val e = chosen[i]; if (ranks[from[e]] < ranks[to[e]]) offsets[from[e] + 1]++ else reverseOffsets[to[e] + 1]++ }
+            for (i in 1..n) { offsets[i] += offsets[i - 1]; reverseOffsets[i] += reverseOffsets[i - 1] }
+            val upT = IntArray(upCount); val upC = DoubleArray(upCount); val upM = IntArray(upCount) { -1 }; val downT = IntArray(downCount); val downC = DoubleArray(downCount); val downM = IntArray(downCount) { -1 }; val uFill = offsets.copyOf(); val dFill = reverseOffsets.copyOf()
+            for (i in 0 until unique) { val e = chosen[i]; if (ranks[from[e]] < ranks[to[e]]) { val at = uFill[from[e]]++; upT[at] = to[e]; upC[at] = cost[e]; upM[at] = middle[e] } else { val at = dFill[to[e]]++; downT[at] = from[e]; downC[at] = cost[e]; downM[at] = middle[e] } }
+            return ContractionHierarchy(n, ranks.copyOf(), offsets, upT, upC, upM, reverseOffsets, downT, downC, downM, fingerprint)
         }
-        fun read(file: File): ContractionHierarchy {
+        fun read(file: File, graphFile: File): ContractionHierarchy = read(file, GraphFingerprint.fromFile(graphFile))
+        internal fun read(file: File, expected: GraphFingerprint): ContractionHierarchy {
             DataInputStream(FileInputStream(file)).use { i ->
                 check(i.readInt() == MAGIC && i.readInt() == VERSION) { "Invalid CH file" }
-                val n = i.readInt(); val m = i.readInt(); val allN = i.readInt(); val downN = i.readInt(); require(n >= 0 && m >= 0 && allN >= m && downN >= 0)
-                val rank = IntArray(n) { i.readInt() }; val offsets = IntArray(n + 1) { i.readInt() }; val revOffsets = IntArray(n + 1) { i.readInt() }
-                require(offsets.first() == 0 && offsets.last() == m && revOffsets.first() == 0 && revOffsets.last() == downN)
-                val queryMap = IntArray(m) { i.readInt() }; val reverse = IntArray(downN) { i.readInt() }
-                val allFrom = IntArray(allN); val allTargets = IntArray(allN); val allCosts = DoubleArray(allN); val allDistances = DoubleArray(allN); val childA = IntArray(allN); val childB = IntArray(allN)
-                for (e in 0 until allN) { allFrom[e] = i.readInt(); allTargets[e] = i.readInt(); allCosts[e] = i.readDouble(); allDistances[e] = i.readDouble(); childA[e] = i.readInt(); childB[e] = i.readInt() }
-                val targets = IntArray(m); val costs = DoubleArray(m); val dists = DoubleArray(m); val mids = IntArray(m)
-                for (e in 0 until m) { val a = queryMap[e]; require(a in 0 until allN); targets[e] = allTargets[a]; costs[e] = allCosts[a]; dists[e] = allDistances[a]; mids[e] = if (childA[a] < 0) -1 else allTargets[childA[a]] }
-                val reverseTargets = IntArray(downN); val reverseCosts = DoubleArray(downN)
-                for (e in 0 until downN) { val a = reverse[e]; require(a in 0 until allN); reverseTargets[e] = allFrom[a]; reverseCosts[e] = allCosts[a] }
-                return ContractionHierarchy(n, m, rank, offsets, targets, costs, dists, mids, revOffsets, reverse, reverseTargets, reverseCosts, queryMap, allFrom, allTargets, allCosts, allDistances, childA, childB)
+                val n = i.readInt(); val up = i.readInt(); val down = i.readInt(); val actual = GraphFingerprint(i.readLong(), i.readLong(), i.readLong()); require(actual == expected) { "CH graph fingerprint mismatch: CH=$actual graph=$expected" }
+                require(n >= 0 && up >= 0 && down >= 0)
+                val rank = IntArray(n) { i.readInt() }; val offsets = IntArray(n + 1) { i.readInt() }; val reverseOffsets = IntArray(n + 1) { i.readInt() }
+                require(offsets.first() == 0 && offsets.last() == up && reverseOffsets.first() == 0 && reverseOffsets.last() == down)
+                val upT = IntArray(up); val upC = DoubleArray(up); val upM = IntArray(up); for (e in 0 until up) { upT[e] = i.readInt(); upC[e] = i.readDouble(); upM[e] = i.readInt() }
+                val downT = IntArray(down); val downC = DoubleArray(down); val downM = IntArray(down); for (e in 0 until down) { downT[e] = i.readInt(); downC[e] = i.readDouble(); downM[e] = i.readInt() }
+                return ContractionHierarchy(n, rank, offsets, upT, upC, upM, reverseOffsets, downT, downC, downM, actual)
             }
         }
     }

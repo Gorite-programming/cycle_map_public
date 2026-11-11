@@ -41,13 +41,13 @@ class ContractionHierarchyTest {
 
     @Test fun allPairsMatchAStarAndSerializationRoundTrips() {
         fixture().use { graph ->
-            val built = ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph)
+            val built = ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph, GraphFingerprint.UNKNOWN)
             assertTrue(built.shortcutCount > 0, "fixture should exercise shortcut expansion")
             val ch = built.hierarchy
-            val tmp = File.createTempFile("ch-test", ".graph.ch"); tmp.deleteOnExit(); ch.write(tmp); val loaded = ContractionHierarchy.read(tmp)
+            val tmp = File.createTempFile("ch-test", ".graph.ch"); tmp.deleteOnExit(); ch.write(tmp); val loaded = ContractionHierarchy.read(tmp, GraphFingerprint.UNKNOWN)
             for (s in 0 until graph.nodeCount) for (g in 0 until graph.nodeCount) {
                 val a = graph.route(s, g, preference = RoutePreference.RECOMMENDED, costMode = RouteCostMode.BICYCLE)
-                val c = loaded.route(s, g)
+                val c = loaded.route(s, g, graph)
                 assertEquals(a.isReachable, c.isReachable, "$s->$g reachability")
                 if (a.isReachable) {
                     assertTrue(abs(a.totalCost - c.totalCost) <= maxOf(1e-12, abs(a.totalCost) * 1e-9), "$s->$g cost ${a.totalCost} != ${c.totalCost}")
@@ -55,10 +55,45 @@ class ContractionHierarchyTest {
                     assertEquals(s, c.nodeIndices.first()); assertEquals(g, c.nodeIndices.last())
                 }
             }
-            assertTrue(loaded.route(0, 0).isReachable)
-            assertFalse(loaded.route(1, 0).isReachable) // directed one-way
-            assertFalse(loaded.route(0, 6).isReachable) // motorway is excluded
-            assertFalse(loaded.route(6, 0).isReachable) // disconnected
+            assertTrue(loaded.route(0, 0, graph).isReachable)
+            assertFalse(loaded.route(1, 0, graph).isReachable) // directed one-way
+            assertFalse(loaded.route(0, 6, graph).isReachable) // motorway is excluded
+            assertFalse(loaded.route(6, 0, graph).isReachable) // disconnected
+        }
+    }
+
+    @Test fun nestedShortcutsUnpackToEveryOriginalNode() {
+        val chain = List(8) { u -> if (u == 7) emptyList() else listOf(E(u + 1, 1.0)) }
+        graphFrom(chain).use { graph ->
+            val built = ContractionHierarchyBuilder(maxWitnessSettled = 1).build(graph, GraphFingerprint.UNKNOWN)
+            assertTrue(built.shortcutCount >= 2)
+            val result = built.hierarchy.route(0, 7, graph)
+            assertTrue(result.nodeIndices.contentEquals(IntArray(8) { it }), result.nodeIndices.contentToString())
+        }
+    }
+
+    @Test fun parallelEdgesKeepMinimumCostAndDistance() {
+        val out = listOf(
+            listOf(E(1, 30.0), E(1, 10.0), E(1, 10.0)),
+            listOf(E(2, 8.0)), emptyList(),
+        )
+        graphFrom(out).use { graph ->
+            val ch = ContractionHierarchyBuilder(maxWitnessSettled = 100).build(graph, GraphFingerprint.UNKNOWN).hierarchy
+            val result = ch.route(0, 2, graph)
+            val aStar = graph.route(0, 2, preference = RoutePreference.RECOMMENDED, costMode = RouteCostMode.BICYCLE)
+            assertEquals(aStar.totalCost, result.totalCost, 1e-9)
+            assertEquals(18.0, result.totalDistance, 1e-9)
+        }
+    }
+
+    @Test fun graphIdentityMismatchRejectsRead() {
+        fixture().use { graph ->
+            val chFile = File.createTempFile("ch-test", ".graph.ch").apply { deleteOnExit() }
+            val sourceGraph = File.createTempFile("ch-source", ".graph").apply { writeText("source graph A"); deleteOnExit() }
+            val otherGraph = File.createTempFile("ch-other", ".graph").apply { writeText("source graph B"); deleteOnExit() }
+            ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph, GraphFingerprint.fromFile(sourceGraph)).hierarchy.write(chFile)
+            ContractionHierarchy.read(chFile, sourceGraph)
+            kotlin.test.assertFailsWith<IllegalArgumentException> { ContractionHierarchy.read(chFile, otherGraph) }
         }
     }
 
@@ -75,10 +110,10 @@ class ContractionHierarchyTest {
             edges
         }
         graphFrom(out).use { graph ->
-            val ch = ContractionHierarchyBuilder(maxWitnessSettled = 1000).build(graph).hierarchy
+            val ch = ContractionHierarchyBuilder(maxWitnessSettled = 1000).build(graph, GraphFingerprint.UNKNOWN).hierarchy
             for (s in 0 until n) for (g in 0 until n) {
                 val a = graph.route(s, g, preference = RoutePreference.RECOMMENDED, costMode = RouteCostMode.BICYCLE)
-                val c = ch.route(s, g)
+                val c = ch.route(s, g, graph)
                 assertEquals(a.isReachable, c.isReachable, "$s->$g reachability")
                 if (a.isReachable) assertTrue(abs(a.totalCost - c.totalCost) <= maxOf(1e-12, abs(a.totalCost) * 1e-9), "$s->$g cost ${a.totalCost} != ${c.totalCost}")
             }
