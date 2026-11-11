@@ -55,3 +55,21 @@ tasks.register<JavaExec>("crossRouteBench") {
         )
     }
 }
+
+tasks.register<JavaExec>("buildCh") {
+    group = "verification"
+    description = "Build an S1 contraction hierarchy sidecar"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.routing.ChBuildMain")
+    jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
+    doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("out") as String? ?: error("-Pout=<.graph.ch> required")) }
+}
+
+tasks.register<JavaExec>("benchmarkCh") {
+    group = "verification"
+    description = "Compare S1 CH against production A*"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.routing.ChBenchmarkMain")
+    jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
+    doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("ch") as String? ?: error("-Pch=<.graph.ch> required"), (project.findProperty("od") ?: "1000").toString(), (project.findProperty("seed") ?: "20261108").toString()) }
+}
