@@ -150,7 +150,17 @@ internal fun calculateMultiLegCrossRoute(
                     chain.forEachIndexed { i, pref ->
                         if (namesByPref[pref] == jobGraphName) indices[i] = if (i == 0) startIdx else goalIdx
                     }
-                    if (chain.size == 2) {
+                    // CH (自転車×おすすめ) で通り口までを一括探索。CH の無い県がある・好みが違うときは null で従来の A* へ。
+                    val chCross = if (preference == RoutePreference.RECOMMENDED) {
+                        if (sources.any { it.borrowed }) graphLock.read {
+                            routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
+                        } else routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
+                    } else null
+                    if (chCross != null) {
+                        if (!chCross.isReachable) continue
+                        crossParts = chCross.parts; routeDistance = chCross.totalDistanceMeters; routeCost = chCross.totalCost
+                        Log.i("CycleMapRoute", "CROSS_ENGINE ch graphs=${chain.size}")
+                    } else if (chain.size == 2) {
                         var ga: LazyMappedRoadGraph? = null
                         var gb: LazyMappedRoadGraph? = null
                         try {

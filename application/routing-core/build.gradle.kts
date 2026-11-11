@@ -82,3 +82,19 @@ tasks.register<JavaExec>("benchmarkAttach") {
     jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
     doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("ch") as String? ?: error("-Pch=<.graph.ch> required"), (project.findProperty("od") ?: "1000").toString(), (project.findProperty("seed") ?: "20261108").toString()) }
 }
+
+// 県またぎ CH vs A* チェーンの突き合わせ: -Pgraphs=A.graph,B.graph[,C.graph] -Pchs=A.graph.ch,B.graph.ch[,...] [-Pod=20] [-Pseed=..] [-Pheap=6g]
+tasks.register<JavaExec>("benchmarkChainCh") {
+    group = "verification"
+    description = "Compare routeAcrossChainCh against the A* chain on real graphs"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.routing.ChainChBenchMain")
+    jvmArgs("-Xmx${project.findProperty("heap") ?: "6g"}")
+    doFirst {
+        args(
+            project.findProperty("graphs") as String? ?: error("-Pgraphs=<comma list of .graph> required"),
+            project.findProperty("chs") as String? ?: error("-Pchs=<comma list of .graph.ch> required"),
+            (project.findProperty("od") ?: "20").toString(), (project.findProperty("seed") ?: "20261108").toString(),
+        )
+    }
+}

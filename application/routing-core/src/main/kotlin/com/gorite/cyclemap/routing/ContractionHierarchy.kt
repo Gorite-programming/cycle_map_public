@@ -267,6 +267,94 @@ class ContractionHierarchy private constructor(
         return ChRouteResult(path.toArray(), best, totalDistance)
     }
 
+    /** [searchMany] の結果。bestSource は sources 配列の添字 (到達不能は -1)。 */
+    class ManyResult(val bestCost: DoubleArray, val bestSource: IntArray)
+
+    private var manyWs: ManyWorkspace? = null
+
+    /**
+     * 多対多プリミティブ。各 target t について min over s of (sourceCosts[s] + dist(s, t)) と arg-min を返す。
+     * 1 回の多始点・上向き前向き探索 (全 source を初期コスト付きで投入、早期終了なし) の後、target ごとに
+     * 下向き (後ろ向き) 探索を行い、前向きコストが確定済みのノードで合流候補を評価する。
+     */
+    @Synchronized fun searchMany(sources: IntArray, sourceCosts: DoubleArray, targets: IntArray): ManyResult {
+        require(sources.size == sourceCosts.size)
+        val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
+        val bestSource = IntArray(targets.size) { -1 }
+        if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
+        w.beginForward()
+        for (i in sources.indices) {
+            val s = sources[i]; require(s in 0 until nodeCount); val c = sourceCosts[i]
+            if (c < w.f(s)) { w.setF(s, c, i); w.pushF(s, c) }
+        }
+        while (!w.emptyF()) {
+            val v = w.popF(); val d = w.poppedCost
+            if (d > w.f(v)) continue
+            val seed = w.seed(v)
+            for (e in store.off(v) until store.off(v + 1)) {
+                val x = store.upT(e); val nd = d + store.upC(e)
+                if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
+            }
+        }
+        for (k in targets.indices) {
+            val t = targets[k]; require(t in 0 until nodeCount)
+            w.beginBackward(); w.setB(t, 0.0); w.pushB(t, 0.0)
+            var best = Double.POSITIVE_INFINITY; var bestSeed = -1
+            while (!w.emptyB()) {
+                val v = w.popB(); val d = w.poppedCost
+                if (d > w.b(v)) continue
+                if (d >= best) break
+                val fv = w.f(v)
+                if (fv + d < best) { best = fv + d; bestSeed = w.seed(v) }
+                for (e in store.roff(v) until store.roff(v + 1)) {
+                    val x = store.downT(e); val nd = d + store.downC(e)
+                    if (nd < w.b(x)) { w.setB(x, nd); w.pushB(x, nd) }
+                }
+            }
+            bestCost[k] = best; bestSource[k] = bestSeed
+        }
+        return ManyResult(bestCost, bestSource)
+    }
+
+    private class ManyWorkspace(n: Int) {
+        private val genF = IntArray(n); private val genB = IntArray(n); private var gf = 0; private var gb = 0
+        private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val sd = IntArray(n)
+        private val qf = Heap(); private val qb = Heap()
+        val poppedCost get() = lastPopped
+        private var lastPopped = 0.0
+        fun beginForward() { gf++; if (gf == 0) { genF.fill(0); gf = 1 }; qf.clear() }
+        fun beginBackward() { gb++; if (gb == 0) { genB.fill(0); gb = 1 }; qb.clear() }
+        fun f(v: Int) = if (genF[v] == gf) cf[v] else Double.POSITIVE_INFINITY
+        fun b(v: Int) = if (genB[v] == gb) cb[v] else Double.POSITIVE_INFINITY
+        fun seed(v: Int) = sd[v]
+        fun setF(v: Int, c: Double, seed: Int) { genF[v] = gf; cf[v] = c; sd[v] = seed }
+        fun setB(v: Int, c: Double) { genB[v] = gb; cb[v] = c }
+        fun pushF(v: Int, c: Double) = qf.add(v, c); fun pushB(v: Int, c: Double) = qb.add(v, c)
+        fun emptyF() = qf.size == 0; fun emptyB() = qb.size == 0
+        fun popF(): Int { val v = qf.remove(); lastPopped = qf.removed; return v }
+        fun popB(): Int { val v = qb.remove(); lastPopped = qb.removed; return v }
+        private class Heap {
+            private var nodes = IntArray(64); private var keys = DoubleArray(64); var size = 0; private set; var removed = 0.0; private set
+            fun clear() { size = 0 }
+            fun add(node: Int, key: Double) {
+                if (size == nodes.size) { nodes = nodes.copyOf(size * 2); keys = keys.copyOf(size * 2) }
+                var i = size++
+                while (i > 0) { val p = (i - 1) ushr 1; if (keys[p] <= key) break; nodes[i] = nodes[p]; keys[i] = keys[p]; i = p }
+                nodes[i] = node; keys[i] = key
+            }
+            fun remove(): Int {
+                val result = nodes[0]; removed = keys[0]; val ln = nodes[--size]; val lk = keys[size]
+                if (size > 0) {
+                    var i = 0
+                    while (true) { val l = i * 2 + 1; if (l >= size) break; val r = l + 1; val c = if (r < size && keys[r] < keys[l]) r else l; if (keys[c] >= lk) break; nodes[i] = nodes[c]; keys[i] = keys[c]; i = c }
+                    nodes[i] = ln; keys[i] = lk
+                }
+                return result
+            }
+        }
+    }
+
     private fun edgeSource(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (store.off(mid + 1) <= edge) lo = mid + 1 else hi = mid }; return lo }
     private fun downOwner(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (store.roff(mid + 1) <= edge) lo = mid + 1 else hi = mid }; return lo }
     private fun unpack(from: Int, to: Int, middle: Int, graph: LazyMappedRoadGraph, out: IntArrayList) {

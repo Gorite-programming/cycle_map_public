@@ -432,8 +432,13 @@ class LazyMappedRoadGraph private constructor(
 
     /** Contraction Hierarchies を取り付ける (null で外す)。CH は 自転車×おすすめ の既定条件の問い合わせだけに使う。 */
     fun attachContractionHierarchy(ch: ContractionHierarchy?) {
+        attachedHierarchy = ch
         chQuery = if (ch == null) null else ChQuery { s, g, gr -> ch.route(s, g, gr) }
     }
+
+    /** 取り付け済みの CH 本体 (県またぎ探索の多対多で使う)。[attachContractionHierarchy] だけが設定する。 */
+    @Volatile internal var attachedHierarchy: ContractionHierarchy? = null
+        private set
 
     internal fun attachChQuery(query: ChQuery?) { chQuery = query }
 
@@ -848,7 +853,7 @@ class LazyMappedRoadGraph private constructor(
     private fun isArterial(type: Int): Boolean =
         type == TYPE_PRIMARY || type == TYPE_SECONDARY || type == TYPE_TERTIARY
 
-    override fun close() { graphChannel.close(); indexChannel.close() }
+    override fun close() { attachedHierarchy?.close(); graphChannel.close(); indexChannel.close() }
 
     companion object {
         /**
