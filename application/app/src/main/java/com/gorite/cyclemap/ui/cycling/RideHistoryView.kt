@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -100,15 +101,25 @@ fun RideHistorySheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // 内容が長いときもタブバーを押し出さないよう、残りの高さの中でスクロールさせる
+                .weight(1f, fill = false)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp),
+                .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("走行記録 (GPX)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("走行記録 (GPX)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                SheetCloseButton(onClick = onDismiss)
+            }
 
             // 現在の記録ステータスカード
             Card(
@@ -246,6 +257,8 @@ fun RideHistorySheet(
                 }
             }
         }
+        SheetNavTabBar(selected = GoogleNavTab.RECORD)
+      }
     }
 
     // 削除確認ダイアログ

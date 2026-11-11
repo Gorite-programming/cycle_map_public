@@ -60,6 +60,9 @@ import com.gorite.cyclemap.ui.cycling.gradeAt
 import com.gorite.cyclemap.ui.theme.Motion
 import org.osmdroid.util.GeoPoint
 
+/** 地図下部の速度表示 + GPX 記録ボタンの行を出す条件。右下のボタン群が重ならないよう MapControlsOverlay も参照する。 */
+internal fun isBottomHudVisible(isRecording: Boolean, speedKmh: Double): Boolean = isRecording || speedKmh >= 1.5
+
 @Composable
 internal fun BoxScope.MapBottomOverlays(
     isNavigationActive: Boolean,
@@ -351,7 +354,7 @@ internal fun BoxScope.MapBottomOverlays(
             }
 
             // Main HUD: Speedometer & GPX Controls (走行中またはGPX記録中のみ表示)
-            if (isRecording || speedKmh >= 1.5) Row(
+            if (isBottomHudVisible(isRecording, speedKmh)) Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp),

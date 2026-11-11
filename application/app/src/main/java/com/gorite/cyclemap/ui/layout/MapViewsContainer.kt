@@ -107,7 +107,10 @@ internal fun MapViewsContainer(
                         }
                         setTileSource(gsiTileSource())
                         tileProvider.ensureCapacity(512)
-                        controller.setZoom(13.0)
+                        // レイヤー切替で縮尺が変わらないよう、ベクター地図の直近のズームを引き継ぐ
+                        controller.setZoom(
+                            com.gorite.cyclemap.ui.mapview.MapCameraCenter.lastVectorZoom?.coerceIn(2.0, 19.0) ?: 13.0,
+                        )
                         controller.setCenter(GeoPoint(34.18, 131.47))
                         val locationMarker = Marker(this).apply {
                             title = "現在地"

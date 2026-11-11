@@ -290,6 +290,7 @@ internal fun VectorMapView(
                         // カメラ停止時リスナー (R3): 現在画面内のPOIをオフラインDBから動的フェッチ (デバウンス制御)
                         map.addOnCameraIdleListener {
                             map.cameraPosition.target?.let { MapCameraCenter.update(it.latitude, it.longitude) }
+                            MapCameraCenter.lastVectorZoom = map.cameraPosition.zoom
                             if (map.style?.isFullyLoaded != true) return@addOnCameraIdleListener
                             val target = map.cameraPosition.target
                             val zoom = map.cameraPosition.zoom

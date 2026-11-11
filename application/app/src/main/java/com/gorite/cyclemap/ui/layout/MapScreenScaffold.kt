@@ -20,6 +20,8 @@ import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.ui.RoutingBenchmarkRequest
 import com.gorite.cyclemap.ui.cycling.CyclingTab
+import com.gorite.cyclemap.ui.cycling.GoogleNavTab
+import com.gorite.cyclemap.ui.cycling.LocalNavTabSwitcher
 import com.gorite.cyclemap.ui.cycling.SpotQuickCategory
 import com.gorite.cyclemap.ui.cycling.moveWaypoint
 import com.gorite.cyclemap.ui.cycling.removeWaypointAt
@@ -48,6 +50,7 @@ internal fun MapScreenScaffold(
     exportPlannedRoute: () -> Unit,
     importPlannedRoute: () -> Unit,
     toggleNextLayer: () -> Unit,
+    selectLayer: (MapLayer) -> Unit = {},
     startNavigation: () -> Unit,
     clearRoute: () -> Unit,
     selectRouteOption: (Int) -> Unit = {},
@@ -75,7 +78,31 @@ internal fun MapScreenScaffold(
         }
     }
 
-    CompositionLocalProvider(LocalAnimationEnabled provides effectiveAnimationEnabled) {
+    // タブから開いたシートの中で別のタブへ移る (シートがタブバーを覆うため、シート下端のタブバーから呼ぶ)
+    val switchNavTab: (GoogleNavTab) -> Unit = { tab ->
+        state.googleNavTabState.value = tab
+        when (tab) {
+            GoogleNavTab.EXPLORE, GoogleNavTab.SAVED -> {
+                state.showRecordPanelState.value = false
+                state.showFavoritesOnlyInSheetState.value = tab == GoogleNavTab.SAVED
+                state.showSpotPanelState.value = true
+            }
+            GoogleNavTab.RECORD -> {
+                state.showSpotPanelState.value = false
+                state.showRecordPanelState.value = true
+                scope.launch(Dispatchers.IO) {
+                    val loaded = loadGpxHistory(cycleMapDataDir(context))
+                    (context as? ComponentActivity)?.runOnUiThread { state.gpxHistoryState.value = loaded }
+                }
+            }
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalAnimationEnabled provides effectiveAnimationEnabled,
+        LocalNavTabSwitcher provides switchNavTab,
+        LocalLayerSelector provides selectLayer,
+    ) {
         Box(modifier = modifier.fillMaxSize()) {
             MapContentLayout(
                 modifier = Modifier.fillMaxSize(),
@@ -240,7 +267,8 @@ internal fun MapScreenScaffold(
             },
             isArrived = state.isArrivedState.value,
             locationLabel = state.locationLabelState.value,
-            googleNavTab = state.googleNavTabState.value,
+            // シートが開いていないときは常に「スポット」(地図) を選択表示にする
+            googleNavTab = if (state.showSpotPanelState.value || state.showRecordPanelState.value) state.googleNavTabState.value else GoogleNavTab.EXPLORE,
             onTabSelected = { state.googleNavTabState.value = it },
             onExploreClick = {
                 state.showFavoritesOnlyInSheetState.value = false

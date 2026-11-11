@@ -652,8 +652,7 @@ internal fun MapScreen(
         importRouteLauncher.launch(arrayOf("application/gpx+xml", "application/octet-stream", "text/xml", "*/*"))
     }
 
-    val toggleNextLayer: () -> Unit = {
-        val nextLayer = determineNextLayer(state.context, state.selectedLayerState.value)
+    val applyLayer: (MapLayer) -> Unit = { nextLayer ->
         state.selectedLayerState.value = nextLayer
         val mode = when (nextLayer) {
             MapLayer.VECTOR_LIBERTY -> com.gorite.cyclemap.ui.map.MapLayerMode.Vector3D
@@ -663,6 +662,17 @@ internal fun MapScreen(
             else -> com.gorite.cyclemap.ui.map.MapLayerMode.Vector3D
         }
         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.SwitchLayer(mode))
+    }
+    val toggleNextLayer: () -> Unit = {
+        applyLayer(determineNextLayer(state.context, state.selectedLayerState.value))
+    }
+    // 一覧から選んだレイヤー。地形はオフラインでは使えないので、使えない理由を伝えて切り替えない
+    val selectLayer: (MapLayer) -> Unit = { layer ->
+        if (layer == MapLayer.TERRAIN && !isNetworkAvailable(state.context)) {
+            android.widget.Toast.makeText(state.context, "地形起伏はオフラインでは使えません", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            applyLayer(layer)
+        }
     }
 
     val downloadCorridorTiles: () -> Unit = {
@@ -712,6 +722,7 @@ internal fun MapScreen(
         exportPlannedRoute = exportPlannedRoute,
         importPlannedRoute = launchRouteImport,
         toggleNextLayer = toggleNextLayer,
+        selectLayer = selectLayer,
         startNavigation = startNavigation,
         clearRoute = clearRoute,
         weatherUiState = weatherUiState,

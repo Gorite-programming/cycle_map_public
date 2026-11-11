@@ -55,6 +55,13 @@ internal fun executeClearRoute(
     onResetStates()
 }
 
+internal fun isNetworkAvailable(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    return cm?.activeNetwork?.let { net ->
+        cm.getNetworkCapabilities(net)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } ?: false
+}
+
 internal fun determineNextLayer(
     context: Context,
     currentLayer: MapLayer,

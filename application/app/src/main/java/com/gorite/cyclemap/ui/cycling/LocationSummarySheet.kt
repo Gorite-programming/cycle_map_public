@@ -261,6 +261,41 @@ enum class GoogleNavTab {
     RECORD,    // 「記録」
 }
 
+/**
+ * タブから開くシート (スポット / 保存済み / 記録) の中で、別のタブへ移るための関数。
+ * シートは画面下のタブバーを覆うため、シート自身の下端に同じタブバーを出して移動できるようにする。
+ */
+val LocalNavTabSwitcher = androidx.compose.runtime.staticCompositionLocalOf<((GoogleNavTab) -> Unit)?> { null }
+
+/**
+ * シート下端のタブバー。[onLocalSelect] が true を返したタブはシート内で処理済み、
+ * false なら [LocalNavTabSwitcher] (シートの付け替え) に任せる。
+ */
+@Composable
+fun SheetNavTabBar(
+    selected: GoogleNavTab,
+    onLocalSelect: (GoogleNavTab) -> Boolean = { false },
+) {
+    val switcher = LocalNavTabSwitcher.current ?: return
+    GoogleNavTabBar(
+        selectedTab = selected,
+        onTabSelected = { tab -> if (!onLocalSelect(tab)) switcher(tab) },
+    )
+}
+
+/** シート右上の閉じるボタン (下スワイプに気付かない人向け)。 */
+@Composable
+fun SheetCloseButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = modifier.size(48.dp)) {
+        Icon(
+            painter = painterResource(R.drawable.ic_lucide_x),
+            contentDescription = "閉じる",
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 fun GoogleNavTabBar(
     selectedTab: GoogleNavTab,

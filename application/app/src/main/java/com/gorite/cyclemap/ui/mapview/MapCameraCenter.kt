@@ -11,6 +11,10 @@ internal object MapCameraCenter {
     private val _center = MutableStateFlow<Pair<Double, Double>?>(null)
     val center: StateFlow<Pair<Double, Double>?> = _center
 
+    /** ベクター地図の直近のズーム。レイヤー切替でラスター地図を出すときに縮尺を引き継ぐ。 */
+    @Volatile
+    var lastVectorZoom: Double? = null
+
     fun update(latitude: Double, longitude: Double) {
         if (latitude.isFinite() && longitude.isFinite()) _center.value = latitude to longitude
     }

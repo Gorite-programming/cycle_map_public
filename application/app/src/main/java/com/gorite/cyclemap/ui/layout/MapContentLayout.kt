@@ -254,6 +254,7 @@ internal fun MapContentLayout(
                     autoRerouteEnabled = autoRerouteEnabled,
                     networkLink = networkLink,
                     onStopNavigation = onStopNavigation,
+                    isRoutePreviewActive = !isNavigationActive && routeSummary != null,
                 )
 
                 // Right-Side Controls: Google Maps Style
@@ -281,6 +282,8 @@ internal fun MapContentLayout(
                     onNavStartClick = onOpenSearch,
                     systemInsets = systemInsets,
                     effectiveTopPadding = effectiveTopPadding,
+                    bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
+                    isRoutePreviewActive = !isNavigationActive && routeSummary != null,
                 )
 
                 // Bottom Area: Active Navigation Footer or Dashboard
