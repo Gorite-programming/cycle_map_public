@@ -244,6 +244,7 @@ internal fun MapScreen(
         val start = if (loc != null) {
             GeoPoint(loc.latitude, loc.longitude)
         } else {
+            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
             GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
         }
         if (BuildConfig.DEBUG) {
