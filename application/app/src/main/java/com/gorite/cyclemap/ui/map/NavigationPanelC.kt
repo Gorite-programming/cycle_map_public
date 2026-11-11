@@ -446,7 +446,7 @@ private fun ElevationAheadCard(data: NavPanelData, palette: NavPalette) {
         ElevationStrip(data = data, palette = palette, modifier = Modifier.fillMaxWidth().height(48.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             val w = data.windowM
-            val axis = TextStyle(fontSize = 9.sp, color = palette.sub)
+            val axis = TextStyle(fontSize = 11.sp, color = palette.sub)
             Text("いま", style = axis)
             Text(splitDistance(w / 2.0).let { (n, u) -> n + u }, style = axis, maxLines = 1)
             Text(

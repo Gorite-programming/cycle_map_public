@@ -3,6 +3,7 @@ package com.gorite.cyclemap.ui.cycling
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -354,7 +355,7 @@ fun GoogleNavTabItem(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .selectable(selected = isSelected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -372,7 +373,7 @@ fun GoogleNavTabItem(
                 ) {
                     Icon(
                         painter = painterResource(iconRes),
-                        contentDescription = label,
+                        contentDescription = null,
                         tint = selectedIconTint,
                         modifier = Modifier.size(20.dp),
                     )
@@ -392,7 +393,7 @@ fun GoogleNavTabItem(
             ) {
                 Icon(
                     painter = painterResource(iconRes),
-                    contentDescription = label,
+                    contentDescription = null,
                     tint = unselectedTint,
                     modifier = Modifier.size(20.dp),
                 )

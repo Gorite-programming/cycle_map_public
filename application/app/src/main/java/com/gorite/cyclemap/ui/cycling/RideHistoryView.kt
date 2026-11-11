@@ -401,7 +401,7 @@ private fun StatPill(label: String, value: String, accentColor: Color) {
         modifier = Modifier.width(88.dp),
     ) {
         Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = accentColor)
         }
     }
