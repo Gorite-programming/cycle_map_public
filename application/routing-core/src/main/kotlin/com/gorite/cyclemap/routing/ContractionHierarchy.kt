@@ -284,6 +284,61 @@ class ContractionHierarchy private constructor(
         if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
         val t0 = System.nanoTime()
         val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
+        val t1 = System.nanoTime(); var settledF = 0
+        w.beginForward()
+        for (i in sources.indices) {
+            val s = sources[i]; require(s in 0 until nodeCount); val c = sourceCosts[i]
+            if (c < w.f(s)) { w.setF(s, c, i); w.pushF(s, c) }
+        }
+        while (!w.emptyF()) {
+            val v = w.popF(); val d = w.poppedCost
+            if (d > w.f(v)) continue
+            val seed = w.seed(v); settledF++
+            for (e in store.off(v) until store.off(v + 1)) {
+                val x = store.upT(e); val nd = d + store.upC(e)
+                if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
+            }
+        }
+        val t2 = System.nanoTime()
+        // RPHAST: targets から下向き弧を逆にたどった閉包 U を求める
+        w.beginSweep()
+        for (k in targets.indices) { val t = targets[k]; require(t in 0 until nodeCount); w.pushU(t) }
+        var sweepArcs = 0L
+        while (w.stackSize > 0) {
+            val v = w.popU()
+            for (e in store.roff(v) until store.roff(v + 1)) w.pushU(store.downT(e))
+        }
+        val unionSize = w.unionSize
+        w.packUnion { v -> store.rank(v) }
+        val t3 = System.nanoTime()
+        w.sortUnion()
+        val t4 = System.nanoTime()
+        for (i in unionSize - 1 downTo 0) {
+            val v = w.unionNode(i)
+            var bd = w.f(v); var bs = if (bd.isFinite()) w.seed(v) else -1
+            val lo = store.roff(v); val hi = store.roff(v + 1); sweepArcs += hi - lo
+            for (e in lo until hi) {
+                val u = store.downT(e); val du = w.d(u)
+                if (du.isInfinite()) continue
+                val nd = du + store.downC(e)
+                if (nd < bd) { bd = nd; bs = w.dSeed(u) }
+            }
+            w.setD(v, bd, bs)
+        }
+        for (k in targets.indices) { val t = targets[k]; bestCost[k] = w.d(t); bestSource[k] = if (bestCost[k].isFinite()) w.dSeed(t) else -1 }
+        val t5 = System.nanoTime()
+        lastManyStats = "sources=${sources.size} targets=${targets.size} allocMs=${(t1 - t0) / 1_000_000} fwdMs=${(t2 - t1) / 1_000_000} settledF=$settledF unionSize=$unionSize sweepArcs=$sweepArcs unionMs=${(t3 - t2) / 1_000_000} sortMs=${(t4 - t3) / 1_000_000} sweepMs=${(t5 - t4) / 1_000_000}"
+        return ManyResult(bestCost, bestSource)
+    }
+
+    /** 旧実装 (target ごとの後ろ向きダイクストラ)。テストのオラクルと計測の比較用。 */
+    @Synchronized internal fun searchManyDijkstra(sources: IntArray, sourceCosts: DoubleArray, targets: IntArray): ManyResult {
+        require(sources.size == sourceCosts.size)
+        val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
+        val bestSource = IntArray(targets.size) { -1 }
+        if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        val t0 = System.nanoTime()
+        val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
         val t1 = System.nanoTime(); var settledF = 0; var settledB = 0L
         w.beginForward()
         for (i in sources.indices) {
@@ -329,6 +384,31 @@ class ContractionHierarchy private constructor(
         private val genF = IntArray(n); private val genB = IntArray(n); private var gf = 0; private var gb = 0
         private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val sd = IntArray(n)
         private val qf = Heap(); private val qb = Heap()
+        private val genU = IntArray(n); private var gu = 0
+        private val genD = IntArray(n); private val cd = DoubleArray(n); private val sdd = IntArray(n)
+        private var stack = IntArray(1024); var stackSize = 0; private set
+        private var union = LongArray(1024); var unionSize = 0; private set
+        fun beginSweep() {
+            gu++; if (gu == 0) { genU.fill(0); genD.fill(0); gu = 1 }
+            stackSize = 0; unionSize = 0
+        }
+        fun pushU(v: Int) {
+            if (genU[v] == gu) return
+            genU[v] = gu
+            if (stackSize == stack.size) stack = stack.copyOf(stackSize * 2)
+            stack[stackSize++] = v
+            if (unionSize == union.size) union = union.copyOf(unionSize * 2)
+            union[unionSize++] = v.toLong()
+        }
+        fun popU(): Int = stack[--stackSize]
+        inline fun packUnion(rank: (Int) -> Int) { for (i in 0 until unionSize) setUnion(i, (rank(unionRaw(i).toInt()).toLong() shl 32) or unionRaw(i)) }
+        fun unionRaw(i: Int) = union[i]
+        fun setUnion(i: Int, x: Long) { union[i] = x }
+        fun sortUnion() = java.util.Arrays.sort(union, 0, unionSize)
+        fun unionNode(i: Int) = (union[i] and 0xFFFFFFFFL).toInt()
+        fun d(v: Int) = if (genD[v] == gu) cd[v] else Double.POSITIVE_INFINITY
+        fun dSeed(v: Int) = sdd[v]
+        fun setD(v: Int, c: Double, seed: Int) { genD[v] = gu; cd[v] = c; sdd[v] = seed }
         val poppedCost get() = lastPopped
         private var lastPopped = 0.0
         fun beginForward() { gf++; if (gf == 0) { genF.fill(0); gf = 1 }; qf.clear() }

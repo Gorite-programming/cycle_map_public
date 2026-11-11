@@ -93,10 +93,33 @@ class ChainChRoutingTest {
                     assertTrue(rr.isReachable && costOk(best, costs[bs] + rr.totalCost), "seed $seed t=$t source=$bs not arg-min")
                 }
             }
+            val old = ch.searchManyDijkstra(sources, costs, targets)
+            for (k in targets.indices) { assertTrue(costOk(old.bestCost[k], r.bestCost[k]) || old.bestCost[k] == r.bestCost[k], "seed $seed oracle k=$k"); assertEquals(old.bestSource[k] < 0, r.bestSource[k] < 0) }
             // 同じ CH を再利用しても結果が変わらない (workspace の世代管理)
             val again = ch.searchMany(sources, costs, targets)
             assertTrue(again.bestCost.contentEquals(r.bestCost)); assertTrue(again.bestSource.contentEquals(r.bestSource))
             if (seed == 1) assertTrue(targets.any { it >= n - 5 } || unreachable >= 0)
+        }
+    }
+
+    @Test fun searchManyRphastMatchesDijkstraOracle() {
+        for (seed in 100..115) {
+            val rnd = Random(seed)
+            val n = 30 + rnd.nextInt(30)
+            val ids = (0 until n).map { it.toLong() }
+            val edges = randomEdges(rnd, ids.take(n - 4), 2 + rnd.nextInt(3)).mapValues { (_, l) -> l.filter { it.to < n - 4 } }
+            val ch = ch(build(Spec(ids.toLongArray(), edges), false))
+            val sc = 1 + rnd.nextInt(10)
+            val sources = IntArray(sc) { rnd.nextInt(n) }
+            val costs = DoubleArray(sc) { rnd.nextInt(8) * 7.5 }
+            val targets = IntArray(n * 2 + 5) { if (it < sc) sources[it] else rnd.nextInt(n) } // 重複・source=target・target 数 > ノード数
+            val a = ch.searchMany(sources, costs, targets); val stats = ch.lastManyStats; val b = ch.searchManyDijkstra(sources, costs, targets)
+            for (k in targets.indices) {
+                assertTrue(a.bestCost[k] == b.bestCost[k] || costOk(a.bestCost[k], b.bestCost[k]), "seed $seed k=$k ${a.bestCost[k]} vs ${b.bestCost[k]}")
+                assertEquals(a.bestCost[k].isFinite(), a.bestSource[k] >= 0)
+                if (a.bestSource[k] >= 0) assertTrue(costs[a.bestSource[k]] <= a.bestCost[k] + 1e-9)
+            }
+            assertTrue(stats.contains("unionSize="))
         }
     }
 

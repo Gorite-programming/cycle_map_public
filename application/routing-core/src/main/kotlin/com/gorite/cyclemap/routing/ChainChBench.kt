@@ -8,6 +8,7 @@ object ChainChBenchMain { @JvmStatic fun main(args: Array<String>) = mainBenchma
 
 /** args: graphs(comma) chs(comma) odCount seed. Compares the A* chain (routeAcrossGraphs for 2 graphs) against routeAcrossChainCh. */
 fun mainBenchmarkChainCh(args: Array<String>) {
+    if (args[0] == "--many") return benchmarkSearchMany(args)
     val graphFiles = args[0].split(',').map { File(it.trim()) }
     val chFiles = args[1].split(',').map { File(it.trim()) }
     require(graphFiles.size >= 2 && graphFiles.size == chFiles.size)
@@ -46,6 +47,7 @@ fun mainBenchmarkChainCh(args: Array<String>) {
         val stages = linkedMapOf<String, Double>()
         val t0 = System.nanoTime()
         val c = routeAcrossChainCh(chGraphs(), start, goal) { line ->
+            if (!line.contains("name=") || !line.contains(" ms=")) return@routeAcrossChainCh
             stages[line.substringAfter("name=").substringBefore(' ')] = line.substringAfter("ms=").toDouble()
         } ?: error("CH missing for a graph (null result)")
         val cMs = (System.nanoTime() - t0) / 1e6
@@ -73,4 +75,31 @@ fun mainBenchmarkChainCh(args: Array<String>) {
     if (aTimes.isNotEmpty()) { println("CH per-stage average ms:"); stageSums.forEach { (k, v) -> println("  $k=%.1f".format(v / aTimes.size)) } }
     report.forEach(::println)
     if (mismatches > 0) exitProcess(1)
+}
+
+/** args: --many graph ch [sources=2000] [targets=6000] [seed]. Times searchMany (RPHAST) against the per-target Dijkstra. */
+private fun benchmarkSearchMany(args: Array<String>) {
+    val graphFile = File(args[1]); val chFile = File(args[2])
+    val ns = args.getOrNull(3)?.toInt() ?: 2000; val nt = args.getOrNull(4)?.toInt() ?: 6000
+    val rnd = java.util.Random(args.getOrNull(5)?.toLong() ?: 7L)
+    val ch = ContractionHierarchy.open(chFile, graphFile)
+    val n = ch.nodeCount
+    val cluster = args.getOrNull(6) == "cluster"; val base = rnd.nextInt(n - ns * 20)
+    val sources = IntArray(ns) { if (cluster) base + rnd.nextInt(ns * 20) else rnd.nextInt(n) }; val costs = DoubleArray(ns) { rnd.nextDouble() * 20000 }; val targets = IntArray(nt) { rnd.nextInt(n) }
+    fun time(f: () -> ContractionHierarchy.ManyResult): Pair<Double, ContractionHierarchy.ManyResult> { val t = System.nanoTime(); val r = f(); return (System.nanoTime() - t) / 1e6 to r }
+    val oldFirstFlag = args.getOrNull(7) == "oldfirst"
+    var oldRes: Pair<Double, ContractionHierarchy.ManyResult>? = null
+    if (oldFirstFlag) oldRes = time { ch.searchManyDijkstra(sources, costs, targets) }
+    val (newFirst, rn) = time { ch.searchMany(sources, costs, targets) }
+    val firstStats = ch.lastManyStats
+    val (oldFirst, ro) = oldRes ?: time { ch.searchManyDijkstra(sources, costs, targets) }
+    val newWarm = (1..5).map { time { ch.searchMany(sources, costs, targets) }.first }
+    val oldWarm = (1..3).map { time { ch.searchManyDijkstra(sources, costs, targets) }.first }
+    var bad = 0
+    for (k in targets.indices) { val a = rn.bestCost[k]; val b = ro.bestCost[k]; if (!(a == b || abs(a - b) <= abs(b) * 1e-9)) bad++ }
+    println("nodes=$n sources=$ns targets=$nt mismatches=$bad")
+    println("new first=%.0fms warm(min/avg)=%.0f/%.0fms".format(newFirst, newWarm.min(), newWarm.average()))
+    println("old first=%.0fms warm(min/avg)=%.0f/%.0fms".format(oldFirst, oldWarm.min(), oldWarm.average()))
+    println("new stats: $firstStats")
+    if (bad > 0) exitProcess(1)
 }
