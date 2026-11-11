@@ -6,6 +6,7 @@
   2. OSM    : Geofabrik の中国地方 PBF (chugoku-latest) を `data/` に取得 (または --source-pbf)
   3. 検索DB : sandbox/data-tool/rebuild_all.py (OSM 切り出し → 取り込み → Overture → 統合 → 書き出し)
   4. graph  : build_prefectures.py をステージング (work/refresh/<日時>/packages) に出力
+  4b. CH    : build_ch.py (graph ごとの Contraction Hierarchies、<県>.graph.ch。ZIP の外の別成果物)
   5. タイル : build_tiles.py (Protomaps 最新ビルド) をステージングに出力
   6. 検証   : 県ごとに 検索DBの整合・件数の増減・graph のサイズ・ZIP の構成・タイルの検証、
              経路の回帰チェック (新旧 graph で同じ OD を引き、到達率と距離の中央値を比べる)
@@ -194,6 +195,12 @@ def build_graphs(pbf, names, stage, log):
              "--only", ",".join(names)], log, env=env)
 
 
+def build_ch(names, stage, log):
+    """CH (<県>.graph.ch) を、ステージングの ZIP から作る。ZIP の外の別成果物。"""
+    run_cmd([sys.executable, ROOT / "scripts" / "build_ch.py", "--only", ",".join(names), "--force",
+             "--source-dir", stage / "packages", "--out", stage / "packages"], log)
+
+
 def build_tiles(names, stage, log):
     run_cmd([sys.executable, ROOT / "scripts" / "build_tiles.py", "--only", ",".join(names),
              "--force", "--out", stage / "packages"], log)
@@ -346,6 +353,9 @@ def promote(name, stage, with_tiles=True):
     lower = name.lower()
     PACKAGES.mkdir(exist_ok=True)
     pairs = [(stage / "packages" / ("%s.zip" % name), PACKAGES / ("%s.zip" % name))]
+    ch = stage / "packages" / ("%s.graph.ch" % name)
+    if ch.is_file():  # graph を作り直したのに古い CH が残ると、識別が合わず使われない。新しいものに置き換える
+        pairs.append((ch, PACKAGES / ("%s.graph.ch" % name)))
     if with_tiles:
         pairs.append((stage / "packages" / ("%s.pmtiles" % lower), PACKAGES / ("%s.pmtiles" % lower)))
     for src, dest in pairs:
@@ -410,7 +420,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
     ap.add_argument("--source-pbf", type=Path, help="使う OSM PBF (省略時は Geofabrik の chugoku-latest を取得)")
-    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,tiles,regression")
+    ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,ch,tiles,regression")
     ap.add_argument("--overture-release", help="Overture の版 (例 2026-09-23.1)。'latest' で最新")
     ap.add_argument("--dry-run", action="store_true", help="計画だけ表示する")
     args = ap.parse_args()
@@ -428,7 +438,7 @@ def main():
 
     print("対象: %s / 省略: %s / ステージング: %s" % (",".join(names), ",".join(sorted(skip)) or "なし", stage))
     if args.dry_run:
-        print("計画: 事前確認 → 退避 → OSM取得 → 検索DB → graph → タイル → 検証 → 昇格 → 記録 (何も実行しません)")
+        print("計画: 事前確認 → 退避 → OSM取得 → 検索DB → graph → CH → タイル → 検証 → 昇格 → 記録 (何も実行しません)")
         return 0
 
     stage.mkdir(parents=True, exist_ok=True)
@@ -459,6 +469,8 @@ def main():
         steps.run("検索DB", lambda: rebuild_search_dbs(pbf, names, args.overture_release, log))
     if "graph" not in skip:
         steps.run("graph", lambda: build_graphs(pbf, names, stage, log))
+    if "graph" not in skip and "ch" not in skip:
+        steps.run("CH", lambda: build_ch(names, stage, log))
     if "tiles" not in skip:
         steps.run("タイル", lambda: build_tiles(names, stage, log))
 
