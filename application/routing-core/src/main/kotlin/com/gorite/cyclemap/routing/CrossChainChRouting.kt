@@ -82,6 +82,7 @@ fun routeAcrossChainCh(
             else { sources = IntArray(seeds.size) { seeds[it].index }; costs = DoubleArray(seeds.size) { seeds[it].cost } }
             val many = ch.searchMany(sources, costs, portals.aIndices)
             if (i == 0) startNanos += System.nanoTime() - searchStarted else middleNanos += System.nanoTime() - searchStarted
+            stageTimingSink?.invoke("CHAIN_DETAIL stage=$i ${ch.lastManyStats}")
             val outSeeds = ArrayList<ChSeed>()
             val ids = ArrayList<Long>(); val indices = ArrayList<Int>(); val seedIds = ArrayList<Long>(); val seedIndices = ArrayList<Int>()
             for (p in 0 until portals.size) {

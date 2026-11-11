@@ -282,7 +282,9 @@ class ContractionHierarchy private constructor(
         val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
         val bestSource = IntArray(targets.size) { -1 }
         if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        val t0 = System.nanoTime()
         val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
+        val t1 = System.nanoTime(); var settledF = 0; var settledB = 0L
         w.beginForward()
         for (i in sources.indices) {
             val s = sources[i]; require(s in 0 until nodeCount); val c = sourceCosts[i]
@@ -291,12 +293,13 @@ class ContractionHierarchy private constructor(
         while (!w.emptyF()) {
             val v = w.popF(); val d = w.poppedCost
             if (d > w.f(v)) continue
-            val seed = w.seed(v)
+            val seed = w.seed(v); settledF++
             for (e in store.off(v) until store.off(v + 1)) {
                 val x = store.upT(e); val nd = d + store.upC(e)
                 if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
             }
         }
+        val t2 = System.nanoTime()
         for (k in targets.indices) {
             val t = targets[k]; require(t in 0 until nodeCount)
             w.beginBackward(); w.setB(t, 0.0); w.pushB(t, 0.0)
@@ -305,6 +308,7 @@ class ContractionHierarchy private constructor(
                 val v = w.popB(); val d = w.poppedCost
                 if (d > w.b(v)) continue
                 if (d >= best) break
+                settledB++
                 val fv = w.f(v)
                 if (fv + d < best) { best = fv + d; bestSeed = w.seed(v) }
                 for (e in store.roff(v) until store.roff(v + 1)) {
@@ -314,8 +318,12 @@ class ContractionHierarchy private constructor(
             }
             bestCost[k] = best; bestSource[k] = bestSeed
         }
+        val t3 = System.nanoTime()
+        lastManyStats = "sources=${sources.size} targets=${targets.size} allocMs=${(t1 - t0) / 1_000_000} fwdMs=${(t2 - t1) / 1_000_000} settledF=$settledF bwdMs=${(t3 - t2) / 1_000_000} settledB=$settledB"
         return ManyResult(bestCost, bestSource)
     }
+
+    @Volatile internal var lastManyStats: String = ""
 
     private class ManyWorkspace(n: Int) {
         private val genF = IntArray(n); private val genB = IntArray(n); private var gf = 0; private var gb = 0
