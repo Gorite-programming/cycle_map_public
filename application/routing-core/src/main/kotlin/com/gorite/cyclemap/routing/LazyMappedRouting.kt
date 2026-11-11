@@ -415,6 +415,65 @@ class LazyMappedRoadGraph private constructor(
         return result
     }
 
+    /** CH 問い合わせの最小インターフェース (テストで差し替え可能にするため)。 */
+    internal fun interface ChQuery {
+        fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult
+    }
+
+    @Volatile private var chQuery: ChQuery? = null
+
+    /** 直近の route() が使った探索エンジン ("ch" / "astar")。ログ用。 */
+    @Volatile var lastEngine: String = "astar"
+        private set
+
+    /** 直近の CH 問い合わせ (経路展開まで) の所要ミリ秒。ログ用 (CH を使わなかったときは -1)。 */
+    @Volatile var lastChQueryMillis: Long = -1
+        private set
+
+    /** Contraction Hierarchies を取り付ける (null で外す)。CH は 自転車×おすすめ の既定条件の問い合わせだけに使う。 */
+    fun attachContractionHierarchy(ch: ContractionHierarchy?) {
+        chQuery = if (ch == null) null else ChQuery { s, g, gr -> ch.route(s, g, gr) }
+    }
+
+    internal fun attachChQuery(query: ChQuery?) { chQuery = query }
+
+    val hasContractionHierarchy: Boolean get() = chQuery != null
+
+    /** CH を使える条件が揃い、かつ成功したときだけ結果を返す。それ以外は null (呼び出し側が A* を実行する)。 */
+    private fun chRouteIfApplicable(
+        start: Int, goal: Int, bounds: SearchBounds?, heuristicMultiplier: Double, arterialOnly: Boolean,
+        arterialPenaltyMultiplier: Double, nonArterialPenaltyMultiplier: Double,
+        isCancelled: (() -> Boolean)?, preference: RoutePreference, costMode: RouteCostMode,
+    ): MappedRouteResult? {
+        val query = chQuery ?: return null
+        if (preference != RoutePreference.RECOMMENDED || costMode != RouteCostMode.BICYCLE || bounds != null ||
+            heuristicMultiplier != 1.0 || arterialOnly || arterialPenaltyMultiplier != 1.0 || nonArterialPenaltyMultiplier != 1.0
+        ) return null
+        if (isCancelled?.invoke() == true) {
+            lastExpandedNodes = 0
+            lastEngine = "ch"
+            return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
+        }
+        val queryStarted = System.nanoTime()
+        val r = try {
+            query.route(start, goal, this).also {
+                lastChQueryMillis = (System.nanoTime() - queryStarted) / 1_000_000
+            }
+        } catch (e: Exception) {
+            System.err.println("CycleMapGraph CH_QUERY_FAILED start=$start goal=$goal error=$e; falling back to A*")
+            return null
+        }
+        lastExpandedNodes = 0
+        lastEngine = "ch"
+        if (!r.isReachable) return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+        val path = r.nodeIndices
+        return MappedRouteResult(
+            path.map { nodeIds[it] }, r.totalDistance, r.totalCost,
+            path.map { latitudes[it] to longitudes[it] },
+            nodeIndices = path.toList(),
+        )
+    }
+
     fun route(
         start: Int,
         goal: Int,
@@ -437,6 +496,12 @@ class LazyMappedRoadGraph private constructor(
             lastExpandedNodes = 0
             return MappedRouteResult(listOf(nodeIds[start]), 0.0, 0.0, listOf(latitudes[start] to longitudes[start]), nodeIndices = listOf(start))
         }
+        chRouteIfApplicable(
+            start, goal, bounds, heuristicMultiplier, arterialOnly,
+            arterialPenaltyMultiplier, nonArterialPenaltyMultiplier, isCancelled, preference, costMode,
+        )?.let { return it }
+        lastEngine = "astar"
+        lastChQueryMillis = -1
         val types = edgeTypeCodes()
         val multipliers = multiplierTable(costMode)
         val ws = acquireWorkspace()

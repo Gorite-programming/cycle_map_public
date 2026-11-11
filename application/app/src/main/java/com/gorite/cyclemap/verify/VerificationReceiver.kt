@@ -7,6 +7,7 @@ import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
 import com.gorite.cyclemap.data.AddressDisplayController
+import com.gorite.cyclemap.navigation.loadContractionHierarchy
 import com.gorite.cyclemap.data.AddressResult
 import com.gorite.cyclemap.data.OfflineReverseGeocoder
 import com.gorite.cyclemap.data.SearchDbReverseGeocoder
@@ -234,6 +235,7 @@ class VerificationRunner(private val context: Context) {
         }
         val t0 = SystemClock.elapsedRealtimeNanos()
         val graph = LazyMappedRoadGraph.load(graphFile)
+        loadContractionHierarchy(graph, graphFile)
         out("GRAPH loaded nodes=${graph.nodeCount} edges=${graph.edgeCount} loadMs=${(SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000}")
         return graph
     }
@@ -409,6 +411,7 @@ class VerificationRunner(private val context: Context) {
         )
         try {
             val graph = LazyMappedRoadGraph.load(graphFile, graphIndex)
+            loadContractionHierarchy(graph, graphFile)
             try {
                 for (c in cases) {
                     out("GUIDE REQUEST case=${c.label} start=${c.sLat},${c.sLon} goal=${c.gLat},${c.gLon}")

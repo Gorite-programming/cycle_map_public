@@ -162,16 +162,71 @@ data class GraphFingerprint(val size: Long, val firstCrc: Long, val lastCrc: Lon
     }
 }
 
-/** Compact hierarchy: exactly one 16-byte record per arc across upward and downward CSR. */
+/** Read access to hierarchy arrays: heap arrays (read/create) or a memory-mapped file (open). */
+internal interface ChStore {
+    val upCount: Int
+    val downCount: Int
+    fun rank(v: Int): Int
+    fun off(v: Int): Int
+    fun roff(v: Int): Int
+    fun upT(e: Int): Int
+    fun upC(e: Int): Double
+    fun upM(e: Int): Int
+    fun downT(e: Int): Int
+    fun downC(e: Int): Double
+    fun downM(e: Int): Int
+}
+
+private class ArrayChStore(
+    val rank: IntArray,
+    val offsets: IntArray, val upTargets: IntArray, val upCosts: DoubleArray, val upMiddles: IntArray,
+    val reverseOffsets: IntArray, val downTargets: IntArray, val downCosts: DoubleArray, val downMiddles: IntArray,
+) : ChStore {
+    override val upCount get() = upTargets.size
+    override val downCount get() = downTargets.size
+    override fun rank(v: Int) = rank[v]
+    override fun off(v: Int) = offsets[v]
+    override fun roff(v: Int) = reverseOffsets[v]
+    override fun upT(e: Int) = upTargets[e]
+    override fun upC(e: Int) = upCosts[e]
+    override fun upM(e: Int) = upMiddles[e]
+    override fun downT(e: Int) = downTargets[e]
+    override fun downC(e: Int) = downCosts[e]
+    override fun downM(e: Int) = downMiddles[e]
+}
+
+/** Zero-heap view over the VERSION 2 file layout (big-endian). Offsets are validated at open time. */
+private class MappedChStore(private val buf: java.nio.MappedByteBuffer, n: Int, override val upCount: Int, override val downCount: Int) : ChStore {
+    private val rankBase = HEADER_BYTES
+    private val offBase = rankBase + 4 * n
+    private val roffBase = offBase + 4 * (n + 1)
+    private val upBase = roffBase + 4 * (n + 1)
+    private val downBase = upBase + 16 * upCount
+    val endOffset = downBase + 16 * downCount
+    override fun rank(v: Int) = buf.getInt(rankBase + 4 * v)
+    override fun off(v: Int) = buf.getInt(offBase + 4 * v)
+    override fun roff(v: Int) = buf.getInt(roffBase + 4 * v)
+    override fun upT(e: Int) = buf.getInt(upBase + 16 * e)
+    override fun upC(e: Int) = buf.getDouble(upBase + 16 * e + 4)
+    override fun upM(e: Int) = buf.getInt(upBase + 16 * e + 12)
+    override fun downT(e: Int) = buf.getInt(downBase + 16 * e)
+    override fun downC(e: Int) = buf.getDouble(downBase + 16 * e + 4)
+    override fun downM(e: Int) = buf.getInt(downBase + 16 * e + 12)
+    companion object { const val HEADER_BYTES = 44 }
+}
+
+/** Compact hierarchy: exactly one 16-byte record per arc across upward and downward CSR. Use [open] for a mmap-backed instance. */
 class ContractionHierarchy private constructor(
     val nodeCount: Int,
-    private val rank: IntArray,
-    private val offsets: IntArray, private val upTargets: IntArray, private val upCosts: DoubleArray, private val upMiddles: IntArray,
-    private val reverseOffsets: IntArray, private val downTargets: IntArray, private val downCosts: DoubleArray, private val downMiddles: IntArray,
+    private val store: ChStore,
     private val fingerprint: GraphFingerprint,
-) {
-    val edgeCount: Int get() = upTargets.size
+    private val channel: FileChannel? = null,
+) : AutoCloseable {
+    val edgeCount: Int get() = store.upCount
     private val ws = QueryWorkspace(nodeCount)
+
+    /** mmap 版では参照を捨てるだけ (MappedByteBuffer は明示解放できない)。ヒープ版では何もしない。 */
+    override fun close() { channel?.close() }
 
     @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
         require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
@@ -184,20 +239,20 @@ class ContractionHierarchy private constructor(
             if (expandF && (!expandB || ws.minF() <= ws.minB())) {
                 val (v, d) = ws.popF(); if (d > ws.fCost(v)) continue
                 if (d + ws.bCost(v) < best) { best = d + ws.bCost(v); meet = v }
-                for (e in offsets[v] until offsets[v + 1]) { val w = upTargets[e]; val nd = d + upCosts[e]; if (nd < ws.fCost(w)) { ws.setF(w, nd, e); ws.pushF(w, nd); if (nd + ws.bCost(w) < best) { best = nd + ws.bCost(w); meet = w } } }
+                for (e in store.off(v) until store.off(v + 1)) { val w = store.upT(e); val nd = d + store.upC(e); if (nd < ws.fCost(w)) { ws.setF(w, nd, e); ws.pushF(w, nd); if (nd + ws.bCost(w) < best) { best = nd + ws.bCost(w); meet = w } } }
             } else {
                 val (v, d) = ws.popB(); if (d > ws.bCost(v)) continue
                 if (d + ws.fCost(v) < best) { best = d + ws.fCost(v); meet = v }
-                for (e in reverseOffsets[v] until reverseOffsets[v + 1]) { val w = downTargets[e]; val nd = d + downCosts[e]; if (nd < ws.bCost(w)) { ws.setB(w, nd, e); ws.pushB(w, nd); if (nd + ws.fCost(w) < best) { best = nd + ws.fCost(w); meet = w } } }
+                for (e in store.roff(v) until store.roff(v + 1)) { val w = store.downT(e); val nd = d + store.downC(e); if (nd < ws.bCost(w)) { ws.setB(w, nd, e); ws.pushB(w, nd); if (nd + ws.fCost(w) < best) { best = nd + ws.fCost(w); meet = w } } }
             }
         }
         if (meet < 0 || best.isInfinite()) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
         val path = IntArrayList(); path.add(start); var v = meet; var guard = 0
         val upPath = IntArrayList()
         while (v != start) { check(++guard <= nodeCount); val e = ws.fEdge(v); check(e >= 0); upPath.add(e); v = edgeSource(e) }
-        for (i in upPath.size - 1 downTo 0) unpack(edgeSource(upPath[i]), upTargets[upPath[i]], upMiddles[upPath[i]], graph, path)
+        for (i in upPath.size - 1 downTo 0) unpack(edgeSource(upPath[i]), store.upT(upPath[i]), store.upM(upPath[i]), graph, path)
         v = meet; guard = 0
-        while (v != goal) { check(++guard <= nodeCount); val e = ws.bEdge(v); check(e >= 0); val low = downOwner(e); unpack(v, low, downMiddles[e], graph, path); v = low }
+        while (v != goal) { check(++guard <= nodeCount); val e = ws.bEdge(v); check(e >= 0); val low = downOwner(e); unpack(v, low, store.downM(e), graph, path); v = low }
         var totalDistance = 0.0
         val cursor = graph.newRoutingEdgeCursor()
         for (i in 0 until path.size - 1) {
@@ -212,8 +267,8 @@ class ContractionHierarchy private constructor(
         return ChRouteResult(path.toArray(), best, totalDistance)
     }
 
-    private fun edgeSource(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (offsets[mid + 1] <= edge) lo = mid + 1 else hi = mid }; return lo }
-    private fun downOwner(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (reverseOffsets[mid + 1] <= edge) lo = mid + 1 else hi = mid }; return lo }
+    private fun edgeSource(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (store.off(mid + 1) <= edge) lo = mid + 1 else hi = mid }; return lo }
+    private fun downOwner(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (store.roff(mid + 1) <= edge) lo = mid + 1 else hi = mid }; return lo }
     private fun unpack(from: Int, to: Int, middle: Int, graph: LazyMappedRoadGraph, out: IntArrayList) {
         val stackA = IntArrayList(); val stackB = IntArrayList(); val stackMid = IntArrayList(); stackA.add(from); stackB.add(to); stackMid.add(middle)
         var steps = 0
@@ -223,12 +278,12 @@ class ContractionHierarchy private constructor(
             if (m < 0) { out.add(b); continue }
             val left = findDown(m, a); val right = findUp(m, b)
             check(left >= 0 && right >= 0) { "Missing shortcut child for $a->$b via $m" }
-            stackA.add(m); stackB.add(b); stackMid.add(upMiddles[right])
-            stackA.add(a); stackB.add(m); stackMid.add(downMiddles[left])
+            stackA.add(m); stackB.add(b); stackMid.add(store.upM(right))
+            stackA.add(a); stackB.add(m); stackMid.add(store.downM(left))
         }
     }
-    private fun findUp(owner: Int, target: Int): Int { var selected = -1; for (e in offsets[owner] until offsets[owner + 1]) if (upTargets[e] == target && (selected < 0 || upCosts[e] < upCosts[selected])) selected = e; return selected }
-    private fun findDown(owner: Int, target: Int): Int { var selected = -1; for (e in reverseOffsets[owner] until reverseOffsets[owner + 1]) if (downTargets[e] == target && (selected < 0 || downCosts[e] < downCosts[selected])) selected = e; return selected }
+    private fun findUp(owner: Int, target: Int): Int { var selected = -1; for (e in store.off(owner) until store.off(owner + 1)) if (store.upT(e) == target && (selected < 0 || store.upC(e) < store.upC(selected))) selected = e; return selected }
+    private fun findDown(owner: Int, target: Int): Int { var selected = -1; for (e in store.roff(owner) until store.roff(owner + 1)) if (store.downT(e) == target && (selected < 0 || store.downC(e) < store.downC(selected))) selected = e; return selected }
 
     private class QueryWorkspace(n: Int) {
         private val genF = IntArray(n); private val genB = IntArray(n); private var generation = 0; private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val pf = IntArray(n); private val pb = IntArray(n); private val qf = MinHeap(); private val qb = MinHeap()
@@ -243,12 +298,15 @@ class ContractionHierarchy private constructor(
     private class IntArrayList { private var a = IntArray(16); var size = 0; private set; operator fun get(i: Int) = a[i]; fun add(v: Int) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = v }; fun removeLast() = a[--size]; fun toArray() = a.copyOf(size) }
 
     fun write(file: File) {
-        DataOutputStream(FileOutputStream(file)).use { o ->
-            o.writeInt(MAGIC); o.writeInt(VERSION); o.writeInt(nodeCount); o.writeInt(upTargets.size); o.writeInt(downTargets.size)
+        val up = store.upCount; val down = store.downCount
+        DataOutputStream(java.io.BufferedOutputStream(FileOutputStream(file), 1 shl 16)).use { o ->
+            o.writeInt(MAGIC); o.writeInt(VERSION); o.writeInt(nodeCount); o.writeInt(up); o.writeInt(down)
             o.writeLong(fingerprint.size); o.writeLong(fingerprint.firstCrc); o.writeLong(fingerprint.lastCrc)
-            rank.forEach(o::writeInt); offsets.forEach(o::writeInt); reverseOffsets.forEach(o::writeInt)
-            for (e in upTargets.indices) { o.writeInt(upTargets[e]); o.writeDouble(upCosts[e]); o.writeInt(upMiddles[e]) }
-            for (e in downTargets.indices) { o.writeInt(downTargets[e]); o.writeDouble(downCosts[e]); o.writeInt(downMiddles[e]) }
+            for (v in 0 until nodeCount) o.writeInt(store.rank(v))
+            for (v in 0..nodeCount) o.writeInt(store.off(v))
+            for (v in 0..nodeCount) o.writeInt(store.roff(v))
+            for (e in 0 until up) { o.writeInt(store.upT(e)); o.writeDouble(store.upC(e)); o.writeInt(store.upM(e)) }
+            for (e in 0 until down) { o.writeInt(store.downT(e)); o.writeDouble(store.downC(e)); o.writeInt(store.downM(e)) }
         }
     }
 
@@ -276,7 +334,28 @@ class ContractionHierarchy private constructor(
             for (i in 1..n) { offsets[i] += offsets[i - 1]; reverseOffsets[i] += reverseOffsets[i - 1] }
             val upT = IntArray(upCount); val upC = DoubleArray(upCount); val upM = IntArray(upCount) { -1 }; val downT = IntArray(downCount); val downC = DoubleArray(downCount); val downM = IntArray(downCount) { -1 }; val uFill = offsets.copyOf(); val dFill = reverseOffsets.copyOf()
             for (i in 0 until unique) { val e = chosen[i]; if (ranks[from[e]] < ranks[to[e]]) { val at = uFill[from[e]]++; upT[at] = to[e]; upC[at] = cost[e]; upM[at] = middle[e] } else { val at = dFill[to[e]]++; downT[at] = from[e]; downC[at] = cost[e]; downM[at] = middle[e] } }
-            return ContractionHierarchy(n, ranks.copyOf(), offsets, upT, upC, upM, reverseOffsets, downT, downC, downM, fingerprint)
+            return ContractionHierarchy(n, ArrayChStore(ranks.copyOf(), offsets, upT, upC, upM, reverseOffsets, downT, downC, downM), fingerprint)
+        }
+        /** ヒープに載せず mmap で直接読む。graph 識別が一致しなければ IllegalArgumentException。 */
+        fun open(file: File, graphFile: File): ContractionHierarchy = open(file, GraphFingerprint.fromFile(graphFile))
+        internal fun open(file: File, expected: GraphFingerprint): ContractionHierarchy {
+            val channel = FileChannel.open(file.toPath(), java.nio.file.StandardOpenOption.READ)
+            try {
+                val size = channel.size()
+                check(size <= Int.MAX_VALUE) { "CH file too large for single mmap (>2GiB): $size" }
+                check(size >= MappedChStore.HEADER_BYTES) { "Invalid CH file" }
+                val buf = channel.map(FileChannel.MapMode.READ_ONLY, 0, size)
+                check(buf.getInt(0) == MAGIC && buf.getInt(4) == VERSION) { "Invalid CH file" }
+                val n = buf.getInt(8); val up = buf.getInt(12); val down = buf.getInt(16)
+                val actual = GraphFingerprint(buf.getLong(20), buf.getLong(28), buf.getLong(36))
+                require(actual == expected) { "CH graph fingerprint mismatch: CH=$actual graph=$expected" }
+                require(n >= 0 && up >= 0 && down >= 0)
+                val total = MappedChStore.HEADER_BYTES.toLong() + 4L * n + 8L * (n + 1) + 16L * up + 16L * down
+                check(total == size) { "CH file size mismatch: expected=$total actual=$size" }
+                val store = MappedChStore(buf, n, up, down)
+                require(store.off(0) == 0 && store.off(n) == up && store.roff(0) == 0 && store.roff(n) == down)
+                return ContractionHierarchy(n, store, actual, channel)
+            } catch (t: Throwable) { channel.close(); throw t }
         }
         fun read(file: File, graphFile: File): ContractionHierarchy = read(file, GraphFingerprint.fromFile(graphFile))
         internal fun read(file: File, expected: GraphFingerprint): ContractionHierarchy {
@@ -288,7 +367,7 @@ class ContractionHierarchy private constructor(
                 require(offsets.first() == 0 && offsets.last() == up && reverseOffsets.first() == 0 && reverseOffsets.last() == down)
                 val upT = IntArray(up); val upC = DoubleArray(up); val upM = IntArray(up); for (e in 0 until up) { upT[e] = i.readInt(); upC[e] = i.readDouble(); upM[e] = i.readInt() }
                 val downT = IntArray(down); val downC = DoubleArray(down); val downM = IntArray(down); for (e in 0 until down) { downT[e] = i.readInt(); downC[e] = i.readDouble(); downM[e] = i.readInt() }
-                return ContractionHierarchy(n, rank, offsets, upT, upC, upM, reverseOffsets, downT, downC, downM, actual)
+                return ContractionHierarchy(n, ArrayChStore(rank, offsets, upT, upC, upM, reverseOffsets, downT, downC, downM), actual)
             }
         }
     }

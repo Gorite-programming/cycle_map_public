@@ -97,6 +97,37 @@ class ContractionHierarchyTest {
         }
     }
 
+    @Test fun mmapOpenMatchesHeapReadForEveryPair() {
+        fixture().use { graph ->
+            val chFile = File.createTempFile("ch-test", ".graph.ch").apply { deleteOnExit() }
+            ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph, GraphFingerprint.UNKNOWN).hierarchy.write(chFile)
+            val heap = ContractionHierarchy.read(chFile, GraphFingerprint.UNKNOWN)
+            ContractionHierarchy.open(chFile, GraphFingerprint.UNKNOWN).use { mapped ->
+                assertEquals(heap.nodeCount, mapped.nodeCount); assertEquals(heap.edgeCount, mapped.edgeCount)
+                for (s in 0 until graph.nodeCount) for (g in 0 until graph.nodeCount) {
+                    val h = heap.route(s, g, graph); val m = mapped.route(s, g, graph)
+                    assertEquals(h.isReachable, m.isReachable, "$s->$g")
+                    assertTrue(h.nodeIndices.contentEquals(m.nodeIndices), "$s->$g ${h.nodeIndices.contentToString()} vs ${m.nodeIndices.contentToString()}")
+                    assertEquals(h.totalCost, m.totalCost); assertEquals(h.totalDistance, m.totalDistance)
+                }
+                // A mapped instance can be re-serialized byte for byte.
+                val again = File.createTempFile("ch-test2", ".graph.ch").apply { deleteOnExit() }
+                mapped.write(again); assertTrue(chFile.readBytes().contentEquals(again.readBytes()))
+            }
+        }
+    }
+
+    @Test fun graphIdentityMismatchRejectsOpen() {
+        fixture().use { graph ->
+            val chFile = File.createTempFile("ch-test", ".graph.ch").apply { deleteOnExit() }
+            val sourceGraph = File.createTempFile("ch-source", ".graph").apply { writeText("source graph A"); deleteOnExit() }
+            val otherGraph = File.createTempFile("ch-other", ".graph").apply { writeText("source graph B"); deleteOnExit() }
+            ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph, GraphFingerprint.fromFile(sourceGraph)).hierarchy.write(chFile)
+            ContractionHierarchy.open(chFile, sourceGraph).close()
+            kotlin.test.assertFailsWith<IllegalArgumentException> { ContractionHierarchy.open(chFile, otherGraph) }
+        }
+    }
+
     @Test fun directedCyclicGraphMatchesAStarForEveryPair() {
         // A denser directed graph creates several alternative upward peaks and forces
         // backward CH search to traverse the reverse of upward arcs.

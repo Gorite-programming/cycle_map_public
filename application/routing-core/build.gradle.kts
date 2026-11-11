@@ -67,9 +67,18 @@ tasks.register<JavaExec>("buildCh") {
 
 tasks.register<JavaExec>("benchmarkCh") {
     group = "verification"
-    description = "Compare S1 CH against production A*"
+    description = "Compare S1 CH against production A* (-Pmmap=true|only also exercises ContractionHierarchy.open)"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.gorite.cyclemap.routing.ChBenchmarkMain")
+    jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
+    doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("ch") as String? ?: error("-Pch=<.graph.ch> required"), (project.findProperty("od") ?: "1000").toString(), (project.findProperty("seed") ?: "20261108").toString(), (project.findProperty("mmap") ?: "false").toString()) }
+}
+
+tasks.register<JavaExec>("benchmarkAttach") {
+    group = "verification"
+    description = "Compare LazyMappedRoadGraph.route with an attached CH against plain A* (same graph)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.routing.AttachBenchMain")
     jvmArgs("-Xmx${project.findProperty("heap") ?: "2g"}")
     doFirst { args(project.findProperty("graph") as String? ?: error("-Pgraph=<.graph> required"), project.findProperty("ch") as String? ?: error("-Pch=<.graph.ch> required"), (project.findProperty("od") ?: "1000").toString(), (project.findProperty("seed") ?: "20261108").toString()) }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 実機 (adb 接続の debug ビルド) で経路計算の回帰を 3 ケース実行し、結果表を出す。
-# 同県 / 2 県 / 3 県。各ケースはアプリを再起動して、SIMLOC を送り続けながら
+# in-pref (広島県内のみ, CH 対象) / same-pref (実際は山口→広島の県またぎ) / 2-pref / 3-pref。各ケースはアプリを再起動して、SIMLOC を送り続けながら
 # 目的地へカメラを動かして長押しし、ROUTE_RESULT / ROUTE_FAILURE を待つ。
 # 失敗 (結果なし・success=false・OOM) があれば非 0 で終了する。端末設定は変えない。
 # 使い方: scripts/device_regression.sh [--timeout 90]
@@ -12,6 +12,7 @@ TIMEOUT=90
 
 # name | 出発 lat,lon | 目的地 lat,lon
 CASES=(
+  "in-pref|34.39,132.46|34.49,133.36"
   "same-pref|34.05,131.0|34.17,132.22"
   "2-pref|34.05,131.0|34.39,132.46"
   "3-pref|34.05,131.0|34.666,133.918"
@@ -26,6 +27,7 @@ printf "%-10s %-8s %-9s %-10s %-12s %-12s %s\n" case result totalMs distM cost p
 fail=0
 for c in "${CASES[@]}"; do
   IFS='|' read -r name from to <<<"$c"
+  [ -n "${ONLY:-}" ] && [ "$name" != "$ONLY" ] && continue
   flat=${from%,*}; flon=${from#*,}; tlat=${to%,*}; tlon=${to#*,}
   adb shell am force-stop $PKG; adb logcat -c
   adb shell am start -n "$ACT" >/dev/null 2>&1
@@ -48,7 +50,8 @@ for c in "${CASES[@]}"; do
     dist=$(grep -o "routeDistanceM=[0-9.]*" <<<"$res" | cut -d= -f2)
     cost=$(grep -o "routeCost=[0-9.]*" <<<"$res" | cut -d= -f2)
     hash=$(grep -o "pathHash=-\?[0-9]*" <<<"$res" | cut -d= -f2)
-    printf "%-10s %-8s %-9s %-10s %-12s %-12s\n" "$name" OK "${total:--}" "$dist" "$cost" "$hash"
+    eng=$(grep -o "engine=[a-z]*" <<<"$res" | cut -d= -f2)
+    printf "%-10s %-8s %-9s %-10s %-12s %-12s %s\n" "$name" OK "${total:--}" "$dist" "$cost" "$hash" "engine=${eng:--}"
   else
     note=$(grep -oE "reason=[a-z_-]+" <<<"$res" | head -1)
     grep -q "OutOfMemory" <<<"$log" && note="$note OOM"

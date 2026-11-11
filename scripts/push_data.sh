@@ -11,6 +11,7 @@
 #   - <Prefecture>.search.db (Overture + MLIT + OSM integrated POI search database)
 #   - <Prefecture>.graph     (OSM routing graph)
 #   - <Prefecture>.graph.idx (Routing graph node index)
+#   - <Prefecture>.graph.ch  (Contraction Hierarchies sidecar; optional, app falls back to A*)
 #   - <prefecture>.pmtiles   (Offline vector map tiles; built by scripts/build_tiles.py)
 #   - <prefecture>.contours.pmtiles / <prefecture>.hillshade.pmtiles (terrain overlays; built by scripts/build_terrain.py)
 #
@@ -203,6 +204,22 @@ for pref in "${PREFS[@]}"; do
         fi
         if [[ -s "$idx_staged" ]]; then
             files_to_push+=("$idx_staged")
+        fi
+
+        # Contraction Hierarchies sidecar (optional: the app falls back to A* when it is absent).
+        ch_staged="${TMP_STAGE}/${pref}.graph.ch"
+        if [[ -f "$zip_file" ]]; then
+            unzip -p "$zip_file" "${pref}.graph.ch" > "$ch_staged" 2>/dev/null || true
+        fi
+        for ch_src in "${ROOT_DIR}/packages/${pref}.graph.ch" "${ROOT_DIR}/work/${pref}/${pref}.graph.ch" "${ROOT_DIR}/work/codex/ch_out/${pref}.graph.ch"; do
+            if [[ ! -s "$ch_staged" && -f "$ch_src" ]]; then
+                cp -f "$ch_src" "$ch_staged"
+            fi
+        done
+        if [[ -s "$ch_staged" ]]; then
+            files_to_push+=("$ch_staged")
+        else
+            echo "WARNING: No contraction hierarchy (${pref}.graph.ch) for ${pref}; the app will use A* only" >&2
         fi
     fi
 

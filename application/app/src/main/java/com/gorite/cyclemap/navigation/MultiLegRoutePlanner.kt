@@ -69,6 +69,7 @@ internal fun calculateMultiLegCrossRoute(
         val started = SystemClock.elapsedRealtime()
         loadTimingSink = { Log.i("CycleMapGraph", it) }
         val graph = LazyMappedRoadGraph.load(files.first, files.second)
+        loadContractionHierarchy(graph, files.first)
         totalLoadMs += SystemClock.elapsedRealtime() - started
         return graph
     }
@@ -125,6 +126,7 @@ internal fun calculateMultiLegCrossRoute(
                         val loadStarted = SystemClock.elapsedRealtime()
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
                         LazyMappedRoadGraph.load(files.first, files.second).also {
+                            loadContractionHierarchy(it, files.first)
                             totalLoadMs += SystemClock.elapsedRealtime() - loadStarted
                         }
                     }, openIdIndex = {

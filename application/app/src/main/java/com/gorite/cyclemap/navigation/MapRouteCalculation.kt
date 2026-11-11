@@ -260,6 +260,7 @@ internal fun executeRouteCalculation(
             var crossAMs = 0L
             var crossBMs = 0L
             var crossTotalMs = 0L
+            val legEngines = LinkedHashSet<String>()
 
             val pref = currentPreference
 
@@ -319,7 +320,8 @@ internal fun executeRouteCalculation(
                         "ROUTE_SNAP leg=$i startNode=${outcome.startIndex} goalNode=${outcome.goalIndex} pref=$pref " +
                             "fallback=${outcome.usedFallbackSnap} attempts=${outcome.attempts}",
                     )
-                    Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes}")
+                    Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes} engine=${graph.lastEngine} chQueryMs=${graph.lastChQueryMillis}")
+                    legEngines += graph.lastEngine
                     outcome.result
                 }
                 if (routeJob.isCancelled() || legResult.wasCancelled) return@launch
@@ -363,7 +365,8 @@ internal fun executeRouteCalculation(
                 "CycleMapRoute",
                 "ROUTE_RESULT pref=$pref success=${result.isReachable} truncated=${result.wasTruncated} " +
                     "routeNodeCount=${result.nodeIds.size} routeDistanceM=${result.totalDistanceMeters.toInt()} " +
-                    "routeCost=${"%.2f".format(java.util.Locale.US, result.totalCost)} pathHash=${result.nodeIds.hashCode()}",
+                    "routeCost=${"%.2f".format(java.util.Locale.US, result.totalCost)} pathHash=${result.nodeIds.hashCode()} " +
+                    "engine=${if (usedCrossRoute) "astar" else legEngines.joinToString("+").ifEmpty { "astar" }}",
             )
             val richInstructions = crossInstructions ?: env.graphLock.read {
                 if (routeJob.isCancelled()) return@read emptyList<RouteInstruction>()
