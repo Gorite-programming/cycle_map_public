@@ -611,7 +611,7 @@ internal fun VectorMapView(
                     if (spot == null) org.maplibre.android.style.expressions.Expression.literal(true)
                     else org.maplibre.android.style.expressions.Expression.neq(
                         org.maplibre.android.style.expressions.Expression.get("pointKey"),
-                        org.maplibre.android.style.expressions.Expression.literal(poiPointKey(spot.latitude, spot.longitude)),
+                        org.maplibre.android.style.expressions.Expression.literal(spot.name + "|" + poiPointKey(spot.latitude, spot.longitude)),
                     ),
                 )
             }
