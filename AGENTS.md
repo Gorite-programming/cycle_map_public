@@ -6,7 +6,7 @@
 
 - `application/` — 正系統 Gradle プロジェクト(`:app`、`:routing-core`、`:osm-importer`)。`gradlew` はすべて `application/` から実行する。
   - `app/` — Android UI(MVI/UDF設計、Compose、MapLibre 3Dベクター+osmdroid 6.1.20ハイブリッド、play-services-location)。エントリーポイントは `MainActivity.kt`。
-  - `routing-core/` — 純粋 JVM ライブラリ:`RoadGraph`、`AStarRouter`、`CyclingCostModel`、mmap リーダー(`LazyMappedRouting.kt`、`MappedRouting.kt`)。**基準のルーターは A\*。任意の `<name>.graph.ch` (Contraction Hierarchies、`docs/ch_design.md`) があれば「おすすめ×自転車」で CH を優先し、無ければ A\* に戻る。** 県またぎはグラフを結合せず通り口 (共通 OSM ノード) で繋ぐ (`docs/cross_prefecture_design.md`)。実験用だった HSA\*/ALT は削除済み (`90bf751`)。
+  - `routing-core/` — 純粋 JVM ライブラリ:`RoadGraph`、`AStarRouter`、`CyclingCostModel`、mmap リーダー(`LazyMappedRouting.kt`。使われていなかった `MappedRoadGraph` は削除)。**基準のルーターは A\*。任意の `<name>.graph.ch` (Contraction Hierarchies、`docs/ch_design.md`) があれば「おすすめ×自転車」で CH を優先し、無ければ A\* に戻る。** 県またぎはグラフを結合せず通り口 (共通 OSM ノード) で繋ぐ (`docs/cross_prefecture_design.md`)。実験用だった HSA\*/ALT は削除済み (`90bf751`)。
   - `osm-importer/` — JVM CLI(`OsmImporterKt`):OSM `.pbf` → 独自バイナリ `.graph` + サイドカー `.graph.idx`。
 - `Archives/` — 過去系統アーカイブ(`Archives/application/`, `Archives/test/`)。
 - ルートパイプライン:`build_prefectures.py`(中国5県:鳥取・島根・岡山・広島・山口)→県ごとに `<name>.osm.pbf` + `<name>.search.db` + `<name>.graph` / `.idx` + `manifest.json` + `LICENSE.txt` → `packages/<name>.zip`。`sandbox/data-tool/out/` にあるOverture+国交省+OSM統合検索DBをスキーマ検証（PRAGMA integrity_check、必須列、インデックス、件数）の上で自動取り込み。`build_search_db.py` はフォールバック用（`application/osm-importer/build_search_db.py`）。`boundaries/` は行政界ポリゴン(SHA-256 検証付きで自動ダウンロード)。
@@ -43,7 +43,7 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work             # 
 - ルーティング用データ(OSM `.graph`)と表示用データ(地理院タイル)は厳密に分離。Google/OSM ラスターデータをグラフに混ぜない。OSM + 地理院の帰属表示(地図隅 + ライセンス画面)はオフラインでも表示を維持する。
 - データは APK に同梱しない。アプリはアプリ専用外部ストレージ `getExternalFilesDir(DOCUMENTS)/CycleMap/` を見る:`<name>.graph`、`<name>.graph.idx`、`tiles/cache.db`。県の動的切替は対応済み(`RoutingGraphSelector` / `SearchDbSelector` を `Prefectures.kt` に実装)。起動時は配置済みファイルから名前昇順で最初のものを自動探索し、現在地が確定したら対応する県のグラフ/検索DBに自動切替する。
 - `build_prefectures.py` の不変条件:`osmium extract --polygon <boundary> --strategy complete_ways` を使う。importer 呼び出しは `--bbox none`。ZIP 内容は `<name>.search.db` + `<name>.graph` + `<name>.graph.idx` + `manifest.json` + `LICENSE.txt` の5点。有効な ZIP があれば `--force` なしではスキップ。失敗時の作業ディレクトリはデバッグ用に残す。
-- `CyclingCostModel` は `motorway` を除外。最小倍率 0.90 は A\* ヒューリスティックの下限 — JVM 側と `LazyMappedRoadGraph` で同期を保つ。
+- `CyclingCostModel` は `motorway` を除外。自転車の道路の係数・「おすすめ」の勾配の係数・最小倍率 0.90 (A\* ヒューリスティックの下限) は `BicycleCost.kt` の 1 か所にまとめ、`CyclingCostModel` と `LazyMappedRoadGraph` が共有する。変えるときはそこだけを変え、CH (`.graph.ch`) を作り直す (グラフの指紋は係数を含まない)。
 - `LazyMappedRouting` は `Int` オフセットで読むため、2 GiB 超の `.graph` はロード時に明示エラーで拒否する(県別グラフは収まる)。`nearestNodeIndex` は空間グリッドを使い、見つからない場合のみ線形走査にフォールバックする。既知バグ集（旧系統の改修履歴）は `Archives/application/bugs.md` — 修正前に必ず確認すること。ただし Critical/High の大半はコミット `3a6faf2` で修正済みのため、着手前に `git -C application log --oneline` と現行コードで再確認する(盲目的な再修正を避ける)。
 - 実機手順:Samsung Galaxy S26(SC-51G) + `adb push`、機内モードで検証。山口 z15–z16 全域タイル(約8.9万枚、1 GB 超)は見送り — 全域取得ではなく経路回廊のみ取得する方針。
 
