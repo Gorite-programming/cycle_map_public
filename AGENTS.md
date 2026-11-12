@@ -6,7 +6,7 @@
 
 - `application/` — 正系統 Gradle プロジェクト(`:app`、`:routing-core`、`:osm-importer`)。`gradlew` はすべて `application/` から実行する。
   - `app/` — Android UI(MVI/UDF設計、Compose、MapLibre 3Dベクター+osmdroid 6.1.20ハイブリッド、play-services-location)。エントリーポイントは `MainActivity.kt`。
-  - `routing-core/` — 純粋 JVM ライブラリ:`RoadGraph`、`AStarRouter`、`CyclingCostModel`、mmap リーダー(`LazyMappedRouting.kt`、`MappedRouting.kt`)。**本番ルーティングは A\* のみ。`HsaRouting.kt` / `AltRouting.kt` は実験用** (詳細は `application/HSA_STAR_EXTERNAL_REVIEW_REQUEST.md`)。
+  - `routing-core/` — 純粋 JVM ライブラリ:`RoadGraph`、`AStarRouter`、`CyclingCostModel`、mmap リーダー(`LazyMappedRouting.kt`、`MappedRouting.kt`)。**基準のルーターは A\*。任意の `<name>.graph.ch` (Contraction Hierarchies、`docs/ch_design.md`) があれば「おすすめ×自転車」で CH を優先し、無ければ A\* に戻る。** 県またぎはグラフを結合せず通り口 (共通 OSM ノード) で繋ぐ (`docs/cross_prefecture_design.md`)。実験用だった HSA\*/ALT は削除済み (`90bf751`)。
   - `osm-importer/` — JVM CLI(`OsmImporterKt`):OSM `.pbf` → 独自バイナリ `.graph` + サイドカー `.graph.idx`。
 - `Archives/` — 過去系統アーカイブ(`Archives/application/`, `Archives/test/`)。
 - ルートパイプライン:`build_prefectures.py`(中国5県:鳥取・島根・岡山・広島・山口)→県ごとに `<name>.osm.pbf` + `<name>.search.db` + `<name>.graph` / `.idx` + `manifest.json` + `LICENSE.txt` → `packages/<name>.zip`。`sandbox/data-tool/out/` にあるOverture+国交省+OSM統合検索DBをスキーマ検証（PRAGMA integrity_check、必須列、インデックス、件数）の上で自動取り込み。`build_search_db.py` はフォールバック用（`application/osm-importer/build_search_db.py`）。`boundaries/` は行政界ポリゴン(SHA-256 検証付きで自動ダウンロード)。
