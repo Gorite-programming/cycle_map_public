@@ -166,6 +166,14 @@ internal fun MapGraphEffects(
                 onLoadedGraphNameChanged(graphFile.name)
                 Log.i("CycleMapGraph", "mappedLoadMs=${result.second} pssDeltaKb=${result.third} nodes=${result.first.nodeCount} edges=${result.first.edgeCount}")
                 Log.i("CycleMapRoute", "GRAPH_SELECT startup file=${graphFile.name} loaded=true nodes=${result.first.nodeCount}")
+                // 読み込み中に頼まれたルート (起動直後に目的地を選んだ、開き直してルートを戻すなど) は保留されているので、ここで計算する。
+                // 県の切替 (startGraphSwitch) では拾っていたが、起動時の読み込みでは拾っておらず、ルートが出ないままになっていた。
+                // 県が違えば runRouteCalculation の中でその県へ切り替える。
+                onSwitchingGraphChanged(false)
+                pendingRouteRef.getAndSet(null)?.let { req ->
+                    Log.i("CycleMapRoute", "ROUTE_PENDING_AFTER_STARTUP_LOAD goal=${req.goal.latitude},${req.goal.longitude}")
+                    runRouteCalculation(req.start, req.goal, req.isReroute, req.waypoints, req.preference)
+                }
             } catch (t: Throwable) {
                 android.util.Log.w("CycleMapGraph", "graph load failed: ${t.message}", t)
                 onWarningMessageChanged("ルートデータを読み込めませんでした。データを入れ直してから、アプリを開き直してください")

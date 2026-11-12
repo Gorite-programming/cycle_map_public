@@ -147,7 +147,6 @@ internal fun MapScreen(
         )
     }
 
-    val latestGraph by rememberUpdatedState(state.mappedGraphState.value)
     val latestLocation by rememberUpdatedState(state.currentLocationState.value)
     val latestRouteOverlay by rememberUpdatedState(state.routeOverlayState.value)
     val latestDestMarker by rememberUpdatedState(state.destinationMarkerState.value)
@@ -164,7 +163,8 @@ internal fun MapScreen(
         inFlightRouteRef = state.inFlightRouteRef,
         graphLock = state.graphLock,
         pendingRouteRef = state.pendingRouteRef,
-        getGraph = { latestGraph },
+        // rememberUpdatedState 経由だと描き直すまで古い値のままで、読み込み直後の計算がグラフ無しと判定されていた。状態を直接読む。
+        getGraph = { state.mappedGraphState.value },
         getLoadedGraphName = { state.loadedGraphNameState.value },
         isSwitchingGraph = { state.isSwitchingGraphState.value },
         onSwitchGraph = {
