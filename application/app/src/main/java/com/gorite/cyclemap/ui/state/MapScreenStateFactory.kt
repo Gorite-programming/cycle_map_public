@@ -363,7 +363,15 @@ internal fun rememberMapScreenState(
     val isDrawerOpenState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val viewModel = remember { com.gorite.cyclemap.ui.map.MapViewModel() }
+    // アクティビティの ViewModelStore から取る (remember で直接作ると Android の管理外になり、onCleared も呼ばれない)。
+    val viewModel = remember(context) {
+        val owner = context.findViewModelStoreOwner()
+        if (owner != null) {
+            androidx.lifecycle.ViewModelProvider(owner)[com.gorite.cyclemap.ui.map.MapViewModel::class.java]
+        } else {
+            com.gorite.cyclemap.ui.map.MapViewModel() // プレビューなどアクティビティが無いとき
+        }
+    }
     val connectivityState = remember(context) { com.gorite.cyclemap.net.ConnectivityState(context) }
     DisposableEffect(connectivityState) {
         onDispose {
@@ -500,4 +508,11 @@ internal fun rememberMapScreenState(
         selectedAreaBoundsState = selectedAreaBoundsState,
         showAreaDownloadConfirmDialogState = showAreaDownloadConfirmDialogState,
     )
+}
+
+/** Context をたどって ViewModelStore を持つもの (通常は MainActivity) を探す。 */
+private tailrec fun Context.findViewModelStoreOwner(): androidx.lifecycle.ViewModelStoreOwner? = when (this) {
+    is androidx.lifecycle.ViewModelStoreOwner -> this
+    is android.content.ContextWrapper -> baseContext.findViewModelStoreOwner()
+    else -> null
 }
