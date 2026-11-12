@@ -57,6 +57,8 @@ internal fun MapViewsContainer(
     hasHeadingSensorFix: Boolean,
     headingDegrees: Float,
     isDarkTheme: Boolean,
+    /** 待ち受けの盤面の高さ。地図の中心 (現在地) が盤面に隠れないよう、カメラの下側の余白にする。 */
+    homePanelBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     isLowPowerMode: Boolean,
     selectedPoiSpot: NearbySpot?,
     followLocation: Boolean,
@@ -207,7 +209,7 @@ internal fun MapViewsContainer(
                         } else 0.dp,
                         bottom = if (isNavigationActive) {
                             if (isLandscape) 64.dp else (systemInsets.calculateBottomPadding() + 330.dp) // 縦画面: 数値パネル (約340dp) の上に自車位置が見えるように
-                        } else 0.dp,
+                        } else homePanelBottomPadding,
                     ),
                     onTiltChanged = onTiltChanged,
                     onZoomLevelChanged = onZoomLevelChanged,

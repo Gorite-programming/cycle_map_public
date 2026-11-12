@@ -10,6 +10,18 @@ import android.location.Location
 import com.gorite.cyclemap.ui.components.*
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.foundation.layout.Box
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -157,6 +169,15 @@ internal fun MapContentLayout(
         val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val effectiveTopPadding = maxOf(systemInsets.calculateTopPadding(), statusBarTop)
+        // 待ち受けの盤面 (UI 総合版の「弐 計器盤」)。行き先もナビも選択も無いときだけ出す。
+        // 「地図を広げる」で従来の全画面の地図に切り替え、戻るで盤面に戻る。
+        var mapExpanded by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+        val isIdle = !isNavigationActive && routeSummary == null && destination == null && !isAreaSelectMode && selectedPoiSpot == null
+        val homeVisible = !isLandscape && isIdle && !mapExpanded
+        var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
+        androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle) { mapExpanded = false }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -200,6 +221,7 @@ internal fun MapContentLayout(
                     onBearingChanged = onBearingChanged,
                     onPoiClick = onSelectPoiSpot,
                     onVectorMapReady = onVectorMapReady,
+                    homePanelBottomPadding = if (homeVisible) homePanelHeight else 0.dp,
                 )
 
                 // DEF-01: 通知バナー群（通常時・案内時の共通表示）
@@ -233,106 +255,194 @@ internal fun MapContentLayout(
                     )
                 }
 
-                MapTopOverlays(
-                    isNavigationActive = isNavigationActive,
-                    effectiveAnimationEnabled = effectiveAnimationEnabled,
-                    effectiveTopPadding = effectiveTopPadding,
-                    isLandscape = isLandscape,
-                    systemInsets = systemInsets,
-            onMenuClick = { isDrawerOpenState.value = true },
-                    onSearchClick = onOpenSearch,
-                    onAvatarClick = onOpenDeveloperOptions,
-                    onHomeClick = onHomeClick,
-                    onSelectQuickSpot = onSelectQuickSpot,
-                    onSelectCategory = onSelectCategory,
-                    notificationBannerGroup = notificationBanners,
-                    navigationProgress = navigationProgress,
-                    navigationInstructions = navigationInstructions,
-                    gpsStatus = gpsStatus,
-                    isRerouting = isRerouting,
-                    offRouteDetector = offRouteDetector,
-                    autoRerouteEnabled = autoRerouteEnabled,
-                    networkLink = networkLink,
-                    onStopNavigation = onStopNavigation,
-                    isRoutePreviewActive = !isNavigationActive && routeSummary != null,
-                )
+                if (homeVisible) {
+                    // 上: メニューと通知だけ (地図を見る場所なので押すものは置かない)
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .padding(top = effectiveTopPadding + 8.dp, start = 12.dp, end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        com.gorite.cyclemap.ui.map.FloatingCircleButton(
+                            onClick = { isDrawerOpenState.value = true },
+                            contentDescription = "メニュー",
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_lucide_menu),
+                                contentDescription = null,
+                                tint = CycleMapTheme.palette.mapControlIcon,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        notificationBanners(Modifier.fillMaxWidth())
+                    }
+                    // 盤面のすぐ上の右: 地図を広げる・現在地
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = homePanelHeight + 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        com.gorite.cyclemap.ui.map.FloatingCircleButton(
+                            onClick = { mapExpanded = true },
+                            contentDescription = "地図を広げる",
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_lucide_maximize_2),
+                                contentDescription = null,
+                                tint = CycleMapTheme.palette.mapControlIcon,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        com.gorite.cyclemap.ui.map.FloatingCircleButton(
+                            onClick = onTargetClick,
+                            contentDescription = "現在地へ",
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_lucide_locate_fixed),
+                                contentDescription = null,
+                                tint = if (followLocation) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    com.gorite.cyclemap.ui.home.HomeDashboard(
+                        locationName = locationLabel,
+                        currentLocation = currentLocation,
+                        weatherUiState = weatherUiState,
+                        onRefreshWeather = onRefreshWeather,
+                        isRecording = isRecording,
+                        gpxPointCount = gpxPointCount,
+                        onToggleRecording = {
+                            if (!hasLocationPermission) {
+                                onWarningMessage("記録には位置情報の許可が必要です")
+                            } else if (isRecording) {
+                                com.gorite.cyclemap.tracking.LocationTrackingService.stopRecording(context)
+                            } else {
+                                com.gorite.cyclemap.tracking.LocationTrackingService.startRecording(context)
+                            }
+                        },
+                        onOpenSearch = onOpenSearch,
+                        onOpenFavorite = { fav ->
+                            onSelectPoiSpot(NearbySpot(fav.name, fav.category, fav.latitude, fav.longitude, 0.0))
+                        },
+                        onQuickSpot = onSelectQuickSpot,
+                        onOpenRecords = onRecordHistoryClick,
+                        onOpenSaved = onSavedClick,
+                        bottomInset = systemInsets.calculateBottomPadding(),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { homePanelHeightPx = it.height }
+                            .zIndex(2f),
+                    )
+                } else {
+                    MapTopOverlays(
+                        isNavigationActive = isNavigationActive,
+                        effectiveAnimationEnabled = effectiveAnimationEnabled,
+                        effectiveTopPadding = effectiveTopPadding,
+                        isLandscape = isLandscape,
+                        systemInsets = systemInsets,
+                onMenuClick = { isDrawerOpenState.value = true },
+                        onSearchClick = onOpenSearch,
+                        onAvatarClick = onOpenDeveloperOptions,
+                        onHomeClick = onHomeClick,
+                        onSelectQuickSpot = onSelectQuickSpot,
+                        onSelectCategory = onSelectCategory,
+                        notificationBannerGroup = notificationBanners,
+                        navigationProgress = navigationProgress,
+                        navigationInstructions = navigationInstructions,
+                        gpsStatus = gpsStatus,
+                        isRerouting = isRerouting,
+                        offRouteDetector = offRouteDetector,
+                        autoRerouteEnabled = autoRerouteEnabled,
+                        networkLink = networkLink,
+                        onStopNavigation = onStopNavigation,
+                        isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                    )
 
-                // Right-Side Controls: Google Maps Style
-                MapControlsOverlay(
-                    isLandscape = isLandscape,
-                    selectedLayer = selectedLayer,
-                    networkLink = networkLink,
-                    vectorMap = vectorMap,
-                    mapView = mapView,
-                    currentZoomLevel = currentZoomLevel,
-                    currentVectorTilt = currentVectorTilt,
-                    vectorBearing = currentVectorBearing,
-                    headingDegrees = headingDegrees,
-                    isHeadingUp = isHeadingUp,
-                    onHeadingUpToggle = onHeadingUpToggle,
-                    followLocation = followLocation,
-                    onTargetClick = onTargetClick,
-                    isNavigationActive = isNavigationActive,
-                    isAreaSelectMode = isAreaSelectMode,
-                    onAreaSelectToggle = {
-                        val next = !isAreaSelectMode
-                        onAreaSelectModeChange(next)
-                    },
-                    toggleNextLayer = toggleNextLayer,
-                    onNavStartClick = onOpenSearch,
-                    systemInsets = systemInsets,
-                    effectiveTopPadding = effectiveTopPadding,
-                    bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
-                    isRoutePreviewActive = !isNavigationActive && routeSummary != null,
-                )
+                    // Right-Side Controls: Google Maps Style
+                    MapControlsOverlay(
+                        isLandscape = isLandscape,
+                        selectedLayer = selectedLayer,
+                        networkLink = networkLink,
+                        vectorMap = vectorMap,
+                        mapView = mapView,
+                        currentZoomLevel = currentZoomLevel,
+                        currentVectorTilt = currentVectorTilt,
+                        vectorBearing = currentVectorBearing,
+                        headingDegrees = headingDegrees,
+                        isHeadingUp = isHeadingUp,
+                        onHeadingUpToggle = onHeadingUpToggle,
+                        followLocation = followLocation,
+                        onTargetClick = onTargetClick,
+                        isNavigationActive = isNavigationActive,
+                        isAreaSelectMode = isAreaSelectMode,
+                        onAreaSelectToggle = {
+                            val next = !isAreaSelectMode
+                            onAreaSelectModeChange(next)
+                        },
+                        toggleNextLayer = toggleNextLayer,
+                        onNavStartClick = onOpenSearch,
+                        systemInsets = systemInsets,
+                        effectiveTopPadding = effectiveTopPadding,
+                        bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
+                        isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                    )
 
-                // Bottom Area: Active Navigation Footer or Dashboard
-                MapBottomOverlays(
-                    isNavigationActive = isNavigationActive,
-                    routeSummary = routeSummary,
-                    navStats = navStats,
-                    speedKmh = speedKmh,
-                    isRecording = isRecording,
-                    gpxPointCount = gpxPointCount,
-                    hasLocationPermission = hasLocationPermission,
-                    onWarningMessage = onWarningMessage,
-                    onStopNavigation = onStopNavigation,
-                    onClearRoute = onClearRoute,
-                    onShowLicense = onOpenLicense,
-                    isLandscape = isLandscape,
-                    systemInsets = systemInsets,
-                    isCalculatingRoute = isCalculatingRoute,
-                    isSwitchingGraph = isSwitchingGraph,
-                    effectiveAnimationEnabled = effectiveAnimationEnabled,
-                    destination = destination,
-                    waypoints = waypoints,
-                    onMoveWaypoint = onMoveWaypoint,
-                    onRemoveWaypoint = onRemoveWaypoint,
-                    realElevProfile = realElevProfile,
-                    navigationRoute = navigationRoute,
-                    navigationProgress = navigationProgress,
-                    onStartNavigation = onStartNavigation,
-                    downloadCorridorTiles = downloadCorridorTiles,
-                    exportPlannedRoute = exportPlannedRoute,
-                    corridorTileProgressText = corridorTileProgressText,
-                    selectedRoutePreference = selectedRoutePreference,
-                    onRoutePreferenceChange = onRoutePreferenceChange,
-                    routeChoices = routeChoices,
-                    selectedRouteChoice = selectedRouteChoice,
-                    onSelectRouteChoice = onSelectRouteChoice,
-                    isArrived = isArrived,
-                    locationLabel = locationLabel,
-                    googleNavTab = googleNavTab,
-                    onTabSelected = onTabSelected,
-                    onExploreClick = onExploreClick,
-                    onSavedClick = onSavedClick,
-                    onRecordHistoryClick = onRecordHistoryClick,
-                    context = context,
-                    isVoiceMuted = isVoiceMuted,
-                    onToggleMute = onToggleMute,
-                    weatherUiState = weatherUiState,
-                    onRefreshWeather = onRefreshWeather,
-                )
+                    // Bottom Area: Active Navigation Footer or Dashboard
+                    MapBottomOverlays(
+                        isNavigationActive = isNavigationActive,
+                        routeSummary = routeSummary,
+                        navStats = navStats,
+                        speedKmh = speedKmh,
+                        isRecording = isRecording,
+                        gpxPointCount = gpxPointCount,
+                        hasLocationPermission = hasLocationPermission,
+                        onWarningMessage = onWarningMessage,
+                        onStopNavigation = onStopNavigation,
+                        onClearRoute = onClearRoute,
+                        onShowLicense = onOpenLicense,
+                        isLandscape = isLandscape,
+                        systemInsets = systemInsets,
+                        isCalculatingRoute = isCalculatingRoute,
+                        isSwitchingGraph = isSwitchingGraph,
+                        effectiveAnimationEnabled = effectiveAnimationEnabled,
+                        destination = destination,
+                        waypoints = waypoints,
+                        onMoveWaypoint = onMoveWaypoint,
+                        onRemoveWaypoint = onRemoveWaypoint,
+                        realElevProfile = realElevProfile,
+                        navigationRoute = navigationRoute,
+                        navigationProgress = navigationProgress,
+                        onStartNavigation = onStartNavigation,
+                        downloadCorridorTiles = downloadCorridorTiles,
+                        exportPlannedRoute = exportPlannedRoute,
+                        corridorTileProgressText = corridorTileProgressText,
+                        selectedRoutePreference = selectedRoutePreference,
+                        onRoutePreferenceChange = onRoutePreferenceChange,
+                        routeChoices = routeChoices,
+                        selectedRouteChoice = selectedRouteChoice,
+                        onSelectRouteChoice = onSelectRouteChoice,
+                        isArrived = isArrived,
+                        locationLabel = locationLabel,
+                        googleNavTab = googleNavTab,
+                        onTabSelected = onTabSelected,
+                        onExploreClick = onExploreClick,
+                        onSavedClick = onSavedClick,
+                        onRecordHistoryClick = onRecordHistoryClick,
+                        context = context,
+                        isVoiceMuted = isVoiceMuted,
+                        onToggleMute = onToggleMute,
+                        weatherUiState = weatherUiState,
+                        onRefreshWeather = onRefreshWeather,
+                        onBackToDashboard = if (mapExpanded && isIdle && !isLandscape) {
+                            { mapExpanded = false }
+                        } else {
+                            null
+                        },
+                    )
+                }
             }
         }
         val show3dSimulationState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }

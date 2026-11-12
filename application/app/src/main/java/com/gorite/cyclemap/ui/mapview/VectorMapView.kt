@@ -655,6 +655,12 @@ internal fun VectorMapView(
             val rightPx = with(density) { cameraPadding.calculateRightPadding(LayoutDirection.Ltr).roundToPx() }
             val bottomPx = with(density) { cameraPadding.calculateBottomPadding().roundToPx() }
             map.setPadding(leftPx, topPx, rightPx, bottomPx)
+            // 余白が変わると見える範囲の中心がずれるので、現在地を追っているときは中心へ戻す
+            // (待ち受けの盤面を出し入れしたとき、現在地が盤面の下に隠れないように)
+            val loc = currentLocation
+            if (currentFollowLocation && !isNavigationActive && loc != null) {
+                map.easeCamera(CameraUpdateFactory.newLatLng(LatLng(loc.latitude, loc.longitude)), 300)
+            }
         }
     }
 }

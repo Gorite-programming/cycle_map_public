@@ -35,6 +35,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +112,8 @@ internal fun BoxScope.MapBottomOverlays(
     onToggleMute: () -> Unit = {},
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
+    /** 待ち受けの盤面から「地図を広げる」で来たとき、盤面へ戻す。null なら従来の地名シートとタブを出す。 */
+    onBackToDashboard: (() -> Unit)? = null,
 ) {
     if (isNavigationActive && routeSummary != null && !isLandscape) {
         // 縦画面: 数値パネル (速度・残り・勾配・先の標高・到着・電池)
@@ -428,7 +432,40 @@ internal fun BoxScope.MapBottomOverlays(
                 }
             }
 
-            if (!isLandscape) {
+            if (!isLandscape && onBackToDashboard != null) {
+                // 地図を広げた状態: 地名シートとタブの代わりに、盤面へ戻るボタンだけを親指の位置に置く
+                Surface(
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + systemInsets.calculateBottomPadding()),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .clickable(onClick = onBackToDashboard),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    "盤面に戻る",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (!isLandscape) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
