@@ -90,3 +90,17 @@ internal data class RouteSessionSnapshot(
         }
     }
 }
+
+/** 案内中の状態 (進み具合・統計・リルート)。 */
+internal class NavigationSessionState {
+    val isActive: MutableState<Boolean> = mutableStateOf(false)
+    val progress: MutableState<com.gorite.cyclemap.routing.RouteProgress?> = mutableStateOf(null)
+    val stats: MutableState<com.gorite.cyclemap.routing.NavigationStats?> = mutableStateOf(null)
+    val speedMps: MutableState<Double> = mutableStateOf(0.0)
+    val startElapsedMs: MutableState<Long> = mutableStateOf(0L)
+    val isRerouting: MutableState<Boolean> = mutableStateOf(false)
+    val isArrived: MutableState<Boolean> = mutableStateOf(false)
+    val rerouteCount: androidx.compose.runtime.MutableIntState = androidx.compose.runtime.mutableIntStateOf(0)
+    val rerouteLimitWarned: MutableState<Boolean> = mutableStateOf(false)
+    val lastRerouteElapsedMs: MutableState<Long> = mutableStateOf(0L)
+}

@@ -126,6 +126,9 @@ class MapViewModel(
     /** 目的地・経由地・計算したルート。 */
     internal val route = RouteSessionState()
 
+    /** 案内中の状態。 */
+    internal val navigation = NavigationSessionState()
+
     /**
      * アプリが裏で終了させられたあとに開き直したとき、前回のルートを計算し直すための記録。
      * 画面側が一度だけ取り出して使う ([consumePendingRestore])。
@@ -136,7 +139,7 @@ class MapViewModel(
     init {
         // 状態を保存するときだけ、その時点の値を書き出す (変わるたびに書く必要はない)
         savedStateHandle.setSavedStateProvider(KEY_ROUTE_SESSION) {
-            RouteSessionSnapshot.capture(route, isNavigating = false)?.toBundle() ?: Bundle()
+            RouteSessionSnapshot.capture(route, isNavigating = navigation.isActive.value && !navigation.isArrived.value)?.toBundle() ?: Bundle()
         }
     }
 

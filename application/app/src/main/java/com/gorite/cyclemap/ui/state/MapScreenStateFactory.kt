@@ -252,25 +252,25 @@ internal fun rememberMapScreenState(
     val navigationRouteState = viewModel.route.points
     val navigationManeuversState = viewModel.route.maneuvers
     val navigationInstructionsState = viewModel.route.instructions
-    val navigationProgressState = remember { mutableStateOf<RouteProgress?>(null) }
-    val isNavigationActiveState = remember { mutableStateOf(false) }
+    val navigationProgressState = viewModel.navigation.progress
+    val isNavigationActiveState = viewModel.navigation.isActive
     LaunchedEffect(isNavigationActiveState.value) {
         onNavigationStateChanged(isNavigationActiveState.value)
     }
 
     val isCalculatingRouteState = viewModel.route.isCalculating
-    val navStatsState = remember { mutableStateOf<NavigationStats?>(null) }
-    val navSpeedMpsState = remember { mutableStateOf(0.0) }
-    val navStartElapsedMsState = remember { mutableStateOf(0L) }
-    val isReroutingState = remember { mutableStateOf(false) }
-    val isArrivedState = remember { mutableStateOf(false) }
+    val navStatsState = viewModel.navigation.stats
+    val navSpeedMpsState = viewModel.navigation.speedMps
+    val navStartElapsedMsState = viewModel.navigation.startElapsedMs
+    val isReroutingState = viewModel.navigation.isRerouting
+    val isArrivedState = viewModel.navigation.isArrived
     val autoRerouteEnabledState = remember { mutableStateOf(prefs.getBoolean("auto_reroute_enabled", true)) }
     LaunchedEffect(autoRerouteEnabledState.value) {
         prefs.edit().putBoolean("auto_reroute_enabled", autoRerouteEnabledState.value).apply()
     }
-    val rerouteCountState = remember { mutableIntStateOf(0) }
-    val rerouteLimitWarnedState = remember { mutableStateOf(false) }
-    val lastRerouteElapsedMsState = remember { mutableStateOf(0L) }
+    val rerouteCountState = viewModel.navigation.rerouteCount
+    val rerouteLimitWarnedState = viewModel.navigation.rerouteLimitWarned
+    val lastRerouteElapsedMsState = viewModel.navigation.lastRerouteElapsedMs
     val offRouteDetector = remember { OffRouteDetector() }
     val graphLock = remember { ReentrantReadWriteLock() }
     val routeJobRef = remember { AtomicReference<RouteCalculationJob?>(null) }
