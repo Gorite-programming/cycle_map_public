@@ -488,6 +488,8 @@ internal fun buildLikeTextConditions(trimmed: String, targetColumn: String): Pai
  * @param userLat 現在地緯度（null時は距離計算しない）
  * @param userLon 現在地経度（null時は距離計算しない）
  * @param limit 最大件数
+ * @param categoryPrefixesOverride タブにない種類で絞るときの category の接頭辞 (「病院」と入力したときなど)。
+ *   指定すると [category] の接頭辞の代わりに使う。
  */
 internal fun searchPlaces(
     dbFile: File,
@@ -496,24 +498,26 @@ internal fun searchPlaces(
     userLat: Double? = null,
     userLon: Double? = null,
     limit: Int = 50,
+    categoryPrefixesOverride: List<String>? = null,
 ): List<SearchResult> {
     if (!dbFile.isFile) return emptyList()
 
+    val categoryPrefixes = categoryPrefixesOverride ?: category.categoryPrefixes
     // カテゴリWHERE句を組み立て
     val categoryWhere: String        // FTS JOIN クエリ用 (p.category)
     val categoryWherePlain: String   // plain places クエリ用 (category、エイリアスなし)
     val categoryArgs: List<String>
-    if (category == SearchCategory.ALL || category.categoryPrefixes.isEmpty()) {
+    if (categoryPrefixes.isEmpty()) {
         categoryWhere = ""
         categoryWherePlain = ""
         categoryArgs = emptyList()
     } else {
-        val clauses = category.categoryPrefixes.joinToString(" OR ") { "p.category LIKE ?" }
-        val clausesPlain = category.categoryPrefixes.joinToString(" OR ") { "category LIKE ?" }
+        val clauses = categoryPrefixes.joinToString(" OR ") { "p.category LIKE ?" }
+        val clausesPlain = categoryPrefixes.joinToString(" OR ") { "category LIKE ?" }
         categoryWhere = "AND ($clauses)"
         categoryWherePlain = "AND ($clausesPlain)"
         // LIKE 用引数: すべての prefix に % を付ける
-        categoryArgs = category.categoryPrefixes.map { "$it%" }
+        categoryArgs = categoryPrefixes.map { "$it%" }
     }
 
     val results = linkedMapOf<String, SearchResult>()
@@ -620,7 +624,7 @@ internal fun searchPlaces(
             if ("address" in columns && (category == SearchCategory.ALL)) {
                 addressResult(db, trimmed)?.let { r -> results.putIfAbsent("address:${r.name}", r) }
             }
-        } else if (category != SearchCategory.ALL && category.categoryPrefixes.isNotEmpty()) {
+        } else if (categoryPrefixes.isNotEmpty()) {
             // クエリ未入力でカテゴリ選択中 → 近傍カテゴリ一覧を表示。
             // 遠方行を拾わないよう現在地bboxで事前絞りする (逆ジオコーディングと同型の BETWEEN 方式)。
             // 位置不明時は従来通り。名称検索 (上2分岐) には bbox を適用しない (遠方目的地の検索を壊さないため)。距離順ソートは名称検索にも適用する。
