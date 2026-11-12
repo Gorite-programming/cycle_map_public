@@ -143,7 +143,9 @@ internal class RouteCalculationJob {
     }
 
     /** キャンセルしてスレッド/ジョブが完全停止するまで待機する（最大 2 秒）。
-     *  グラフの close() を呼ぶ前に必ず呼ぶこと。 */
+     *  グラフの close() を呼ぶ前に必ず呼ぶこと。
+     *  呼び出し元を最大 2 秒止めるので、メインスレッドからは呼ばない (今は県グラフ切替の Dispatchers.IO からだけ)。 */
+    @androidx.annotation.WorkerThread
     fun cancelAndJoin() {
         cancel()
         thread?.let {
@@ -160,7 +162,8 @@ internal class RouteCalculationJob {
                         it.join()
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.w("CycleMapRoute", "route job join failed: ${e.message}")
             }
         }
     }
