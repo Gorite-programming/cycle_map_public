@@ -78,6 +78,15 @@ internal fun rememberMapScreenState(
 ): MapScreenState {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("cyclemap_prefs", Context.MODE_PRIVATE) }
+    // アクティビティの ViewModelStore から取る (remember で直接作ると Android の管理外になり、onCleared も呼ばれない)。
+    val viewModel = remember(context) {
+        val owner = context.findViewModelStoreOwner()
+        if (owner != null) {
+            androidx.lifecycle.ViewModelProvider(owner)[com.gorite.cyclemap.ui.map.MapViewModel::class.java]
+        } else {
+            com.gorite.cyclemap.ui.map.MapViewModel() // プレビューなどアクティビティが無いとき
+        }
+    }
     val animationEnabledState = remember { mutableStateOf(prefs.getBoolean("animation_enabled", true)) }
 
     val batteryMonitor = remember(context) { BatteryMonitor(context) }
@@ -181,8 +190,8 @@ internal fun rememberMapScreenState(
 
     val bottomTabState = remember { mutableStateOf(CyclingTab.MAP) }
     val googleNavTabState = remember { mutableStateOf(GoogleNavTab.EXPLORE) }
-    val showSpotPanelState = remember { mutableStateOf(false) }
-    val showFavoritesOnlyInSheetState = remember { mutableStateOf(false) }
+    val showSpotPanelState = viewModel.search.showSpotPanel
+    val showFavoritesOnlyInSheetState = viewModel.search.showFavoritesOnlyInSheet
     val showRecordPanelState = remember { mutableStateOf(false) }
     val showCyclingSettingsState = remember { mutableStateOf(false) }
     val poiVisibleState = remember { mutableStateOf(prefs.getBoolean("poi_visible", true)) }
@@ -209,22 +218,22 @@ internal fun rememberMapScreenState(
     }
     val poiRefreshTickState = remember { mutableIntStateOf(0) }
     val currentZoomLevelState = remember { mutableDoubleStateOf(15.0) }
-    val selectedPoiSpotState = remember { mutableStateOf<NearbySpot?>(null) }
-    val spotCategoryState = remember { mutableStateOf<SpotQuickCategory?>(null) }
-    val spotResultsState = remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
-    val spotLoadingState = remember { mutableStateOf(false) }
-    val spotMessageState = remember { mutableStateOf<String?>(null) }
-    val activeQuickSpotTypeState = remember { mutableStateOf<QuickSpotType?>(null) }
-    val showQuickSpotSheetState = remember { mutableStateOf(false) }
-    val quickSpotResultsState = remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
-    val quickSpotLoadingState = remember { mutableStateOf(false) }
-    val quickSpotMessageState = remember { mutableStateOf<String?>(null) }
+    val selectedPoiSpotState = viewModel.search.selectedPoiSpot
+    val spotCategoryState = viewModel.search.spotCategory
+    val spotResultsState = viewModel.search.spotResults
+    val spotLoadingState = viewModel.search.spotLoading
+    val spotMessageState = viewModel.search.spotMessage
+    val activeQuickSpotTypeState = viewModel.search.activeQuickSpotType
+    val showQuickSpotSheetState = viewModel.search.showQuickSpotSheet
+    val quickSpotResultsState = viewModel.search.quickSpotResults
+    val quickSpotLoadingState = viewModel.search.quickSpotLoading
+    val quickSpotMessageState = viewModel.search.quickSpotMessage
     val gpxHistoryState = remember { mutableStateOf<List<GpxHistoryEntry>>(emptyList()) }
     val locationLabelState = remember { mutableStateOf(AddressDisplayController.ADDRESS_LOADING) }
     val addressController = remember { AddressDisplayController() }
     val isRoutingBenchmarkRunningState = remember { mutableStateOf(false) }
     val routingBenchmarkResultState = remember { mutableStateOf<String?>(null) }
-    val showDestinationSearchState = remember { mutableStateOf(false) }
+    val showDestinationSearchState = viewModel.search.showDestinationSearch
     val selectedMenuState = remember { mutableStateOf("地図") }
 
     val mappedGraphState = remember { mutableStateOf<LazyMappedRoadGraph?>(null) }
@@ -363,15 +372,6 @@ internal fun rememberMapScreenState(
     val isDrawerOpenState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // アクティビティの ViewModelStore から取る (remember で直接作ると Android の管理外になり、onCleared も呼ばれない)。
-    val viewModel = remember(context) {
-        val owner = context.findViewModelStoreOwner()
-        if (owner != null) {
-            androidx.lifecycle.ViewModelProvider(owner)[com.gorite.cyclemap.ui.map.MapViewModel::class.java]
-        } else {
-            com.gorite.cyclemap.ui.map.MapViewModel() // プレビューなどアクティビティが無いとき
-        }
-    }
     val connectivityState = remember(context) { com.gorite.cyclemap.net.ConnectivityState(context) }
     DisposableEffect(connectivityState) {
         onDispose {

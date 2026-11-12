@@ -116,6 +116,9 @@ sealed interface MapUiIntent {
 }
 
 class MapViewModel : ViewModel() {
+    /** 検索・スポット一覧・POI の選択 (画面の部品と結びつかないデータ)。 */
+    val search = SearchSessionState()
+
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
