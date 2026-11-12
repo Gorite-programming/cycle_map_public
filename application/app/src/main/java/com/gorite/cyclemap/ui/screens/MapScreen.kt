@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.ui.screens
 
 import com.gorite.cyclemap.*
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.concurrent.read
 import com.gorite.cyclemap.utils.*
@@ -593,6 +595,41 @@ internal fun MapScreen(
         }
     }
 
+    // アプリが裏で終了させられたあとに開き直したとき、前回のルートを計算し直す (案内中だったら案内も再開する)。
+    // ルートの点の列は保存していないので、保存した目的地・経由地・好みから探索し直す。
+    LaunchedEffect(Unit) {
+        val restore = state.viewModel.consumePendingRestore() ?: return@LaunchedEffect
+        Log.i(
+            "CycleMapRoute",
+            "SESSION_RESTORE dest=${restore.destinationLat},${restore.destinationLon} " +
+                "waypoints=${restore.waypoints.size} pref=${restore.preferenceName} navigating=${restore.wasNavigating}",
+        )
+        state.selectedRoutePreferenceState.value = restore.preference
+        // 現在地が取れるまで少し待つ (取れなければ startRouteToDestination と同じく代わりの出発地を使う)
+        val loc = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_LOCATION_WAIT_MS) {
+            androidx.compose.runtime.snapshotFlow { state.currentLocationState.value }
+                .filterNotNull()
+                .first()
+        }
+        val start = if (loc != null) {
+            GeoPoint(loc.latitude, loc.longitude)
+        } else {
+            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
+            GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
+        }
+        runRouteCalculation(start, restore.destination, false, restore.waypoints, restore.preference)
+        if (restore.wasNavigating) {
+            val routed = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_ROUTE_WAIT_MS) {
+                androidx.compose.runtime.snapshotFlow { state.navigationRouteState.value.isNotEmpty() && !state.isCalculatingRouteState.value }
+                    .first { it }
+            }
+            if (routed != null && !state.isNavigationActiveState.value) {
+                startNavigation()
+                state.warningMessageState.value = "前回の案内を再開しました"
+            }
+        }
+    }
+
     val clearRoute: () -> Unit = {
         routeExecutionGeneration.incrementAndGet()
         state.inFlightRouteRef.set(null)
@@ -730,3 +767,9 @@ internal fun MapScreen(
         onRefreshWeather = { weatherRepo.refresh(isOnline) },
     )
 }
+
+/** 開き直したときに前回のルートを戻す処理で、現在地を待つ時間。 */
+private const val SESSION_RESTORE_LOCATION_WAIT_MS = 10_000L
+
+/** 案内を再開する前に、ルートの計算が終わるのを待つ時間 (県またぎでも足りる長さ)。 */
+private const val SESSION_RESTORE_ROUTE_WAIT_MS = 60_000L

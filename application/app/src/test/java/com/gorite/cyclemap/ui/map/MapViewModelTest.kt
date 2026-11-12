@@ -114,5 +114,36 @@ class MapViewModelTest {
         assertEquals(initialUi, vm.uiState.value)
         assertEquals(34.40, vm.locationState.value.latitude, 1e-6)
     }
-}
 
+    @Test
+    fun routeSessionSnapshotKeepsDestinationWaypointsAndPreference() {
+        val route = RouteSessionState()
+        // 目的地が無いときは記録しない
+        assertEquals(null, RouteSessionSnapshot.capture(route, isNavigating = false))
+
+        route.destination.value = org.osmdroid.util.GeoPoint(34.39, 132.46)
+        route.waypoints.value = listOf(org.osmdroid.util.GeoPoint(34.40, 132.40), org.osmdroid.util.GeoPoint(34.41, 132.41))
+        route.preference.value = com.gorite.cyclemap.routing.RoutePreference.FLAT
+        val snap = RouteSessionSnapshot.capture(route, isNavigating = true)!!
+
+        assertEquals(34.39, snap.destination.latitude, 1e-12)
+        assertEquals(132.46, snap.destination.longitude, 1e-12)
+        assertEquals(2, snap.waypoints.size)
+        assertEquals(34.41, snap.waypoints[1].latitude, 1e-12)
+        assertEquals(132.41, snap.waypoints[1].longitude, 1e-12)
+        assertEquals(com.gorite.cyclemap.routing.RoutePreference.FLAT, snap.preference)
+        assertTrue(snap.wasNavigating)
+    }
+
+    @Test
+    fun unknownPreferenceFallsBackToRecommended() {
+        val snap = RouteSessionSnapshot(34.0, 132.0, emptyList(), "NO_SUCH_PREFERENCE", wasNavigating = false)
+        assertEquals(com.gorite.cyclemap.routing.RoutePreference.RECOMMENDED, snap.preference)
+    }
+
+    @Test
+    fun pendingRestoreIsEmptyForAFreshViewModel() {
+        val vm = MapViewModel()
+        assertEquals(null, vm.consumePendingRestore())
+    }
+}

@@ -36,3 +36,57 @@ class SearchSessionState {
     val quickSpotLoading: MutableState<Boolean> = mutableStateOf(false)
     val quickSpotMessage: MutableState<String?> = mutableStateOf(null)
 }
+
+/** 目的地・経由地・計算したルート (案内を始める前のデータ)。 */
+internal class RouteSessionState {
+    val destination: MutableState<org.osmdroid.util.GeoPoint?> = mutableStateOf(null)
+    val waypoints: MutableState<List<org.osmdroid.util.GeoPoint>> = mutableStateOf(emptyList())
+    val pendingSelectedSpot: MutableState<org.osmdroid.util.GeoPoint?> = mutableStateOf(null)
+    val preference: MutableState<com.gorite.cyclemap.routing.RoutePreference> =
+        mutableStateOf(com.gorite.cyclemap.routing.RoutePreference.RECOMMENDED)
+
+    val summary: MutableState<com.gorite.cyclemap.utils.RouteSummary?> = mutableStateOf(null)
+    val options: MutableState<List<com.gorite.cyclemap.contract.RouteOption>> = mutableStateOf(emptyList())
+    val selectedIndex: MutableState<Int> = mutableStateOf(0)
+    val points: MutableState<List<com.gorite.cyclemap.routing.RoutePoint>> = mutableStateOf(emptyList())
+    val maneuvers: MutableState<List<com.gorite.cyclemap.routing.Maneuver>> = mutableStateOf(emptyList())
+    val instructions: MutableState<List<com.gorite.cyclemap.routing.RouteInstruction>> = mutableStateOf(emptyList())
+    val isCalculating: MutableState<Boolean> = mutableStateOf(false)
+    val elevationProfile: MutableState<List<com.gorite.cyclemap.ui.cycling.ElevationSample>> = mutableStateOf(emptyList())
+    val crossRouteElevation: MutableState<com.gorite.cyclemap.navigation.CrossRouteElevationData?> = mutableStateOf(null)
+}
+
+/**
+ * アプリが裏で終了させられても戻すための、ルートの最小限の記録。
+ * ルートそのもの (点の列) は大きいので保存せず、目的地・経由地・好みから計算し直す。
+ */
+internal data class RouteSessionSnapshot(
+    val destinationLat: Double,
+    val destinationLon: Double,
+    /** 経由地を [緯度0, 経度0, 緯度1, 経度1, ...] の順に並べたもの。 */
+    val waypointLatLons: List<Double>,
+    val preferenceName: String,
+    /** 案内中だったか。true なら、ルートを計算し直したあと案内も再開する。 */
+    val wasNavigating: Boolean,
+) {
+    val destination: org.osmdroid.util.GeoPoint get() = org.osmdroid.util.GeoPoint(destinationLat, destinationLon)
+    val waypoints: List<org.osmdroid.util.GeoPoint>
+        get() = waypointLatLons.chunked(2).filter { it.size == 2 }.map { org.osmdroid.util.GeoPoint(it[0], it[1]) }
+    val preference: com.gorite.cyclemap.routing.RoutePreference
+        get() = com.gorite.cyclemap.routing.RoutePreference.entries.firstOrNull { it.name == preferenceName }
+            ?: com.gorite.cyclemap.routing.RoutePreference.RECOMMENDED
+
+    companion object {
+        /** 目的地が無ければ記録しない (戻すものが無い)。 */
+        fun capture(route: RouteSessionState, isNavigating: Boolean): RouteSessionSnapshot? {
+            val dest = route.destination.value ?: return null
+            return RouteSessionSnapshot(
+                destinationLat = dest.latitude,
+                destinationLon = dest.longitude,
+                waypointLatLons = route.waypoints.value.flatMap { listOf(it.latitude, it.longitude) },
+                preferenceName = route.preference.value.name,
+                wasNavigating = isNavigating,
+            )
+        }
+    }
+}

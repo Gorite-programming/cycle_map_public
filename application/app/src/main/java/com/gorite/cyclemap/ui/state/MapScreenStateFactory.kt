@@ -240,25 +240,25 @@ internal fun rememberMapScreenState(
     val loadedGraphNameState = remember { mutableStateOf<String?>(null) }
     val isSwitchingGraphState = remember { mutableStateOf(false) }
     val warningMessageState = remember { mutableStateOf<String?>(null) }
-    val destinationState = remember { mutableStateOf<GeoPoint?>(null) }
-    val waypointsState = remember { mutableStateOf(emptyList<GeoPoint>()) }
-    val pendingSelectedSpotState = remember { mutableStateOf<GeoPoint?>(null) }
+    val destinationState = viewModel.route.destination
+    val waypointsState = viewModel.route.waypoints
+    val pendingSelectedSpotState = viewModel.route.pendingSelectedSpot
     val routeOverlayState = remember { mutableStateOf<Polyline?>(null) }
     val gpxTrackOverlayState = remember { mutableStateOf<Polyline?>(null) }
-    val routeSummaryState = remember { mutableStateOf<RouteSummary?>(null) }
-    val calculatedRouteOptionsState = remember { mutableStateOf(emptyList<com.gorite.cyclemap.contract.RouteOption>()) }
-    val selectedRoutePreferenceState = remember { mutableStateOf(RoutePreference.RECOMMENDED) }
-    val selectedRouteIndexState = remember { mutableStateOf(0) }
-    val navigationRouteState = remember { mutableStateOf<List<RoutePoint>>(emptyList()) }
-    val navigationManeuversState = remember { mutableStateOf(emptyList<Maneuver>()) }
-    val navigationInstructionsState = remember { mutableStateOf(emptyList<RouteInstruction>()) }
+    val routeSummaryState = viewModel.route.summary
+    val calculatedRouteOptionsState = viewModel.route.options
+    val selectedRoutePreferenceState = viewModel.route.preference
+    val selectedRouteIndexState = viewModel.route.selectedIndex
+    val navigationRouteState = viewModel.route.points
+    val navigationManeuversState = viewModel.route.maneuvers
+    val navigationInstructionsState = viewModel.route.instructions
     val navigationProgressState = remember { mutableStateOf<RouteProgress?>(null) }
     val isNavigationActiveState = remember { mutableStateOf(false) }
     LaunchedEffect(isNavigationActiveState.value) {
         onNavigationStateChanged(isNavigationActiveState.value)
     }
 
-    val isCalculatingRouteState = remember { mutableStateOf(false) }
+    val isCalculatingRouteState = viewModel.route.isCalculating
     val navStatsState = remember { mutableStateOf<NavigationStats?>(null) }
     val navSpeedMpsState = remember { mutableStateOf(0.0) }
     val navStartElapsedMsState = remember { mutableStateOf(0L) }
@@ -276,8 +276,8 @@ internal fun rememberMapScreenState(
     val routeJobRef = remember { AtomicReference<RouteCalculationJob?>(null) }
 
     val elevationRepository = remember(context) { ElevationRepository.getInstance(context) }
-    val realElevProfileState = remember { mutableStateOf<List<ElevationSample>>(emptyList()) }
-    val crossRouteElevationState = remember { mutableStateOf<CrossRouteElevationData?>(null) }
+    val realElevProfileState = viewModel.route.elevationProfile
+    val crossRouteElevationState = viewModel.route.crossRouteElevation
     LaunchedEffect(routeSummaryState.value, navigationRouteState.value, mappedGraphState.value, crossRouteElevationState.value) {
         val summary = routeSummaryState.value
         val navRoute = navigationRouteState.value
