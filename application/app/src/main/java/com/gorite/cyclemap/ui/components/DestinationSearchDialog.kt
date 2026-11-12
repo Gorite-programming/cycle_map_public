@@ -14,6 +14,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -233,40 +238,255 @@ internal fun DestinationSearchDialog(
 
     BackHandler(onBack = onDismiss)
 
+    // 親指で使う検索 (UI 総合版の「肆」)。押すところと読むところを下に寄せる:
+    //   上: 種類の札 / 中: 候補 (いちばん近い・合うものを下に、親指の近くに積む) / 下: 検索窓 (キーボードのすぐ上)
+    val sortedByDistance = query.trim().length < 2 || isGenericQuery
+    val listState = rememberLazyListState()
+    LaunchedEffect(results) { if (results.isNotEmpty()) listState.scrollToItem(0) }
+
     Surface(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(100f)
             .navigationBarsPadding()
             .imePadding(),
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.background,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // MapTopBar.kt (地図表示時の検索バー) と位置・サイズ・パディング・アイコン・フォント完全同一
-            Spacer(modifier = Modifier.height(14.dp))
+            // 上: 種類の札 (横に流せる)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SearchCategory.entries.forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (isSelected) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (isSelected) BorderStroke(1.dp, CycleMapTheme.palette.accent) else null,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { selectedCategory = cat },
+                    ) {
+                        Text(
+                            cat.label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) CycleMapTheme.palette.onAccentContainer else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+            }
+
+            // FTS5非対応時の案内バナー（セッション中1回のみ）
+            if (showFts5Notice) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CycleMapTheme.palette.warningContainer),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_lucide_info),
+                            contentDescription = null,
+                            tint = CycleMapTheme.palette.warning,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "旧形式の検索DBが使用されています。漢字または前方・部分一致で検索してください",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { showFts5Notice = false }, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                painterResource(R.drawable.ic_lucide_x),
+                                contentDescription = "閉じる",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 中: 候補。reverseLayout で先頭 (いちばん近い・合うもの) を下端に置き、遠いものほど上へ積む
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = slideInVertically(
+                    initialOffsetY = { it / 4 },
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                Box(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                    when {
+                        query.isEmpty() && results.isEmpty() && favorites.isNotEmpty() -> {
+                            LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = true) {
+                                items(favorites, key = { it.id }) { fav ->
+                                    FavoriteSpotItemCard(
+                                        spot = fav,
+                                        onSpotSelected = { spot ->
+                                            onResultSelected(
+                                                SearchResult(
+                                                    name = spot.name,
+                                                    category = spot.category,
+                                                    latitude = spot.latitude,
+                                                    longitude = spot.longitude,
+                                                    distanceMeters = null,
+                                                ),
+                                            )
+                                        },
+                                        onRemoveFavorite = { favoritesManager.removeFavorite(fav.id) },
+                                    )
+                                }
+                                item {
+                                    Text(
+                                        "★ お気に入り (${favorites.size}件)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CycleMapTheme.palette.favorite,
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                    )
+                                }
+                            }
+                        }
+                        query.isEmpty() && results.isEmpty() -> {
+                            Column(
+                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_lucide_search),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(40.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    "下の欄に行き先を入れてください",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        else -> {
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
+                                itemsIndexed(results) { index, result ->
+                                    SearchResultItemCard(
+                                        result = result,
+                                        isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),
+                                        onResultSelected = onResultSelected,
+                                        onToggleFavorite = {
+                                            favoritesManager.toggleFavorite(
+                                                FavoriteSpot(
+                                                    id = "${result.name}_${result.latitude}_${result.longitude}",
+                                                    name = result.name,
+                                                    category = result.category,
+                                                    latitude = result.latitude,
+                                                    longitude = result.longitude,
+                                                ),
+                                            )
+                                        },
+                                        highlightLabel = if (index == 0) {
+                                            if (sortedByDistance) "いちばん近い" else "いちばん合う"
+                                        } else {
+                                            null
+                                        },
+                                    )
+                                }
+                                if (results.size > 1) {
+                                    item {
+                                        Text(
+                                            if (sortedByDistance) "↑ 上ほど遠い" else "↑ 上ほど合わない",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 並び順・件数・案内 (検索窓のすぐ上)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (effectiveLocation != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painterResource(R.drawable.ic_lucide_map_pin),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            // 検索語があるときは一致度・重要度・距離の総合順、カテゴリだけのときは近い順
+                            if (!sortedByDistance) "関連度順 (近さも考慮)" else "現在地から近い順",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                } else {
+                    Text("現在地なし", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (results.isNotEmpty()) {
+                    Text("${results.size}件", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            message?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
+                )
+            }
+
+            // 下: 検索窓 (キーボードのすぐ上、親指の位置)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .height(52.dp),
-                shape = RoundedCornerShape(26.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+                    .height(54.dp),
+                shape = RoundedCornerShape(27.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 0.dp,
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左: 戻る矢印 (Google Maps 標準の太い ArrowBack、濃い黒 #1F1F1F でくっきり表示)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .clickable { onDismiss() },
                         contentAlignment = Alignment.Center,
@@ -278,46 +498,29 @@ internal fun DestinationSearchDialog(
                             modifier = Modifier.size(24.dp),
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // 中央: 「ここで検索」入力欄 (MapTopBar の Text(fontSize = 18.sp) と位置・サイズ完全一致)
-                    Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                         BasicTextField(
                             value = query,
                             onValueChange = { query = it },
                             singleLine = true,
-                            textStyle = TextStyle(
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            ),
+                            textStyle = TextStyle(fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester),
                             decorationBox = { innerTextField ->
                                 if (query.isEmpty()) {
-                                    Text(
-                                        text = "ここで検索",
-                                        fontSize = 18.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Text("どこへ行く？", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 innerTextField()
                             },
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // 右: 入力時クリアボタン (LOW-02: 未実装音声検索マイクは非表示化)
                     if (query.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .clickable { query = "" },
                             contentAlignment = Alignment.Center,
@@ -332,218 +535,6 @@ internal fun DestinationSearchDialog(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 下から出るアニメーションはこの枠の下のコンテンツにのみ付与
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = slideInVertically(
-                    initialOffsetY = { it / 4 },
-                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                ) + fadeIn(animationSpec = tween(durationMillis = 180)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // カテゴリフィルタタブ (Google スタイル: 白背景, 青インジケータ)
-                    ScrollableTabRow(
-                        selectedTabIndex = SearchCategory.entries.indexOf(selectedCategory),
-                        edgePadding = 12.dp,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                            SearchCategory.entries.forEach { cat ->
-                                val isSelected = selectedCategory == cat
-                                Tab(
-                                    selected = isSelected,
-                                    onClick = { selectedCategory = cat },
-                                    text = {
-                                        Text(
-                                            cat.label,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    },
-                                )
-                            }
-                        }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    // FTS5非対応時の案内バナー（セッション中1回のみ）
-                    if (showFts5Notice) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = CycleMapTheme.palette.warningContainer,
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.ic_lucide_info),
-                                    contentDescription = null,
-                                    tint = CycleMapTheme.palette.warning,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "旧形式の検索DBが使用されています。漢字または前方・部分一致で検索してください",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                IconButton(
-                                    onClick = { showFts5Notice = false },
-                                    modifier = Modifier.size(24.dp),
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_lucide_x),
-                                        contentDescription = "閉じる",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 現在地・件数ヘッダー
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (effectiveLocation != null) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    painterResource(R.drawable.ic_lucide_map_pin),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp),
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    // 検索語があるときは一致度・重要度・距離の総合順、カテゴリだけのときは近い順
-                                    if (query.trim().length >= 2 && !isGenericQuery) "関連度順 (近さも考慮)" else "現在地から近い順",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        } else {
-                            Text(
-                                "現在地なし",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (results.isNotEmpty()) {
-                            Text(
-                                "${results.size}件",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    message?.let {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    if (query.isEmpty() && results.isEmpty()) {
-                        if (favorites.isNotEmpty()) {
-                            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                Text(
-                                    "★ お気に入り (${favorites.size}件)",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                )
-
-                                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                    items(favorites, key = { it.id }) { fav ->
-                                        FavoriteSpotItemCard(
-                                            spot = fav,
-                                            onSpotSelected = { spot ->
-                                                onResultSelected(
-                                                    SearchResult(
-                                                        name = spot.name,
-                                                        category = spot.category,
-                                                        latitude = spot.latitude,
-                                                        longitude = spot.longitude,
-                                                        distanceMeters = null,
-                                                    ),
-                                                )
-                                            },
-                                            onRemoveFavorite = {
-                                                favoritesManager.removeFavorite(fav.id)
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_lucide_search),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(48.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        "目的地を検索してください",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(results) { result ->
-                                SearchResultItemCard(
-                                    result = result,
-                                    isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),
-                                    onResultSelected = onResultSelected,
-                                    onToggleFavorite = {
-                                        favoritesManager.toggleFavorite(
-                                            FavoriteSpot(
-                                                id = "${result.name}_${result.latitude}_${result.longitude}",
-                                                name = result.name,
-                                                category = result.category,
-                                                latitude = result.latitude,
-                                                longitude = result.longitude,
-                                            ),
-                                        )
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
-}
 }
