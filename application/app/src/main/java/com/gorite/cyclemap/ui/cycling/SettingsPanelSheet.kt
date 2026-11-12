@@ -30,6 +30,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,7 +96,7 @@ fun SettingsPanelSheet(
             SettingSwitch("ヘディングアップ", headingUp, onHeadingUp)
 
             Spacer(modifier = Modifier.height(4.dp))
-            Text("音声案内 (四国めたん)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text("音声案内", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -123,8 +126,8 @@ fun SettingsPanelSheet(
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 when (mode) {
-                                    VoiceGuidanceMode.VOICEVOX -> "めたん"
-                                    VoiceGuidanceMode.OFF -> "なし"
+                                    VoiceGuidanceMode.VOICEVOX -> "音声あり"
+                                    VoiceGuidanceMode.OFF -> "音声なし"
                                 },
                                 fontSize = 13.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
@@ -152,14 +155,28 @@ fun SettingsPanelSheet(
             }
             SettingSwitch("POI表示 (ズームに応じて自動で絞り込み)", poiVisible, onPoiVisible)
             if (poiVisible) {
-                Text(
-                    "表示カテゴリ (タップで切替)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // カテゴリ選択チップ (2列グリッド相当の折返しRow)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PoiCategory.entries.chunked(5).forEach { row ->
+                var poiExpanded by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { poiExpanded = !poiExpanded }
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "表示カテゴリ: ${poiSelected.size}/${PoiCategory.entries.size} 件",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        if (poiExpanded) "閉じる" else "変更",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (poiExpanded) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PoiCategory.entries.chunked(4).forEach { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -172,7 +189,7 @@ fun SettingsPanelSheet(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            repeat(5 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                            repeat(4 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -265,31 +282,23 @@ fun SettingsPanelSheet(
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(14.dp),
             ) { Text("GPXを読み込む", fontWeight = FontWeight.SemiBold) }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                TextButton(onClick = onLicense) { Text("ライセンス") }
-                TextButton(onClick = onVersion) { Text("バージョン情報") }
+            Text(
+                "バージョン ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (BuildConfig.DEBUG) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Text("開発用情報", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "ビルド元コミット: ${BuildConfig.GIT_HASH}\nビルド日時: ${BuildConfig.BUILD_TIME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (onDeveloperOptions != null) {
-                    TextButton(onClick = onDeveloperOptions) { Text("開発者") }
+                    TextButton(onClick = onDeveloperOptions) { Text("開発者オプション") }
                 }
             }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("For Developers", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text(
-                "バージョン: ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "ビルド元コミット: ${BuildConfig.GIT_HASH}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "ビルド日時: ${BuildConfig.BUILD_TIME}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -329,7 +338,7 @@ private fun PoiSelectChip(
                 tint = contentColor,
                 modifier = Modifier.size(22.dp),
             )
-            Text(cat.label, fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1, color = contentColor)
+            Text(cat.label, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 2, minLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 13.sp, color = contentColor)
         }
     }
 }

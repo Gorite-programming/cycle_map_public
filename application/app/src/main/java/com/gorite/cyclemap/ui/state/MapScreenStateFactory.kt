@@ -78,6 +78,15 @@ internal fun rememberMapScreenState(
 ): MapScreenState {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("cyclemap_prefs", Context.MODE_PRIVATE) }
+    // アクティビティの ViewModelStore から取る (remember で直接作ると Android の管理外になり、onCleared も呼ばれない)。
+    val viewModel = remember(context) {
+        val owner = context.findViewModelStoreOwner()
+        if (owner != null) {
+            androidx.lifecycle.ViewModelProvider(owner)[com.gorite.cyclemap.ui.map.MapViewModel::class.java]
+        } else {
+            com.gorite.cyclemap.ui.map.MapViewModel() // プレビューなどアクティビティが無いとき
+        }
+    }
     val animationEnabledState = remember { mutableStateOf(prefs.getBoolean("animation_enabled", true)) }
 
     val batteryMonitor = remember(context) { BatteryMonitor(context) }
@@ -181,9 +190,8 @@ internal fun rememberMapScreenState(
 
     val bottomTabState = remember { mutableStateOf(CyclingTab.MAP) }
     val googleNavTabState = remember { mutableStateOf(GoogleNavTab.EXPLORE) }
-    val showRoutePanelState = remember { mutableStateOf(false) }
-    val showSpotPanelState = remember { mutableStateOf(false) }
-    val showFavoritesOnlyInSheetState = remember { mutableStateOf(false) }
+    val showSpotPanelState = viewModel.search.showSpotPanel
+    val showFavoritesOnlyInSheetState = viewModel.search.showFavoritesOnlyInSheet
     val showRecordPanelState = remember { mutableStateOf(false) }
     val showCyclingSettingsState = remember { mutableStateOf(false) }
     val poiVisibleState = remember { mutableStateOf(prefs.getBoolean("poi_visible", true)) }
@@ -210,66 +218,66 @@ internal fun rememberMapScreenState(
     }
     val poiRefreshTickState = remember { mutableIntStateOf(0) }
     val currentZoomLevelState = remember { mutableDoubleStateOf(15.0) }
-    val selectedPoiSpotState = remember { mutableStateOf<NearbySpot?>(null) }
-    val spotCategoryState = remember { mutableStateOf<SpotQuickCategory?>(null) }
-    val spotResultsState = remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
-    val spotLoadingState = remember { mutableStateOf(false) }
-    val spotMessageState = remember { mutableStateOf<String?>(null) }
-    val activeQuickSpotTypeState = remember { mutableStateOf<QuickSpotType?>(null) }
-    val showQuickSpotSheetState = remember { mutableStateOf(false) }
-    val quickSpotResultsState = remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
-    val quickSpotLoadingState = remember { mutableStateOf(false) }
-    val quickSpotMessageState = remember { mutableStateOf<String?>(null) }
+    val selectedPoiSpotState = viewModel.search.selectedPoiSpot
+    val spotCategoryState = viewModel.search.spotCategory
+    val spotResultsState = viewModel.search.spotResults
+    val spotLoadingState = viewModel.search.spotLoading
+    val spotMessageState = viewModel.search.spotMessage
+    val activeQuickSpotTypeState = viewModel.search.activeQuickSpotType
+    val showQuickSpotSheetState = viewModel.search.showQuickSpotSheet
+    val quickSpotResultsState = viewModel.search.quickSpotResults
+    val quickSpotLoadingState = viewModel.search.quickSpotLoading
+    val quickSpotMessageState = viewModel.search.quickSpotMessage
     val gpxHistoryState = remember { mutableStateOf<List<GpxHistoryEntry>>(emptyList()) }
     val locationLabelState = remember { mutableStateOf(AddressDisplayController.ADDRESS_LOADING) }
     val addressController = remember { AddressDisplayController() }
     val isRoutingBenchmarkRunningState = remember { mutableStateOf(false) }
     val routingBenchmarkResultState = remember { mutableStateOf<String?>(null) }
-    val showDestinationSearchState = remember { mutableStateOf(false) }
+    val showDestinationSearchState = viewModel.search.showDestinationSearch
     val selectedMenuState = remember { mutableStateOf("地図") }
 
     val mappedGraphState = remember { mutableStateOf<LazyMappedRoadGraph?>(null) }
     val loadedGraphNameState = remember { mutableStateOf<String?>(null) }
     val isSwitchingGraphState = remember { mutableStateOf(false) }
     val warningMessageState = remember { mutableStateOf<String?>(null) }
-    val destinationState = remember { mutableStateOf<GeoPoint?>(null) }
-    val waypointsState = remember { mutableStateOf(emptyList<GeoPoint>()) }
-    val pendingSelectedSpotState = remember { mutableStateOf<GeoPoint?>(null) }
+    val destinationState = viewModel.route.destination
+    val waypointsState = viewModel.route.waypoints
+    val pendingSelectedSpotState = viewModel.route.pendingSelectedSpot
     val routeOverlayState = remember { mutableStateOf<Polyline?>(null) }
     val gpxTrackOverlayState = remember { mutableStateOf<Polyline?>(null) }
-    val routeSummaryState = remember { mutableStateOf<RouteSummary?>(null) }
-    val calculatedRouteOptionsState = remember { mutableStateOf(emptyList<com.gorite.cyclemap.contract.RouteOption>()) }
-    val selectedRoutePreferenceState = remember { mutableStateOf(RoutePreference.RECOMMENDED) }
-    val selectedRouteIndexState = remember { mutableStateOf(0) }
-    val navigationRouteState = remember { mutableStateOf<List<RoutePoint>>(emptyList()) }
-    val navigationManeuversState = remember { mutableStateOf(emptyList<Maneuver>()) }
-    val navigationInstructionsState = remember { mutableStateOf(emptyList<RouteInstruction>()) }
-    val navigationProgressState = remember { mutableStateOf<RouteProgress?>(null) }
-    val isNavigationActiveState = remember { mutableStateOf(false) }
+    val routeSummaryState = viewModel.route.summary
+    val calculatedRouteOptionsState = viewModel.route.options
+    val selectedRoutePreferenceState = viewModel.route.preference
+    val selectedRouteIndexState = viewModel.route.selectedIndex
+    val navigationRouteState = viewModel.route.points
+    val navigationManeuversState = viewModel.route.maneuvers
+    val navigationInstructionsState = viewModel.route.instructions
+    val navigationProgressState = viewModel.navigation.progress
+    val isNavigationActiveState = viewModel.navigation.isActive
     LaunchedEffect(isNavigationActiveState.value) {
         onNavigationStateChanged(isNavigationActiveState.value)
     }
 
-    val isCalculatingRouteState = remember { mutableStateOf(false) }
-    val navStatsState = remember { mutableStateOf<NavigationStats?>(null) }
-    val navSpeedMpsState = remember { mutableStateOf(0.0) }
-    val navStartElapsedMsState = remember { mutableStateOf(0L) }
-    val isReroutingState = remember { mutableStateOf(false) }
-    val isArrivedState = remember { mutableStateOf(false) }
+    val isCalculatingRouteState = viewModel.route.isCalculating
+    val navStatsState = viewModel.navigation.stats
+    val navSpeedMpsState = viewModel.navigation.speedMps
+    val navStartElapsedMsState = viewModel.navigation.startElapsedMs
+    val isReroutingState = viewModel.navigation.isRerouting
+    val isArrivedState = viewModel.navigation.isArrived
     val autoRerouteEnabledState = remember { mutableStateOf(prefs.getBoolean("auto_reroute_enabled", true)) }
     LaunchedEffect(autoRerouteEnabledState.value) {
         prefs.edit().putBoolean("auto_reroute_enabled", autoRerouteEnabledState.value).apply()
     }
-    val rerouteCountState = remember { mutableIntStateOf(0) }
-    val rerouteLimitWarnedState = remember { mutableStateOf(false) }
-    val lastRerouteElapsedMsState = remember { mutableStateOf(0L) }
+    val rerouteCountState = viewModel.navigation.rerouteCount
+    val rerouteLimitWarnedState = viewModel.navigation.rerouteLimitWarned
+    val lastRerouteElapsedMsState = viewModel.navigation.lastRerouteElapsedMs
     val offRouteDetector = remember { OffRouteDetector() }
     val graphLock = remember { ReentrantReadWriteLock() }
     val routeJobRef = remember { AtomicReference<RouteCalculationJob?>(null) }
 
     val elevationRepository = remember(context) { ElevationRepository.getInstance(context) }
-    val realElevProfileState = remember { mutableStateOf<List<ElevationSample>>(emptyList()) }
-    val crossRouteElevationState = remember { mutableStateOf<CrossRouteElevationData?>(null) }
+    val realElevProfileState = viewModel.route.elevationProfile
+    val crossRouteElevationState = viewModel.route.crossRouteElevation
     LaunchedEffect(routeSummaryState.value, navigationRouteState.value, mappedGraphState.value, crossRouteElevationState.value) {
         val summary = routeSummaryState.value
         val navRoute = navigationRouteState.value
@@ -364,7 +372,6 @@ internal fun rememberMapScreenState(
     val isDrawerOpenState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val viewModel = remember { com.gorite.cyclemap.ui.map.MapViewModel() }
     val connectivityState = remember(context) { com.gorite.cyclemap.net.ConnectivityState(context) }
     DisposableEffect(connectivityState) {
         onDispose {
@@ -436,7 +443,6 @@ internal fun rememberMapScreenState(
         showDeveloperOptionsState = showDeveloperOptionsState,
         bottomTabState = bottomTabState,
         googleNavTabState = googleNavTabState,
-        showRoutePanelState = showRoutePanelState,
         showSpotPanelState = showSpotPanelState,
         showFavoritesOnlyInSheetState = showFavoritesOnlyInSheetState,
         showRecordPanelState = showRecordPanelState,
@@ -502,4 +508,11 @@ internal fun rememberMapScreenState(
         selectedAreaBoundsState = selectedAreaBoundsState,
         showAreaDownloadConfirmDialogState = showAreaDownloadConfirmDialogState,
     )
+}
+
+/** Context をたどって ViewModelStore を持つもの (通常は MainActivity) を探す。 */
+private tailrec fun Context.findViewModelStoreOwner(): androidx.lifecycle.ViewModelStoreOwner? = when (this) {
+    is androidx.lifecycle.ViewModelStoreOwner -> this
+    is android.content.ContextWrapper -> baseContext.findViewModelStoreOwner()
+    else -> null
 }

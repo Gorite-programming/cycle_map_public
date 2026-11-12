@@ -6,6 +6,37 @@ import kotlin.system.measureNanoTime
 
 object ChBuildMain { @JvmStatic fun main(args: Array<String>) = mainBuildCh(args) }
 object ChBenchmarkMain { @JvmStatic fun main(args: Array<String>) = mainBenchmarkCh(args) }
+object ChPortalsMain { @JvmStatic fun main(args: Array<String>) = mainBuildPortals(args) }
+
+/**
+ * 通り口ファイルの生成。
+ * - `<A.graph> <B.graph> <out.portals>`: 1 組。
+ * - `--all <outDir> <graph>...`: 渡した graph のすべての組 (各 graph の ID 索引は 1 回だけ読む)。ファイル名は [CrossPortalsFile.fileName]。
+ * 通り口が 0 件の組はファイルを作らない (出力先に古いファイルがあれば消す)。1 組ごとに `PORTALS pair=... count=...` を出す。
+ */
+fun mainBuildPortals(args: Array<String>) {
+    val all = args.firstOrNull() == "--all"
+    val graphs = (if (all) args.drop(2) else args.take(2)).map { File(it) }
+    require(graphs.size >= 2 && (all || args.size == 3)) { "usage: <A.graph> <B.graph> <out.portals> | --all <outDir> <graph> <graph>..." }
+    graphs.forEach { require(it.isFile) { "graph not found: $it" } }
+    val indexes = HashMap<File, SortedNodeIdIndex>(); val fingerprints = HashMap<File, GraphFingerprint>()
+    for (i in graphs.indices) for (j in i + 1 until graphs.size) {
+        // ファイルの A 側は名前の辞書順で先の graph
+        val (a, b) = if (CrossPortalsFile.isCanonicalOrder(graphs[i], graphs[j])) graphs[i] to graphs[j] else graphs[j] to graphs[i]
+        val out = if (all) File(args[1], CrossPortalsFile.fileName(a, b)) else File(args[2])
+        val started = System.nanoTime()
+        val portals = portalsBetween(indexes.getOrPut(a) { LazyMappedRoadGraph.loadSortedNodeIdIndex(a) }, indexes.getOrPut(b) { LazyMappedRoadGraph.loadSortedNodeIdIndex(b) })
+        if (portals.size == 0) out.delete()
+        else {
+            val fa = fingerprints.getOrPut(a) { GraphFingerprint.fromFile(a) }; val fb = fingerprints.getOrPut(b) { GraphFingerprint.fromFile(b) }
+            CrossPortalsFile.write(out, portals, fa, fb)
+            val back = CrossPortalsFile.read(out, fa, fb)
+            check(back != null && back.nodeIds.contentEquals(portals.nodeIds) && back.aIndices.contentEquals(portals.aIndices) && back.bIndices.contentEquals(portals.bIndices)) { "Read-back mismatch: $out" }
+        }
+        println("PORTALS pair=${a.nameWithoutExtension}__${b.nameWithoutExtension} count=${portals.size} ms=${(System.nanoTime() - started) / 1_000_000}" +
+            if (portals.size == 0) " (no file)" else " bytes=${out.length()} out=$out")
+    }
+}
 
 fun mainBuildCh(args: Array<String>) {
     val input = File(args.getOrNull(0) ?: error("graph path required")); val out = File(args.getOrNull(1) ?: error("output path required"))

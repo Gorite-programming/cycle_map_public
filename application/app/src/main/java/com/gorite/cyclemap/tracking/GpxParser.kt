@@ -50,6 +50,7 @@ object GpxParser {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return null
 
+        // 書式を順に試す。合わない書式の例外は想定どおりなので捨てる。
         try {
             return Instant.parse(trimmed).toEpochMilli()
         } catch (_: Exception) {}
@@ -92,7 +93,9 @@ object GpxParser {
         if (!file.exists() || file.length() == 0L) return null
         return try {
             file.inputStream().use { parse(it, file) }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // 壊れた記録は履歴に出さないが、理由をログに残す (黙って消えると原因がわからないため)
+            android.util.Log.w("CycleMapGpx", "GPX_PARSE_FAILED file=${file.name}: ${e.message}", e)
             null
         }
     }

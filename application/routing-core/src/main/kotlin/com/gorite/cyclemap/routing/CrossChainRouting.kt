@@ -9,6 +9,12 @@ data class ChainGraph(
     val openIdIndex: (() -> SortedNodeIdIndex)? = null,
     /** Human-readable label used by optional stage timing logs. */
     val stageName: String? = null,
+    /**
+     * Optional precomputed portals from this graph (a side) to the next graph in the chain (b side), usually read from a
+     * `.portals` file ([loadCrossPortals]). Returning null (missing, stale or broken file) falls back to ID matching.
+     * Only [routeAcrossChainCh] uses it; the A* chain always matches IDs.
+     */
+    val portalsToNext: (() -> CrossPortals?)? = null,
 )
 
 data class CrossChainResult(

@@ -231,11 +231,13 @@ class ContractionHierarchy private constructor(
     @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
         require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
         if (start == goal) return ChRouteResult(intArrayOf(start), 0.0, 0.0)
+        val r0 = System.nanoTime(); var settledR = 0
         ws.begin(); ws.setF(start, 0.0, -1); ws.setB(goal, 0.0, -1); ws.pushF(start, 0.0); ws.pushB(goal, 0.0)
         var best = Double.POSITIVE_INFINITY; var meet = -1
         while (true) {
             val expandF = ws.hasF() && ws.minF() < best; val expandB = ws.hasB() && ws.minB() < best
             if (!expandF && !expandB) break
+            settledR++
             if (expandF && (!expandB || ws.minF() <= ws.minB())) {
                 val (v, d) = ws.popF(); if (d > ws.fCost(v)) continue
                 if (d + ws.bCost(v) < best) { best = d + ws.bCost(v); meet = v }
@@ -247,14 +249,16 @@ class ContractionHierarchy private constructor(
             }
         }
         if (meet < 0 || best.isInfinite()) return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+        val r1 = System.nanoTime()
         val path = IntArrayList(); path.add(start); var v = meet; var guard = 0
         val upPath = IntArrayList()
         while (v != start) { check(++guard <= nodeCount); val e = ws.fEdge(v); check(e >= 0); upPath.add(e); v = edgeSource(e) }
         for (i in upPath.size - 1 downTo 0) unpack(edgeSource(upPath[i]), store.upT(upPath[i]), store.upM(upPath[i]), graph, path)
         v = meet; guard = 0
         while (v != goal) { check(++guard <= nodeCount); val e = ws.bEdge(v); check(e >= 0); val low = downOwner(e); unpack(v, low, store.downM(e), graph, path); v = low }
+        val r2 = System.nanoTime()
         var totalDistance = 0.0
-        val cursor = graph.newRoutingEdgeCursor()
+        val cursor = graph.newRoutingEdgeCursor(lazyTypes = true)
         for (i in 0 until path.size - 1) {
             val a = path[i]; val b = path[i + 1]; cursor.reset(a); var bestCost = Double.POSITIVE_INFINITY; var selectedDistance = Double.POSITIVE_INFINITY
             while (cursor.next()) if (cursor.target == b) {
@@ -264,7 +268,186 @@ class ContractionHierarchy private constructor(
             }
             check(selectedDistance.isFinite()) { "Expanded CH arc $a->$b missing in source graph" }; totalDistance += selectedDistance
         }
+        lastRouteStats = "searchMs=${(r1 - r0) / 1_000_000} iter=$settledR unpackMs=${(r2 - r1) / 1_000_000} distMs=${(System.nanoTime() - r2) / 1_000_000} nodes=${path.size}"
         return ChRouteResult(path.toArray(), best, totalDistance)
+    }
+
+    @Volatile internal var lastRouteStats: String = ""
+
+    /** [searchMany] の結果。bestSource は sources 配列の添字 (到達不能は -1)。 */
+    class ManyResult(val bestCost: DoubleArray, val bestSource: IntArray)
+
+    private var manyWs: ManyWorkspace? = null
+
+    /**
+     * 多対多プリミティブ。各 target t について min over s of (sourceCosts[s] + dist(s, t)) と arg-min を返す。
+     * 1 回の多始点・上向き前向き探索 (全 source を初期コスト付きで投入、早期終了なし) の後、target ごとに
+     * 下向き (後ろ向き) 探索を行い、前向きコストが確定済みのノードで合流候補を評価する。
+     */
+    @Synchronized fun searchMany(sources: IntArray, sourceCosts: DoubleArray, targets: IntArray): ManyResult {
+        require(sources.size == sourceCosts.size)
+        val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
+        val bestSource = IntArray(targets.size) { -1 }
+        if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        val t0 = System.nanoTime()
+        val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
+        val t1 = System.nanoTime(); var settledF = 0
+        w.beginForward()
+        for (i in sources.indices) {
+            val s = sources[i]; require(s in 0 until nodeCount); val c = sourceCosts[i]
+            if (c < w.f(s)) { w.setF(s, c, i); w.pushF(s, c) }
+        }
+        while (!w.emptyF()) {
+            val v = w.popF(); val d = w.poppedCost
+            if (d > w.f(v)) continue
+            val seed = w.seed(v); settledF++
+            for (e in store.off(v) until store.off(v + 1)) {
+                val x = store.upT(e); val nd = d + store.upC(e)
+                if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
+            }
+        }
+        val t2 = System.nanoTime()
+        // RPHAST: targets から下向き弧を逆にたどった閉包 U を求める
+        w.beginSweep()
+        for (k in targets.indices) { val t = targets[k]; require(t in 0 until nodeCount); w.pushU(t) }
+        var sweepArcs = 0L
+        while (w.stackSize > 0) {
+            val v = w.popU()
+            for (e in store.roff(v) until store.roff(v + 1)) w.pushU(store.downT(e))
+        }
+        val unionSize = w.unionSize
+        w.packUnion { v -> store.rank(v) }
+        val t3 = System.nanoTime()
+        w.sortUnion()
+        val t4 = System.nanoTime()
+        for (i in unionSize - 1 downTo 0) {
+            val v = w.unionNode(i)
+            var bd = w.f(v); var bs = if (bd.isFinite()) w.seed(v) else -1
+            val lo = store.roff(v); val hi = store.roff(v + 1); sweepArcs += hi - lo
+            for (e in lo until hi) {
+                val u = store.downT(e); val du = w.d(u)
+                if (du.isInfinite()) continue
+                val nd = du + store.downC(e)
+                if (nd < bd) { bd = nd; bs = w.dSeed(u) }
+            }
+            w.setD(v, bd, bs)
+        }
+        for (k in targets.indices) { val t = targets[k]; bestCost[k] = w.d(t); bestSource[k] = if (bestCost[k].isFinite()) w.dSeed(t) else -1 }
+        val t5 = System.nanoTime()
+        lastManyStats = "sources=${sources.size} targets=${targets.size} allocMs=${(t1 - t0) / 1_000_000} fwdMs=${(t2 - t1) / 1_000_000} settledF=$settledF unionSize=$unionSize sweepArcs=$sweepArcs unionMs=${(t3 - t2) / 1_000_000} sortMs=${(t4 - t3) / 1_000_000} sweepMs=${(t5 - t4) / 1_000_000}"
+        return ManyResult(bestCost, bestSource)
+    }
+
+    /** 旧実装 (target ごとの後ろ向きダイクストラ)。テストのオラクルと計測の比較用。 */
+    @Synchronized internal fun searchManyDijkstra(sources: IntArray, sourceCosts: DoubleArray, targets: IntArray): ManyResult {
+        require(sources.size == sourceCosts.size)
+        val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
+        val bestSource = IntArray(targets.size) { -1 }
+        if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        val t0 = System.nanoTime()
+        val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
+        val t1 = System.nanoTime(); var settledF = 0; var settledB = 0L
+        w.beginForward()
+        for (i in sources.indices) {
+            val s = sources[i]; require(s in 0 until nodeCount); val c = sourceCosts[i]
+            if (c < w.f(s)) { w.setF(s, c, i); w.pushF(s, c) }
+        }
+        while (!w.emptyF()) {
+            val v = w.popF(); val d = w.poppedCost
+            if (d > w.f(v)) continue
+            val seed = w.seed(v); settledF++
+            for (e in store.off(v) until store.off(v + 1)) {
+                val x = store.upT(e); val nd = d + store.upC(e)
+                if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
+            }
+        }
+        val t2 = System.nanoTime()
+        for (k in targets.indices) {
+            val t = targets[k]; require(t in 0 until nodeCount)
+            w.beginBackward(); w.setB(t, 0.0); w.pushB(t, 0.0)
+            var best = Double.POSITIVE_INFINITY; var bestSeed = -1
+            while (!w.emptyB()) {
+                val v = w.popB(); val d = w.poppedCost
+                if (d > w.b(v)) continue
+                if (d >= best) break
+                settledB++
+                val fv = w.f(v)
+                if (fv + d < best) { best = fv + d; bestSeed = w.seed(v) }
+                for (e in store.roff(v) until store.roff(v + 1)) {
+                    val x = store.downT(e); val nd = d + store.downC(e)
+                    if (nd < w.b(x)) { w.setB(x, nd); w.pushB(x, nd) }
+                }
+            }
+            bestCost[k] = best; bestSource[k] = bestSeed
+        }
+        val t3 = System.nanoTime()
+        lastManyStats = "sources=${sources.size} targets=${targets.size} allocMs=${(t1 - t0) / 1_000_000} fwdMs=${(t2 - t1) / 1_000_000} settledF=$settledF bwdMs=${(t3 - t2) / 1_000_000} settledB=$settledB"
+        return ManyResult(bestCost, bestSource)
+    }
+
+    @Volatile internal var lastManyStats: String = ""
+
+    private class ManyWorkspace(n: Int) {
+        private val genF = IntArray(n); private val genB = IntArray(n); private var gf = 0; private var gb = 0
+        private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val sd = IntArray(n)
+        private val qf = Heap(); private val qb = Heap()
+        private val genU = IntArray(n); private var gu = 0
+        private val genD = IntArray(n); private val cd = DoubleArray(n); private val sdd = IntArray(n)
+        private var stack = IntArray(1024); var stackSize = 0; private set
+        private var union = LongArray(1024); var unionSize = 0; private set
+        fun beginSweep() {
+            gu++; if (gu == 0) { genU.fill(0); genD.fill(0); gu = 1 }
+            stackSize = 0; unionSize = 0
+        }
+        fun pushU(v: Int) {
+            if (genU[v] == gu) return
+            genU[v] = gu
+            if (stackSize == stack.size) stack = stack.copyOf(stackSize * 2)
+            stack[stackSize++] = v
+            if (unionSize == union.size) union = union.copyOf(unionSize * 2)
+            union[unionSize++] = v.toLong()
+        }
+        fun popU(): Int = stack[--stackSize]
+        inline fun packUnion(rank: (Int) -> Int) { for (i in 0 until unionSize) setUnion(i, (rank(unionRaw(i).toInt()).toLong() shl 32) or unionRaw(i)) }
+        fun unionRaw(i: Int) = union[i]
+        fun setUnion(i: Int, x: Long) { union[i] = x }
+        fun sortUnion() = java.util.Arrays.sort(union, 0, unionSize)
+        fun unionNode(i: Int) = (union[i] and 0xFFFFFFFFL).toInt()
+        fun d(v: Int) = if (genD[v] == gu) cd[v] else Double.POSITIVE_INFINITY
+        fun dSeed(v: Int) = sdd[v]
+        fun setD(v: Int, c: Double, seed: Int) { genD[v] = gu; cd[v] = c; sdd[v] = seed }
+        val poppedCost get() = lastPopped
+        private var lastPopped = 0.0
+        fun beginForward() { gf++; if (gf == 0) { genF.fill(0); gf = 1 }; qf.clear() }
+        fun beginBackward() { gb++; if (gb == 0) { genB.fill(0); gb = 1 }; qb.clear() }
+        fun f(v: Int) = if (genF[v] == gf) cf[v] else Double.POSITIVE_INFINITY
+        fun b(v: Int) = if (genB[v] == gb) cb[v] else Double.POSITIVE_INFINITY
+        fun seed(v: Int) = sd[v]
+        fun setF(v: Int, c: Double, seed: Int) { genF[v] = gf; cf[v] = c; sd[v] = seed }
+        fun setB(v: Int, c: Double) { genB[v] = gb; cb[v] = c }
+        fun pushF(v: Int, c: Double) = qf.add(v, c); fun pushB(v: Int, c: Double) = qb.add(v, c)
+        fun emptyF() = qf.size == 0; fun emptyB() = qb.size == 0
+        fun popF(): Int { val v = qf.remove(); lastPopped = qf.removed; return v }
+        fun popB(): Int { val v = qb.remove(); lastPopped = qb.removed; return v }
+        private class Heap {
+            private var nodes = IntArray(64); private var keys = DoubleArray(64); var size = 0; private set; var removed = 0.0; private set
+            fun clear() { size = 0 }
+            fun add(node: Int, key: Double) {
+                if (size == nodes.size) { nodes = nodes.copyOf(size * 2); keys = keys.copyOf(size * 2) }
+                var i = size++
+                while (i > 0) { val p = (i - 1) ushr 1; if (keys[p] <= key) break; nodes[i] = nodes[p]; keys[i] = keys[p]; i = p }
+                nodes[i] = node; keys[i] = key
+            }
+            fun remove(): Int {
+                val result = nodes[0]; removed = keys[0]; val ln = nodes[--size]; val lk = keys[size]
+                if (size > 0) {
+                    var i = 0
+                    while (true) { val l = i * 2 + 1; if (l >= size) break; val r = l + 1; val c = if (r < size && keys[r] < keys[l]) r else l; if (keys[c] >= lk) break; nodes[i] = nodes[c]; keys[i] = keys[c]; i = c }
+                    nodes[i] = ln; keys[i] = lk
+                }
+                return result
+            }
+        }
     }
 
     private fun edgeSource(edge: Int): Int { var lo = 0; var hi = nodeCount; while (lo < hi) { val mid = (lo + hi) ushr 1; if (store.off(mid + 1) <= edge) lo = mid + 1 else hi = mid }; return lo }

@@ -69,7 +69,7 @@ fun portalsBetween(a: LazyMappedRoadGraph, b: LazyMappedRoadGraph): CrossPortals
 fun portalsBetween(a: LazyMappedRoadGraph, bIds: SortedNodeIdIndex): CrossPortals =
     portalsBetween(a.sortedNodeIdIndex(), bIds)
 
-private fun portalsBetween(aIds: SortedNodeIdIndex, bIds: SortedNodeIdIndex): CrossPortals {
+internal fun portalsBetween(aIds: SortedNodeIdIndex, bIds: SortedNodeIdIndex): CrossPortals {
     val ai = IntArray(minOf(aIds.size, bIds.size))
     val bi = IntArray(ai.size)
     val ids = LongArray(ai.size)

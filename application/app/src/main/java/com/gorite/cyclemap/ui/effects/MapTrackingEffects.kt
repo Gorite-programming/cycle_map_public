@@ -98,7 +98,9 @@ internal fun MapTrackingEffects(
         onDispose {
             try {
                 context.unregisterReceiver(receiver)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                // 解除済みなら何もしなくてよい
+            }
         }
     }
 

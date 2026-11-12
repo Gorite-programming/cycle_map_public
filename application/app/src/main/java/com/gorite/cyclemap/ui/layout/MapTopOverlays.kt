@@ -51,10 +51,11 @@ internal fun BoxScope.MapTopOverlays(
     autoRerouteEnabled: Boolean,
     networkLink: com.gorite.cyclemap.net.Link = com.gorite.cyclemap.net.Link.Offline,
     onStopNavigation: () -> Unit = {},
+    isRoutePreviewActive: Boolean = false,
 ) {
-    // Normal Top Bar
+    // Normal Top Bar (ルートプレビュー中は検索バーとチップを隠し、地図を広く使う)
     AnimatedVisibility(
-        visible = !isNavigationActive,
+        visible = !isNavigationActive && !isRoutePreviewActive,
         enter = Motion.topBarEnter(effectiveAnimationEnabled),
         exit = Motion.topBarExit(effectiveAnimationEnabled),
         modifier = Modifier

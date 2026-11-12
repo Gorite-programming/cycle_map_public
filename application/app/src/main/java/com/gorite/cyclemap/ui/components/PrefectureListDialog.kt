@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.Prefecture
+import com.gorite.cyclemap.data.PrefectureDataStatus
+import com.gorite.cyclemap.data.offlineDataStatus
+import com.gorite.cyclemap.utils.cycleMapDataDir
 import com.gorite.cyclemap.data.PrefectureData
 import com.gorite.cyclemap.data.TileDownloader
 import com.gorite.cyclemap.data.TileProgress
@@ -54,7 +57,10 @@ internal fun PrefectureListDialog(
     var selectedRegionIndex by remember { mutableIntStateOf(5) } // デフォルト中国地方
     var downloadStatus by remember { mutableStateOf<Map<String, Pair<Boolean, Boolean>>>(emptyMap()) }
 
+    var dataStatus by remember { mutableStateOf<List<PrefectureDataStatus>>(emptyList()) }
+
     LaunchedEffect(context) {
+        dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
         downloadStatus = withContext(Dispatchers.IO) {
             PrefectureData.ALL.associate { pref ->
                 pref.id to (
@@ -67,9 +73,13 @@ internal fun PrefectureListDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("地図タイルを保存する県を選択") },
+        title = { Text("オフラインデータ") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().height(520.dp)) {
+                OfflineDataStatusSection(dataStatus)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("地図タイルの保存 (地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(4.dp))
                 // Region Tab
                 ScrollableTabRow(
                     selectedTabIndex = selectedRegionIndex,
@@ -87,7 +97,7 @@ internal fun PrefectureListDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別で、現在は中国 5 県のみ対応。
                 Text(
-                    "※ 経路探索・検索のデータは中国5県のみ対応です。ここでは地図タイルのみ保存します。",
+                    "県をタップすると、その県の地図タイルを保存できます (ルート探索・検索データは含みません)。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -177,4 +187,44 @@ internal fun startPrefectureDownload(
             onFinished()
         }
     }.start()
+}
+
+@Composable
+private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("ルート探索・施設検索・地図データ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(
+                "対応は中国5県です。このデータはアプリ内では取得できず、PCで作成して端末へ転送します。入っていない県では、ルート探索と施設検索が使えません。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            status.forEach { st ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(st.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(
+                        when {
+                            st.isComplete -> "✓ そろっています"
+                            st.isEmpty -> "未導入"
+                            else -> buildList {
+                                if (!st.hasRouting) add("ルート")
+                                if (!st.hasSearch) add("検索")
+                                if (!st.hasVectorMap) add("地図")
+                            }.joinToString("・") + "が不足"
+                        },
+                        fontSize = 13.sp,
+                        color = if (st.isComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
 }

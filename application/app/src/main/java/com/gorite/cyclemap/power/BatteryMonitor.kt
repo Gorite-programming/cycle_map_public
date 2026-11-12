@@ -64,7 +64,10 @@ class BatteryMonitor(private val context: Context) {
             } else {
                 context.registerReceiver(r, filter)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            // 受信できないと電池・省電力の変化に追従しない (起動時の値のまま) ので、ログに残す
+            android.util.Log.w("CycleMapPower", "battery receiver registration failed: ${e.message}", e)
+        }
         _status.value = queryCurrentStatus(context)
     }
 
@@ -72,7 +75,9 @@ class BatteryMonitor(private val context: Context) {
         receiver?.let {
             try {
                 context.unregisterReceiver(it)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                // 登録に失敗していた場合など、解除済みなら何もしなくてよい
+            }
             receiver = null
         }
     }
@@ -100,7 +105,9 @@ class BatteryMonitor(private val context: Context) {
                             rawStatus == BatteryManager.BATTERY_STATUS_FULL ||
                             plugged != 0
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("CycleMapPower", "battery status query failed: ${e.message}")
+            }
 
             return BatteryStatus(
                 levelPercent = if (level in 0..100) level else 100,

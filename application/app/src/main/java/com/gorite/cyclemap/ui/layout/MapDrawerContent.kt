@@ -72,7 +72,7 @@ internal fun MapDrawerContent(
                 onClick = onSearchClick,
             )
             NavigationDrawerItem(
-                label = { Text("地図ダウンロード") },
+                label = { Text("オフラインデータ") },
                 icon = {
                     Icon(
                         painterResource(R.drawable.ic_lucide_download),
@@ -84,10 +84,10 @@ internal fun MapDrawerContent(
                 onClick = onDownloadClick,
             )
             NavigationDrawerItem(
-                label = { Text("3Dシミュレーション") },
+                label = { Text("3D地形ビュー") },
                 icon = {
                     Icon(
-                        painterResource(R.drawable.ic_lucide_layers),
+                        painterResource(R.drawable.ic_lucide_mountain),
                         contentDescription = null,
                         modifier = Modifier.size(24.dp),
                     )
@@ -119,18 +119,20 @@ internal fun MapDrawerContent(
                 selected = selectedMenu == "設定",
                 onClick = onSettingsClick,
             )
-            NavigationDrawerItem(
-                label = { Text("開発者オプション") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_wrench),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                selected = selectedMenu == "開発者",
-                onClick = onDeveloperOptionsClick,
-            )
+            if (BuildConfig.DEBUG) {
+                NavigationDrawerItem(
+                    label = { Text("開発者オプション") },
+                    icon = {
+                        Icon(
+                            painterResource(R.drawable.ic_lucide_wrench),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    selected = selectedMenu == "開発者",
+                    onClick = onDeveloperOptionsClick,
+                )
+            }
             NavigationDrawerItem(
                 label = { Text("バージョン情報") },
                 icon = {

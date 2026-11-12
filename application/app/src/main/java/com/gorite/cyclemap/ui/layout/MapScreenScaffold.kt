@@ -14,12 +14,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.ui.RoutingBenchmarkRequest
 import com.gorite.cyclemap.ui.cycling.CyclingTab
+import com.gorite.cyclemap.ui.cycling.GoogleNavTab
+import com.gorite.cyclemap.ui.cycling.LocalNavTabSwitcher
 import com.gorite.cyclemap.ui.cycling.SpotQuickCategory
 import com.gorite.cyclemap.ui.cycling.moveWaypoint
 import com.gorite.cyclemap.ui.cycling.removeWaypointAt
@@ -48,6 +56,7 @@ internal fun MapScreenScaffold(
     exportPlannedRoute: () -> Unit,
     importPlannedRoute: () -> Unit,
     toggleNextLayer: () -> Unit,
+    selectLayer: (MapLayer) -> Unit = {},
     startNavigation: () -> Unit,
     clearRoute: () -> Unit,
     selectRouteOption: (Int) -> Unit = {},
@@ -75,7 +84,33 @@ internal fun MapScreenScaffold(
         }
     }
 
-    CompositionLocalProvider(LocalAnimationEnabled provides effectiveAnimationEnabled) {
+    // タブから開いたシートの中で別のタブへ移る (シートがタブバーを覆うため、シート下端のタブバーから呼ぶ)
+    val switchNavTab: (GoogleNavTab) -> Unit = { tab ->
+        state.googleNavTabState.value = tab
+        when (tab) {
+            GoogleNavTab.EXPLORE, GoogleNavTab.SAVED -> {
+                state.showRecordPanelState.value = false
+                state.showFavoritesOnlyInSheetState.value = tab == GoogleNavTab.SAVED
+                state.showSpotPanelState.value = true
+            }
+            GoogleNavTab.RECORD -> {
+                state.showSpotPanelState.value = false
+                state.showRecordPanelState.value = true
+                scope.launch(Dispatchers.IO) {
+                    val loaded = loadGpxHistory(cycleMapDataDir(context))
+                    (context as? ComponentActivity)?.runOnUiThread { state.gpxHistoryState.value = loaded }
+                }
+            }
+        }
+    }
+
+    var showStopNavigationConfirm by remember { mutableStateOf(false) }
+
+    CompositionLocalProvider(
+        LocalAnimationEnabled provides effectiveAnimationEnabled,
+        LocalNavTabSwitcher provides switchNavTab,
+        LocalLayerSelector provides selectLayer,
+    ) {
         Box(modifier = modifier.fillMaxSize()) {
             MapContentLayout(
                 modifier = Modifier.fillMaxSize(),
@@ -208,10 +243,7 @@ internal fun MapScreenScaffold(
             isRecording = state.isRecordingState.value,
             gpxPointCount = state.gpxPointCountState.value,
             onWarningMessage = { state.warningMessageState.value = it },
-            onStopNavigation = {
-                state.isNavigationActiveState.value = false
-                clearRoute()
-            },
+            onStopNavigation = { showStopNavigationConfirm = true },
             onClearRoute = clearRoute,
             destination = state.destinationState.value,
             waypoints = state.waypointsState.value,
@@ -240,7 +272,8 @@ internal fun MapScreenScaffold(
             },
             isArrived = state.isArrivedState.value,
             locationLabel = state.locationLabelState.value,
-            googleNavTab = state.googleNavTabState.value,
+            // シートが開いていないときは常に「スポット」(地図) を選択表示にする
+            googleNavTab = if (state.showSpotPanelState.value || state.showRecordPanelState.value) state.googleNavTabState.value else GoogleNavTab.EXPLORE,
             onTabSelected = { state.googleNavTabState.value = it },
             onExploreClick = {
                 state.showFavoritesOnlyInSheetState.value = false
@@ -307,23 +340,8 @@ internal fun MapScreenScaffold(
                 state.showSpotPanelState.value = true
             }
         },
-        onStartNavigation = startNavigation,
         onImportPlannedRoute = importPlannedRoute,
-        calculatedRoutes = state.calculatedRouteOptionsState.value,
-        showRoutePanel = state.showRoutePanelState.value,
-        onCloseRoutePanel = {
-            state.showRoutePanelState.value = false
-            state.bottomTabState.value = CyclingTab.MAP
-        },
-        realElevProfile = state.realElevProfileState.value,
-        routeSummary = state.routeSummaryState.value,
-        navigationRoute = state.navigationRouteState.value,
         navStats = state.navStatsState.value,
-        onOpenSearchFromRoutePanel = {
-            state.showRoutePanelState.value = false
-            state.bottomTabState.value = CyclingTab.MAP
-            state.showDestinationSearchState.value = true
-        },
         onQuickSpotTypeSelectFromSpotPanel = { type ->
             state.showSpotPanelState.value = false
             state.bottomTabState.value = CyclingTab.MAP
@@ -535,6 +553,23 @@ internal fun MapScreenScaffold(
         onLocationLabelChanged = { state.locationLabelState.value = it },
         headingDegrees = state.headingDegreesState.floatValue,
     )
+            if (showStopNavigationConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showStopNavigationConfirm = false },
+                    title = { Text("ナビを終了しますか?") },
+                    text = { Text("案内を止めて、設定したルートも消去します。") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showStopNavigationConfirm = false
+                            state.isNavigationActiveState.value = false
+                            clearRoute()
+                        }) { Text("終了") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showStopNavigationConfirm = false }) { Text("続ける") }
+                    },
+                )
+            }
         }
     }
 }

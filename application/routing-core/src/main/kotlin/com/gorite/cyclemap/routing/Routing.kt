@@ -62,34 +62,16 @@ object DistanceCostModel : EdgeCostModel {
     override fun minimumCostMultiplier(): Double = 0.0
 }
 
+/** 自転車のコスト。係数は [BicycleCost] にまとめてある (LazyMappedRoadGraph と共有)。 */
 object CyclingCostModel : EdgeCostModel {
-    private val multipliers = mapOf(
-        "primary" to 0.90,
-        "secondary" to 0.95,
-        "tertiary" to 1.00,
-        "residential" to 1.20,
-        "unclassified" to 1.25,
-        "service" to 1.35,
-        "track" to 1.60,
-        "path" to 1.80,
-    )
-
     override fun cost(edge: GraphEdge): Double? {
-        if (edge.roadType == "motorway" || edge.roadType == "motorway_link") return null
-        val gradePenalty = edge.gradePercent?.let { calculateGradePenalty(it) } ?: 1.0
-        val baseMultiplier = multipliers[edge.roadType] ?: 1.15
-        val effectiveMultiplier = (baseMultiplier * gradePenalty).coerceAtLeast(0.90)
+        val baseMultiplier = BicycleCost.roadMultiplier(edge.roadType) ?: return null
+        val gradePenalty = edge.gradePercent?.let { BicycleCost.recommendedGradePenalty(it) } ?: 1.0
+        val effectiveMultiplier = (baseMultiplier * gradePenalty).coerceAtLeast(BicycleCost.MIN_MULTIPLIER)
         return edge.distanceMeters * effectiveMultiplier
     }
 
-    private fun calculateGradePenalty(grade: Double): Double = when {
-        grade >= 0.0 -> 1.0 + (grade * 0.02) + (grade * grade * 0.002) // 緩やかな上りは+2%、急勾配は二次関数的に増加
-        grade >= -4.0 -> (1.0 + grade * 0.02).coerceAtLeast(0.95) // 緩やかな下りは軽快（最大-5%）
-        // -4%を超える急坂下りは減速ペナルティ(-4%で0.95から滑らかに接続)。LazyMappedRoadGraph.gradePenalty と同期を保つこと
-        else -> 0.95 + kotlin.math.abs(grade + 4.0) * 0.03
-    }
-
-    override fun minimumCostMultiplier(): Double = 0.90
+    override fun minimumCostMultiplier(): Double = BicycleCost.MIN_MULTIPLIER
 }
 
 class AStarRouter(

@@ -222,6 +222,10 @@ internal fun poiLabelVisible(zoom: Double, prominence: Int): Boolean = when {
 internal fun poiPrefixesForZoom(selected: Collection<PoiCategory>, zoom: Double): List<String> =
     selected.filter { it.minZoom <= zoom }.flatMap { it.prefixes }
 
+/** 選択ハイライトのピンと元のピンの重なり (二重表示) を避けるための、地点の識別キー。タップ時の座標はタイル由来で僅かにずれるため、約100m四方に丸め、名前と併用する。 */
+internal fun poiPointKey(latitude: Double, longitude: Double): String =
+    String.format(Locale.US, "%.3f,%.3f", latitude, longitude)
+
 internal fun createPoiFeatures(spots: List<NearbySpot>, zoom: Double, isNightMode: Boolean): List<Feature> {
     return spots.asSequence()
         .sortedByDescending {
@@ -235,6 +239,7 @@ internal fun createPoiFeatures(spots: List<NearbySpot>, zoom: Double, isNightMod
             val displayName = if (showLabel) sanitizeMapLibreGlyphText(spot.name) else ""
             feature.addStringProperty("name", displayName)
             feature.addStringProperty("rawName", spot.name)
+            feature.addStringProperty("pointKey", spot.name + "|" + poiPointKey(spot.latitude, spot.longitude))
             feature.addStringProperty("category", spot.category)
             feature.addStringProperty("iconKey", "poi-pin-${cat.name}")
             feature.addNumberProperty("sortKey", -prominence.toDouble())

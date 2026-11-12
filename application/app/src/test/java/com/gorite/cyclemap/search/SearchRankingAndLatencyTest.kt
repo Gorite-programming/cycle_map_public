@@ -2,6 +2,7 @@ package com.gorite.cyclemap.search
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.system.measureTimeMillis
@@ -34,6 +35,26 @@ class SearchRankingAndLatencyTest {
         val toilet = GenreDictionary.matchGenre("トイレ")
         assertNotNull(toilet)
         assertEquals("toilet", toilet?.id)
+    }
+
+    @Test
+    fun genericCategoryWordsBecomeCategoryFilters() {
+        // 語全体が種類名なら、その種類の接頭辞 (近い順の一覧にする)
+        assertEquals(listOf("shop:convenience"), GenreDictionary.genericCategoryPrefixes("コンビニ"))
+        assertEquals(listOf("shop:convenience"), GenreDictionary.genericCategoryPrefixes("こんびに"))
+        assertEquals(listOf("shop:convenience"), GenreDictionary.genericCategoryPrefixes("近くのコンビニ"))
+        assertEquals(listOf("amenity:toilets"), GenreDictionary.genericCategoryPrefixes(" トイレ "))
+        assertEquals(
+            listOf("amenity:hospital", "amenity:clinic", "amenity:doctors"),
+            GenreDictionary.genericCategoryPrefixes("びょういん"),
+        )
+        // 店名・駅名など、名前で探すべき語は null
+        assertNull(GenreDictionary.genericCategoryPrefixes("セブン"))
+        assertNull(GenreDictionary.genericCategoryPrefixes("広島駅"))
+        assertNull(GenreDictionary.genericCategoryPrefixes("コンビニ前"))
+        assertNull(GenreDictionary.genericCategoryPrefixes("道の駅"))
+        assertNull(GenreDictionary.genericCategoryPrefixes("近くの"))
+        assertNull(GenreDictionary.genericCategoryPrefixes(""))
     }
 
     @Test

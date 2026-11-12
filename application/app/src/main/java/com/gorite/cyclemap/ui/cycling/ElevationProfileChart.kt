@@ -68,10 +68,10 @@ fun ElevationProfileChart(
 
         // 横グリッド + 標高ラベル (3本)
         val labelStyle = androidx.compose.ui.text.TextStyle(
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             color = labelColor,
         )
-        val distanceLabelStyle = labelStyle.copy(fontSize = 9.sp)
+        val distanceLabelStyle = labelStyle.copy(fontSize = 11.sp)
         listOf(0.0, 0.5, 1.0).forEach { f ->
             val e = lo + (hi - lo) * f
             val y = yOf(e)
@@ -150,7 +150,7 @@ fun ElevationProfileChart(
                     measurer,
                     elevText,
                     style = androidx.compose.ui.text.TextStyle(
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         color = Color.White,
                     ),

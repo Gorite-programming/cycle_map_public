@@ -69,7 +69,8 @@ internal fun MapGraphEffects(
         val resolvedFiles = RoutingGraphSelector.resolveGraphFiles(dataDir, selection.fileName)
         if (resolvedFiles == null) {
             pendingRouteRef.set(null)
-            onWarningMessageChanged("${selection.prefectureName}のグラフがありません:\n${selection.fileName}\n配置先: ${dataDir.absolutePath}")
+            android.util.Log.w("CycleMapGraph", "graph missing: ${selection.fileName} dir=${dataDir.absolutePath}")
+            onWarningMessageChanged("${selection.prefectureName}のルートデータが端末に入っていません。メニュー「オフラインデータ」で確認できます")
             Log.e(
                 "CycleMapRoute",
                 "ROUTE_FAILURE reason=graph_not_available prefecture=${selection.prefectureName} file=${selection.fileName}",
@@ -124,7 +125,8 @@ internal fun MapGraphEffects(
             } catch (t: Throwable) {
                 interruptedRequest?.let { inFlightRouteRef.compareAndSet(it, null) }
                 pendingRouteRef.set(null)
-                onWarningMessageChanged("${selection.prefectureName}のグラフを読み込めませんでした: ${t.message}")
+                android.util.Log.w("CycleMapGraph", "graph load failed: ${t.message}", t)
+                onWarningMessageChanged("${selection.prefectureName}のルートデータを読み込めませんでした。データを入れ直してから、アプリを開き直してください")
                 Log.e(
                     "CycleMapRoute",
                     "ROUTE_FAILURE reason=graph-load-failed file=${selection.fileName} " +
@@ -143,7 +145,8 @@ internal fun MapGraphEffects(
         configureOsmdroid(context, dataDir)
         val resolvedFiles = RoutingGraphSelector.findFirstAvailableGraph(dataDir)
         if (resolvedFiles == null) {
-            onWarningMessageChanged("ルートグラフが見つかりません\n配置先: ${dataDir.absolutePath}")
+            android.util.Log.w("CycleMapGraph", "no graph in ${dataDir.absolutePath}")
+            onWarningMessageChanged("ルートデータが端末に入っていません。メニュー「オフラインデータ」で確認できます")
             Log.e("CycleMapRoute", "GRAPH_SELECT startup loaded=false reason=missing dir=${dataDir.absolutePath}")
         } else {
             val (graphFile, graphIndex) = resolvedFiles
@@ -163,8 +166,17 @@ internal fun MapGraphEffects(
                 onLoadedGraphNameChanged(graphFile.name)
                 Log.i("CycleMapGraph", "mappedLoadMs=${result.second} pssDeltaKb=${result.third} nodes=${result.first.nodeCount} edges=${result.first.edgeCount}")
                 Log.i("CycleMapRoute", "GRAPH_SELECT startup file=${graphFile.name} loaded=true nodes=${result.first.nodeCount}")
+                // 読み込み中に頼まれたルート (起動直後に目的地を選んだ、開き直してルートを戻すなど) は保留されているので、ここで計算する。
+                // 県の切替 (startGraphSwitch) では拾っていたが、起動時の読み込みでは拾っておらず、ルートが出ないままになっていた。
+                // 県が違えば runRouteCalculation の中でその県へ切り替える。
+                onSwitchingGraphChanged(false)
+                pendingRouteRef.getAndSet(null)?.let { req ->
+                    Log.i("CycleMapRoute", "ROUTE_PENDING_AFTER_STARTUP_LOAD goal=${req.goal.latitude},${req.goal.longitude}")
+                    runRouteCalculation(req.start, req.goal, req.isReroute, req.waypoints, req.preference)
+                }
             } catch (t: Throwable) {
-                onWarningMessageChanged("ルートグラフを読み込めませんでした: ${t.message}")
+                android.util.Log.w("CycleMapGraph", "graph load failed: ${t.message}", t)
+                onWarningMessageChanged("ルートデータを読み込めませんでした。データを入れ直してから、アプリを開き直してください")
                 Log.e("CycleMapRoute", "ROUTE_FAILURE reason=graph-load-failed file=${graphFile.name} exception=${t::class.java.simpleName}:${t.message}")
             } finally {
                 onSwitchingGraphChanged(false)

@@ -22,6 +22,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -69,6 +71,8 @@ internal fun BoxScope.MapControlsOverlay(
     onNavStartClick: () -> Unit,
     systemInsets: PaddingValues,
     effectiveTopPadding: Dp,
+    bottomHudVisible: Boolean = false,
+    isRoutePreviewActive: Boolean = false,
 ) {
     val canZoomIn = if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
         (vectorMap?.cameraPosition?.zoom ?: 14.0) < 22.0
@@ -172,14 +176,15 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = effectiveTopPadding + 122.dp, end = 14.dp)
+                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive) 12.dp else 122.dp), end = 14.dp)
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            GoogleLayerButton(
-                onClick = toggleNextLayer,
-                label = currentLayerLabel,
+            LayerPickerButton(
+                selectedLayer = selectedLayer,
+                fallbackLabel = currentLayerLabel,
+                onFallbackToggle = toggleNextLayer,
             )
             // 3D / 2D トグルボタン (縦画面)
             GoogleFloatingActionButton(
@@ -243,7 +248,8 @@ internal fun BoxScope.MapControlsOverlay(
         }
 
         // 右下 (ボトムシートの直上): 現在地ボタン (白丸) + 経路検索FAB (ティール角丸四角)
-        val bottomSheetOffset = systemInsets.calculateBottomPadding() + 176.dp
+        // 下部の速度・GPX 記録の行が出ている間は、その分だけ持ち上げて重ならないようにする
+        val bottomSheetOffset = systemInsets.calculateBottomPadding() + 176.dp + (if (bottomHudVisible) 68.dp else 0.dp)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -252,13 +258,16 @@ internal fun BoxScope.MapControlsOverlay(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            GoogleGpsButton(
-                following = followLocation,
-                onClick = onTargetClick,
-            )
-            NavStartFAB(
-                onClick = onNavStartClick,
-            )
+            // ルートプレビュー中は下のシートがこの位置を覆うので出さない
+            if (!isRoutePreviewActive) {
+                GoogleGpsButton(
+                    following = followLocation,
+                    onClick = onTargetClick,
+                )
+                NavStartFAB(
+                    onClick = onNavStartClick,
+                )
+            }
         }
     } else {
         // 案内中も地図上部の右側に主要操作を残し、Google Mapsのナビ画面に近い操作配置にする。
@@ -297,6 +306,57 @@ internal fun BoxScope.MapControlsOverlay(
                 following = followLocation,
                 onClick = onTargetClick,
             )
+        }
+    }
+}
+
+
+/** レイヤー選択を実行する関数 (MapScreen が提供)。未提供のときは従来どおり順送りに切り替える。 */
+internal val LocalLayerSelector = androidx.compose.runtime.staticCompositionLocalOf<((MapLayer) -> Unit)?> { null }
+
+/**
+ * 地図レイヤーのボタン。押すとレイヤー名の一覧を出し、今の種類にチェックを付ける。
+ * (以前は押すたびに順送りで切り替わり、何に変わったか分からなかった)
+ */
+@Composable
+private fun LayerPickerButton(
+    selectedLayer: MapLayer,
+    fallbackLabel: String,
+    onFallbackToggle: () -> Unit,
+) {
+    val selector = LocalLayerSelector.current
+    var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Box {
+        GoogleLayerButton(
+            onClick = { if (selector != null) expanded = true else onFallbackToggle() },
+            label = fallbackLabel,
+        )
+        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            MapLayer.entries.forEach { layer ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Text(
+                            layer.label,
+                            fontWeight = if (layer == selectedLayer) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    leadingIcon = {
+                        if (layer == selectedLayer) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_lucide_check),
+                                contentDescription = "選択中",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            androidx.compose.foundation.layout.Spacer(Modifier.size(18.dp))
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        if (layer != selectedLayer) selector?.invoke(layer)
+                    },
+                )
+            }
         }
     }
 }

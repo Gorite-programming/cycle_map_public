@@ -197,6 +197,6 @@ object IconResolver {
         InstructionType.ROUNDABOUT -> "ラウンドアバウト"
         InstructionType.RAMP_ENTRY -> if (turnAngleDegrees < 0.0) "左のランプ入口へ" else "右のランプ入口へ"
         InstructionType.RAMP_EXIT -> if (turnAngleDegrees < 0.0) "左のランプ出口へ" else "右のランプ出口へ"
-        InstructionType.CONSECUTIVE_FORK -> "連続分岐"
+        InstructionType.CONSECUTIVE_FORK -> "続けて分岐"
     }
 }

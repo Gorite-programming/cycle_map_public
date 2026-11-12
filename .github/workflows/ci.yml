@@ -1,7 +1,8 @@
 name: CI
 on:
   push:
-    branches: [main]
+    # 作業ブランチ (auto/<日付>) は main へ入るまで長く続くので、push のたびに確認する
+    branches: [main, 'auto/**']
   pull_request:
 
 jobs:

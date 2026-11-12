@@ -61,6 +61,8 @@ internal fun calculateMultiLegCrossRoute(
     var endpointSnapMs = 0L
     var guidanceElevationMs = 0L
     val usedChains = ArrayList<String>()
+    /** 通り口ファイルの照合に使う graph の識別。1 回の経路計算の中で同じ graph を読み直さない。 */
+    val graphFingerprints = HashMap<File, GraphFingerprint>()
 
     fun open(pref: String): LazyMappedRoadGraph? {
         val fileName = namesByPref[pref] ?: return null
@@ -117,22 +119,41 @@ internal fun calculateMultiLegCrossRoute(
             var reached = false
             for (chain in chains) {
                 if (isCancelled()) return null
-                val sources = chain.map { pref ->
+                val sources = chain.mapIndexed { stage, pref ->
                     val fileName = namesByPref[pref] ?: return null
                     val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
+                    // 事前計算した通り口 (<A>__<B>.portals)。無い・古い・壊れているときは null で、従来の ID 照合になる。
+                    val nextGraphFile = chain.getOrNull(stage + 1)?.let { next ->
+                        namesByPref[next]?.let { RoutingGraphSelector.resolveGraphFiles(dataDir, it)?.first }
+                    }
+                    val portalsToNext: (() -> CrossPortals?)? = nextGraphFile?.let { nextFile ->
+                        { loadCrossPortals(files.first, nextFile, dataDir) { f -> graphFingerprints.getOrPut(f) { GraphFingerprint.fromFile(f) } } }
+                    }
                     if (fileName == jobGraphName) ChainGraph(open = { jobGraph }, borrowed = true,
-                        openIdIndex = { jobGraph.sortedNodeIdIndex() }, stageName = pref)
+                        openIdIndex = { jobGraph.sortedNodeIdIndex() }, stageName = pref, portalsToNext = portalsToNext)
                     else ChainGraph(open = {
                         val loadStarted = SystemClock.elapsedRealtime()
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
-                        LazyMappedRoadGraph.load(files.first, files.second).also {
+                        LazyMappedRoadGraph.load(files.first, files.second, readRichSections = false).also {
                             loadContractionHierarchy(it, files.first)
                             totalLoadMs += SystemClock.elapsedRealtime() - loadStarted
                         }
                     }, openIdIndex = {
                         loadTimingSink = { Log.i("CycleMapGraph", it) }
                         LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
-                    }, stageName = pref)
+                    }, stageName = pref, portalsToNext = portalsToNext)
+                }
+                if (preference == RoutePreference.RECOMMENDED) {
+                    // 県またぎの復元で CH とグラフを冷たいまま読まないよう、裏で順に先読みする。
+                    val prefetch = ArrayList<java.io.File>()
+                    for (pref in chain) {
+                        val fileName = namesByPref[pref] ?: continue
+                        if (fileName == jobGraphName) continue
+                        val gf = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName)?.first ?: continue
+                        com.gorite.cyclemap.routing.findContractionHierarchyFile(gf)?.let { prefetch += it }
+                        prefetch += gf
+                    }
+                    if (prefetch.isNotEmpty()) prefetchFilesInBackground(prefetch)
                 }
                 val indices = IntArray(chain.size)
                 val crossParts: List<CrossRoutePart>
@@ -150,7 +171,17 @@ internal fun calculateMultiLegCrossRoute(
                     chain.forEachIndexed { i, pref ->
                         if (namesByPref[pref] == jobGraphName) indices[i] = if (i == 0) startIdx else goalIdx
                     }
-                    if (chain.size == 2) {
+                    // CH (自転車×おすすめ) で通り口までを一括探索。CH の無い県がある・好みが違うときは null で従来の A* へ。
+                    val chCross = if (preference == RoutePreference.RECOMMENDED) {
+                        if (sources.any { it.borrowed }) graphLock.read {
+                            routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
+                        } else routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
+                    } else null
+                    if (chCross != null) {
+                        if (!chCross.isReachable) continue
+                        crossParts = chCross.parts; routeDistance = chCross.totalDistanceMeters; routeCost = chCross.totalCost
+                        Log.i("CycleMapRoute", "CROSS_ENGINE ch graphs=${chain.size}")
+                    } else if (chain.size == 2) {
                         var ga: LazyMappedRoadGraph? = null
                         var gb: LazyMappedRoadGraph? = null
                         try {

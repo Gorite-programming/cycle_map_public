@@ -19,6 +19,7 @@ data class FavoriteSpot(
 ) : Serializable
 
 class FavoritesManager(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val _favorites = MutableStateFlow<List<FavoriteSpot>>(emptyList())
     val favorites: StateFlow<List<FavoriteSpot>> = _favorites.asStateFlow()
@@ -89,17 +90,25 @@ class FavoritesManager(context: Context) {
         current.removeAll { it.id == spot.id || (kotlin.math.abs(it.latitude - spot.latitude) < 0.0001 && kotlin.math.abs(it.longitude - spot.longitude) < 0.0001) }
         current.add(0, spot)
         persist(current)
+        notify("「${spot.name}」を保存しました")
     }
 
     fun removeFavorite(id: String) {
         val current = _favorites.value.toMutableList()
-        current.removeAll { it.id == id }
+        if (current.removeAll { it.id == id }) notify("保存を解除しました")
         persist(current)
+    }
+
+    private fun notify(message: String) {
+        // UI 操作から呼ばれる。ワーカースレッドからでも落ちないよう、メインスレッドで出す。
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching { android.widget.Toast.makeText(appContext, message, android.widget.Toast.LENGTH_SHORT).show() }
+        }
     }
 
     fun removeFavorite(lat: Double, lon: Double) {
         val current = _favorites.value.toMutableList()
-        current.removeAll { kotlin.math.abs(it.latitude - lat) < 0.0001 && kotlin.math.abs(it.longitude - lon) < 0.0001 }
+        if (current.removeAll { kotlin.math.abs(it.latitude - lat) < 0.0001 && kotlin.math.abs(it.longitude - lon) < 0.0001 }) notify("保存を解除しました")
         persist(current)
     }
 

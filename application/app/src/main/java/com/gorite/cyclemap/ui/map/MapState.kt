@@ -1,5 +1,7 @@
 package com.gorite.cyclemap.ui.map
 
+import android.os.Bundle
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import com.gorite.cyclemap.net.Link
 import com.gorite.cyclemap.routing.RouteInstruction
@@ -115,7 +117,35 @@ sealed interface MapUiIntent {
     data object StopNavigation : MapUiIntent
 }
 
-class MapViewModel : ViewModel() {
+class MapViewModel(
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+) : ViewModel() {
+    /** 検索・スポット一覧・POI の選択 (画面の部品と結びつかないデータ)。 */
+    val search = SearchSessionState()
+
+    /** 目的地・経由地・計算したルート。 */
+    internal val route = RouteSessionState()
+
+    /** 案内中の状態。 */
+    internal val navigation = NavigationSessionState()
+
+    /**
+     * アプリが裏で終了させられたあとに開き直したとき、前回のルートを計算し直すための記録。
+     * 画面側が一度だけ取り出して使う ([consumePendingRestore])。
+     */
+    private var pendingRestore: RouteSessionSnapshot? =
+        savedStateHandle.get<Bundle>(KEY_ROUTE_SESSION)?.toRouteSessionSnapshot()
+
+    init {
+        // 状態を保存するときだけ、その時点の値を書き出す (変わるたびに書く必要はない)
+        savedStateHandle.setSavedStateProvider(KEY_ROUTE_SESSION) {
+            RouteSessionSnapshot.capture(route, isNavigating = navigation.isActive.value && !navigation.isArrived.value)?.toBundle() ?: Bundle()
+        }
+    }
+
+    /** 前回のルートの記録を一度だけ返す (2 回目以降は null)。 */
+    internal fun consumePendingRestore(): RouteSessionSnapshot? = pendingRestore.also { pendingRestore = null }
+
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
@@ -210,4 +240,25 @@ class MapViewModel : ViewModel() {
             )
         }
     }
+}
+
+private const val KEY_ROUTE_SESSION = "cyclemap.route_session"
+
+private fun RouteSessionSnapshot.toBundle(): Bundle = Bundle().apply {
+    putDouble("destLat", destinationLat)
+    putDouble("destLon", destinationLon)
+    putDoubleArray("waypoints", waypointLatLons.toDoubleArray())
+    putString("preference", preferenceName)
+    putBoolean("navigating", wasNavigating)
+}
+
+private fun Bundle.toRouteSessionSnapshot(): RouteSessionSnapshot? {
+    if (!containsKey("destLat") || !containsKey("destLon")) return null
+    return RouteSessionSnapshot(
+        destinationLat = getDouble("destLat"),
+        destinationLon = getDouble("destLon"),
+        waypointLatLons = getDoubleArray("waypoints")?.toList() ?: emptyList(),
+        preferenceName = getString("preference") ?: "",
+        wasNavigating = getBoolean("navigating"),
+    )
 }

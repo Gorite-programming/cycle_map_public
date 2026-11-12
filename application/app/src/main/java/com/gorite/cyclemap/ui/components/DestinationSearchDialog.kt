@@ -87,6 +87,8 @@ internal fun DestinationSearchDialog(
     var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var message by remember { mutableStateOf<String?>(null) }
+    /** 検索語が種類名だけ (「コンビニ」など) で、近い順の一覧を出しているとき true。 */
+    var isGenericQuery by remember { mutableStateOf(false) }
     var showFts5Notice by remember { mutableStateOf(false) }
 
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
@@ -168,13 +170,17 @@ internal fun DestinationSearchDialog(
         if (trimmed.length < 2 && selectedCategory == SearchCategory.ALL) {
             results = emptyList()
             message = when {
-                unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索DBがありません"
+                unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません (対応は中国5県)"
                 searchDb.isFile -> null
-                else -> "検索DBが見つかりません"
+                else -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             }
             return@LaunchedEffect
         }
         val (uLat, uLon) = effectiveLocation?.let { it.first to it.second } ?: (null to null)
+        // 「コンビニ」「近くのトイレ」のように語全体が種類名なら、名前では探さず、その種類の近い順の一覧にする
+        // (名前に「コンビニ」を含む店を探すと 0 件になるため)。
+        val genericPrefixes = GenreDictionary.genericCategoryPrefixes(trimmed)
+        isGenericQuery = genericPrefixes != null
         val genre = GenreDictionary.matchGenre(trimmed)
         val effectiveCategory = if (selectedCategory == SearchCategory.ALL && genre != null) {
             when (genre.id) {
@@ -188,20 +194,30 @@ internal fun DestinationSearchDialog(
             selectedCategory
         }
         val found = withContext(Dispatchers.IO) {
-            searchPlaces(
-                dbFile = searchDb,
-                query = trimmed,
-                category = effectiveCategory,
-                userLat = uLat,
-                userLon = uLon,
-            )
+            if (genericPrefixes != null) {
+                searchPlaces(
+                    dbFile = searchDb,
+                    query = "",
+                    userLat = uLat,
+                    userLon = uLon,
+                    categoryPrefixesOverride = genericPrefixes,
+                )
+            } else {
+                searchPlaces(
+                    dbFile = searchDb,
+                    query = trimmed,
+                    category = effectiveCategory,
+                    userLat = uLat,
+                    userLon = uLon,
+                )
+            }
         }
         // 並び順は searchPlaces が一致度・重要度・距離の総合点で決めている (ここで並べ直さない)
         val ranked = found
         results = ranked
         message = when {
-            unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索DBがありません"
-            !searchDb.isFile -> "検索DBが見つかりません"
+            unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません (対応は中国5県)"
+            !searchDb.isFile -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             ranked.isEmpty() -> "該当する目的地がありません"
             else -> null
         }
@@ -424,7 +440,7 @@ internal fun DestinationSearchDialog(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     // 検索語があるときは一致度・重要度・距離の総合順、カテゴリだけのときは近い順
-                                    if (query.trim().length >= 2) "関連度順 (近さも考慮)" else "現在地から近い順",
+                                    if (query.trim().length >= 2 && !isGenericQuery) "関連度順 (近さも考慮)" else "現在地から近い順",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )

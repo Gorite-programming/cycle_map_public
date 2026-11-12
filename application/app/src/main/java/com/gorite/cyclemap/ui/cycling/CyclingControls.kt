@@ -135,7 +135,7 @@ fun CompassDial(
                     val layout = measurer.measure(
                         text,
                         TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = color,
                         ),
@@ -144,7 +144,7 @@ fun CompassDial(
                         measurer,
                         text,
                         style = TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = color,
                         ),
@@ -372,7 +372,7 @@ private fun DarkStackButton(
                 modifier = Modifier.size(26.dp),
             )
             sublabel?.let {
-                Text(it, fontSize = 9.sp, color = tint, maxLines = 1)
+                Text(it, fontSize = 11.sp, color = tint, maxLines = 1)
             }
         }
         if (showDivider) {

@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.ui.screens
 
 import com.gorite.cyclemap.*
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.concurrent.read
 import com.gorite.cyclemap.utils.*
@@ -145,7 +147,6 @@ internal fun MapScreen(
         )
     }
 
-    val latestGraph by rememberUpdatedState(state.mappedGraphState.value)
     val latestLocation by rememberUpdatedState(state.currentLocationState.value)
     val latestRouteOverlay by rememberUpdatedState(state.routeOverlayState.value)
     val latestDestMarker by rememberUpdatedState(state.destinationMarkerState.value)
@@ -162,7 +163,8 @@ internal fun MapScreen(
         inFlightRouteRef = state.inFlightRouteRef,
         graphLock = state.graphLock,
         pendingRouteRef = state.pendingRouteRef,
-        getGraph = { latestGraph },
+        // rememberUpdatedState 経由だと描き直すまで古い値のままで、読み込み直後の計算がグラフ無しと判定されていた。状態を直接読む。
+        getGraph = { state.mappedGraphState.value },
         getLoadedGraphName = { state.loadedGraphNameState.value },
         isSwitchingGraph = { state.isSwitchingGraphState.value },
         onSwitchGraph = {
@@ -244,6 +246,7 @@ internal fun MapScreen(
         val start = if (loc != null) {
             GeoPoint(loc.latitude, loc.longitude)
         } else {
+            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
             GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
         }
         if (BuildConfig.DEBUG) {
@@ -592,6 +595,41 @@ internal fun MapScreen(
         }
     }
 
+    // アプリが裏で終了させられたあとに開き直したとき、前回のルートを計算し直す (案内中だったら案内も再開する)。
+    // ルートの点の列は保存していないので、保存した目的地・経由地・好みから探索し直す。
+    LaunchedEffect(Unit) {
+        val restore = state.viewModel.consumePendingRestore() ?: return@LaunchedEffect
+        Log.i(
+            "CycleMapRoute",
+            "SESSION_RESTORE dest=${restore.destinationLat},${restore.destinationLon} " +
+                "waypoints=${restore.waypoints.size} pref=${restore.preferenceName} navigating=${restore.wasNavigating}",
+        )
+        state.selectedRoutePreferenceState.value = restore.preference
+        // 現在地が取れるまで少し待つ (取れなければ startRouteToDestination と同じく代わりの出発地を使う)
+        val loc = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_LOCATION_WAIT_MS) {
+            androidx.compose.runtime.snapshotFlow { state.currentLocationState.value }
+                .filterNotNull()
+                .first()
+        }
+        val start = if (loc != null) {
+            GeoPoint(loc.latitude, loc.longitude)
+        } else {
+            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
+            GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
+        }
+        runRouteCalculation(start, restore.destination, false, restore.waypoints, restore.preference)
+        if (restore.wasNavigating) {
+            val routed = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_ROUTE_WAIT_MS) {
+                androidx.compose.runtime.snapshotFlow { state.navigationRouteState.value.isNotEmpty() && !state.isCalculatingRouteState.value }
+                    .first { it }
+            }
+            if (routed != null && !state.isNavigationActiveState.value) {
+                startNavigation()
+                state.warningMessageState.value = "前回の案内を再開しました"
+            }
+        }
+    }
+
     val clearRoute: () -> Unit = {
         routeExecutionGeneration.incrementAndGet()
         state.inFlightRouteRef.set(null)
@@ -652,8 +690,7 @@ internal fun MapScreen(
         importRouteLauncher.launch(arrayOf("application/gpx+xml", "application/octet-stream", "text/xml", "*/*"))
     }
 
-    val toggleNextLayer: () -> Unit = {
-        val nextLayer = determineNextLayer(state.context, state.selectedLayerState.value)
+    val applyLayer: (MapLayer) -> Unit = { nextLayer ->
         state.selectedLayerState.value = nextLayer
         val mode = when (nextLayer) {
             MapLayer.VECTOR_LIBERTY -> com.gorite.cyclemap.ui.map.MapLayerMode.Vector3D
@@ -663,6 +700,17 @@ internal fun MapScreen(
             else -> com.gorite.cyclemap.ui.map.MapLayerMode.Vector3D
         }
         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.SwitchLayer(mode))
+    }
+    val toggleNextLayer: () -> Unit = {
+        applyLayer(determineNextLayer(state.context, state.selectedLayerState.value))
+    }
+    // 一覧から選んだレイヤー。地形はオフラインでは使えないので、使えない理由を伝えて切り替えない
+    val selectLayer: (MapLayer) -> Unit = { layer ->
+        if (layer == MapLayer.TERRAIN && !isNetworkAvailable(state.context)) {
+            android.widget.Toast.makeText(state.context, "地形起伏はオフラインでは使えません", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            applyLayer(layer)
+        }
     }
 
     val downloadCorridorTiles: () -> Unit = {
@@ -712,9 +760,16 @@ internal fun MapScreen(
         exportPlannedRoute = exportPlannedRoute,
         importPlannedRoute = launchRouteImport,
         toggleNextLayer = toggleNextLayer,
+        selectLayer = selectLayer,
         startNavigation = startNavigation,
         clearRoute = clearRoute,
         weatherUiState = weatherUiState,
         onRefreshWeather = { weatherRepo.refresh(isOnline) },
     )
 }
+
+/** 開き直したときに前回のルートを戻す処理で、現在地を待つ時間。 */
+private const val SESSION_RESTORE_LOCATION_WAIT_MS = 10_000L
+
+/** 案内を再開する前に、ルートの計算が終わるのを待つ時間 (県またぎでも足りる長さ)。 */
+private const val SESSION_RESTORE_ROUTE_WAIT_MS = 60_000L

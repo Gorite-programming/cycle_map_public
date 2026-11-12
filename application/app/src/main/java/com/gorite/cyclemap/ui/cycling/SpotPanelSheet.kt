@@ -2,6 +2,7 @@ package com.gorite.cyclemap.ui.cycling
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -71,11 +72,15 @@ fun SpotPanelSheet(
     var showFavoritesOnly by remember(initialShowFavoritesOnly) { mutableStateOf(initialShowFavoritesOnly) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // 内容が長いときもタブバーを押し出さないよう、残りの高さの中でスクロールさせる
+                .weight(1f, fill = false)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
+                .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
@@ -88,16 +93,7 @@ fun SpotPanelSheet(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
-                TextButton(onClick = { showFavoritesOnly = !showFavoritesOnly }) {
-                    Icon(
-                        painter = painterResource(if (showFavoritesOnly) R.drawable.ic_lucide_store else R.drawable.ic_star_filled),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (showFavoritesOnly) MaterialTheme.colorScheme.primary else Color(0xFFFFB300),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (showFavoritesOnly) "周辺検索へ" else "お気に入り (${favorites.size})")
-                }
+                SheetCloseButton(onClick = onDismiss)
             }
             Text(
                 if (showFavoritesOnly) "登録したお気に入りの場所一覧 (タップで目的地に設定)"
@@ -291,6 +287,17 @@ fun SpotPanelSheet(
                 }
             }
         }
+        SheetNavTabBar(
+            selected = if (showFavoritesOnly) GoogleNavTab.SAVED else GoogleNavTab.EXPLORE,
+            onLocalSelect = { tab ->
+                when (tab) {
+                    GoogleNavTab.EXPLORE -> { showFavoritesOnly = false; true }
+                    GoogleNavTab.SAVED -> { showFavoritesOnly = true; true }
+                    GoogleNavTab.RECORD -> false
+                }
+            },
+        )
+      }
     }
 }
 

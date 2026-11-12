@@ -3,6 +3,7 @@ package com.gorite.cyclemap.ui.cycling
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -261,6 +262,41 @@ enum class GoogleNavTab {
     RECORD,    // 「記録」
 }
 
+/**
+ * タブから開くシート (スポット / 保存済み / 記録) の中で、別のタブへ移るための関数。
+ * シートは画面下のタブバーを覆うため、シート自身の下端に同じタブバーを出して移動できるようにする。
+ */
+val LocalNavTabSwitcher = androidx.compose.runtime.staticCompositionLocalOf<((GoogleNavTab) -> Unit)?> { null }
+
+/**
+ * シート下端のタブバー。[onLocalSelect] が true を返したタブはシート内で処理済み、
+ * false なら [LocalNavTabSwitcher] (シートの付け替え) に任せる。
+ */
+@Composable
+fun SheetNavTabBar(
+    selected: GoogleNavTab,
+    onLocalSelect: (GoogleNavTab) -> Boolean = { false },
+) {
+    val switcher = LocalNavTabSwitcher.current ?: return
+    GoogleNavTabBar(
+        selectedTab = selected,
+        onTabSelected = { tab -> if (!onLocalSelect(tab)) switcher(tab) },
+    )
+}
+
+/** シート右上の閉じるボタン (下スワイプに気付かない人向け)。 */
+@Composable
+fun SheetCloseButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = modifier.size(48.dp)) {
+        Icon(
+            painter = painterResource(R.drawable.ic_lucide_x),
+            contentDescription = "閉じる",
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 fun GoogleNavTabBar(
     selectedTab: GoogleNavTab,
@@ -319,7 +355,7 @@ fun GoogleNavTabItem(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .selectable(selected = isSelected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -337,7 +373,7 @@ fun GoogleNavTabItem(
                 ) {
                     Icon(
                         painter = painterResource(iconRes),
-                        contentDescription = label,
+                        contentDescription = null,
                         tint = selectedIconTint,
                         modifier = Modifier.size(20.dp),
                     )
@@ -357,7 +393,7 @@ fun GoogleNavTabItem(
             ) {
                 Icon(
                     painter = painterResource(iconRes),
-                    contentDescription = label,
+                    contentDescription = null,
                     tint = unselectedTint,
                     modifier = Modifier.size(20.dp),
                 )

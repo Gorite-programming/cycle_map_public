@@ -290,6 +290,7 @@ internal fun VectorMapView(
                         // カメラ停止時リスナー (R3): 現在画面内のPOIをオフラインDBから動的フェッチ (デバウンス制御)
                         map.addOnCameraIdleListener {
                             map.cameraPosition.target?.let { MapCameraCenter.update(it.latitude, it.longitude) }
+                            MapCameraCenter.lastVectorZoom = map.cameraPosition.zoom
                             if (map.style?.isFullyLoaded != true) return@addOnCameraIdleListener
                             val target = map.cameraPosition.target
                             val zoom = map.cameraPosition.zoom
@@ -604,6 +605,16 @@ internal fun VectorMapView(
         LaunchedEffect(selectedPoiSpot, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val spot = selectedPoiSpot
+            // 選択中の地点は強調ピンで描くので、通常のピンは隠す (二重表示の防止)
+            map.getStyle { style ->
+                (style.getLayer("cyclemap-dynamic-poi-symbols") as? org.maplibre.android.style.layers.SymbolLayer)?.setFilter(
+                    if (spot == null) org.maplibre.android.style.expressions.Expression.literal(true)
+                    else org.maplibre.android.style.expressions.Expression.neq(
+                        org.maplibre.android.style.expressions.Expression.get("pointKey"),
+                        org.maplibre.android.style.expressions.Expression.literal(spot.name + "|" + poiPointKey(spot.latitude, spot.longitude)),
+                    ),
+                )
+            }
             if (spot == null) {
                 map.getStyle { style ->
                     style.getSourceAs<GeoJsonSource>("cyclemap-poi-source")

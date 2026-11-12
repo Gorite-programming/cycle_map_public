@@ -13,6 +13,8 @@
 #   - <Prefecture>.graph.idx (Routing graph node index)
 #   - <Prefecture>.graph.ch  (Contraction Hierarchies sidecar; optional, app falls back to A*)
 #   - <prefecture>.pmtiles   (Offline vector map tiles; built by scripts/build_tiles.py)
+# Files deployed once (not per prefecture):
+#   - <A>__<B>.portals       (Precomputed cross-prefecture portals; built by scripts/build_portals.py; optional)
 #   - <prefecture>.contours.pmtiles / <prefecture>.hillshade.pmtiles (terrain overlays; built by scripts/build_terrain.py)
 #
 # =============================================================================
@@ -156,6 +158,41 @@ trap cleanup EXIT
 TOTAL_FILES=0
 TOTAL_BYTES=0
 
+# Print size + SHA-256, then (live mode) push and verify the on-device hash.
+push_file() {
+    local local_path="$1"
+    local file_name file_bytes local_hash remote_path remote_hash_line remote_hash
+    file_name="$(basename "$local_path")"
+    file_bytes="$(wc -c < "$local_path" | tr -d ' ')"
+    local_hash="$(calc_sha256 "$local_path")"
+    remote_path="${DEST_DIR}/${file_name}"
+
+    echo "  [FILE] ${file_name} ($(human_size "$file_bytes"))"
+    echo "         SHA-256: ${local_hash}"
+
+    TOTAL_FILES=$((TOTAL_FILES + 1))
+    TOTAL_BYTES=$((TOTAL_BYTES + file_bytes))
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "         -> Would push to: ${remote_path}"
+    else
+        echo "         -> Pushing to device..."
+        adb push "$local_path" "$remote_path"
+
+        echo "         -> Verifying on-device SHA-256..."
+        remote_hash_line=$(adb shell sha256sum "$remote_path" 2>/dev/null || true)
+        remote_hash=$(echo "$remote_hash_line" | awk '{print $1}' | tr -d '\r\n')
+
+        if [[ "$local_hash" != "$remote_hash" ]]; then
+            echo "ERROR: Hash mismatch for ${file_name}!" >&2
+            echo "  Local:  ${local_hash}" >&2
+            echo "  Remote: ${remote_hash}" >&2
+            exit 1
+        fi
+        echo "         -> Verified OK (SHA-256 match)"
+    fi
+}
+
 echo ""
 echo "--- Preparing and Transferring Files ---"
 
@@ -243,37 +280,28 @@ for pref in "${PREFS[@]}"; do
     fi
 
     for local_path in "${files_to_push[@]}"; do
-        file_name="$(basename "$local_path")"
-        file_bytes="$(wc -c < "$local_path" | tr -d ' ')"
-        local_hash="$(calc_sha256 "$local_path")"
-        remote_path="${DEST_DIR}/${file_name}"
-
-        echo "  [FILE] ${file_name} ($(human_size "$file_bytes"))"
-        echo "         SHA-256: ${local_hash}"
-
-        TOTAL_FILES=$((TOTAL_FILES + 1))
-        TOTAL_BYTES=$((TOTAL_BYTES + file_bytes))
-
-        if [[ "$DRY_RUN" == true ]]; then
-            echo "         -> Would push to: ${remote_path}"
-        else
-            echo "         -> Pushing to device..."
-            adb push "$local_path" "$remote_path"
-
-            echo "         -> Verifying on-device SHA-256..."
-            remote_hash_line=$(adb shell sha256sum "$remote_path" 2>/dev/null || true)
-            remote_hash=$(echo "$remote_hash_line" | awk '{print $1}' | tr -d '\r\n')
-
-            if [[ "$local_hash" != "$remote_hash" ]]; then
-                echo "ERROR: Hash mismatch for ${file_name}!" >&2
-                echo "  Local:  ${local_hash}" >&2
-                echo "  Remote: ${remote_hash}" >&2
-                exit 1
-            fi
-            echo "         -> Verified OK (SHA-256 match)"
-        fi
+        push_file "$local_path"
     done
 done
+
+# Cross-prefecture portals (packages/<A>__<B>.portals, transferred as-is). Optional: the app matches node IDs when absent or stale.
+# With --pref, only the pairs that include that prefecture are sent.
+if [[ "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
+    echo ">> Cross-prefecture portals"
+    portal_count=0
+    for portal_src in "${ROOT_DIR}"/packages/*__*.portals; do
+        [[ -s "$portal_src" ]] || continue
+        if [[ -n "$TARGET_PREF" ]]; then
+            portal_base="$(basename "$portal_src" .portals)"
+            [[ "$portal_base" == "${TARGET_PREF}__"* || "$portal_base" == *"__${TARGET_PREF}" ]] || continue
+        fi
+        push_file "$portal_src"
+        portal_count=$((portal_count + 1))
+    done
+    if [[ "$portal_count" -eq 0 ]]; then
+        echo "NOTE: No portal files (run scripts/build_portals.py); the app will match portals at route time" >&2
+    fi
+fi
 
 echo ""
 echo "=== Deployment Summary ==="

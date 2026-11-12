@@ -22,9 +22,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -219,7 +222,7 @@ fun RouteInfoCardContent(
             )
             RouteStatCell(
                 R.drawable.ic_lucide_trending_up,
-                "獲得標高（${elevationSourceLabel(profile)}）",
+                "登り合計",
                 metrics.elevationGainM?.let { "${it.toInt()}m" } ?: "--",
                 Modifier.weight(1f),
             )
@@ -251,61 +254,90 @@ fun RouteInfoCardContent(
                 Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimary)
             }
         }
-        // 補助ボタンは別の行に置く (同じ行だと「ナビ開始」の文字が潰れる)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onDownloadCorridorTiles != null) {
-                OutlinedButton(
-                    onClick = onDownloadCorridorTiles,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_download),
-                        contentDescription = "オフライン地図保存",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(tileDownloadStatus ?: "回廊保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            if (onExportGpx != null) {
-                OutlinedButton(
-                    onClick = onExportGpx,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                ) {
-                    Text("GPX書き出し", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                }
+        // 標高グラフと保存系のボタンは普段は畳んでおく (プレビューが画面の大半を占めないように)
+        var detailsOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        val hasDetails = profile.size >= 2 || onDownloadCorridorTiles != null || onExportGpx != null
+        if (hasDetails) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { detailsOpen = !detailsOpen }
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    if (detailsOpen) "標高グラフ・保存を閉じる" else "標高グラフ・保存",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                )
+                Icon(
+                    painterResource(R.drawable.ic_lucide_arrow_up),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .rotate(if (detailsOpen) 0f else 180f),
+                )
             }
         }
-
-        if (profile.size >= 2) {
-            ElevationProfileChart(
-                profile = profile,
-                totalDistanceM = totalDistanceM,
-                progressDistanceM = progressDistanceM,
-                lineColor = MaterialTheme.colorScheme.primary,
-                passedColor = MaterialTheme.colorScheme.secondary,
-                gridColor = MaterialTheme.colorScheme.outlineVariant,
-                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "標高プロファイル（${elevationSourceLabel(profile)}）",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+        if (detailsOpen) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onDownloadCorridorTiles != null) {
+                    OutlinedButton(
+                        onClick = onDownloadCorridorTiles,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_lucide_download),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(tileDownloadStatus ?: "地図を保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                if (onExportGpx != null) {
+                    OutlinedButton(
+                        onClick = onExportGpx,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    ) {
+                        Text("GPXで保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            if (profile.size >= 2) {
+                ElevationProfileChart(
+                    profile = profile,
+                    totalDistanceM = totalDistanceM,
+                    progressDistanceM = progressDistanceM,
+                    lineColor = MaterialTheme.colorScheme.primary,
+                    passedColor = MaterialTheme.colorScheme.secondary,
+                    gridColor = MaterialTheme.colorScheme.outlineVariant,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "標高プロファイル（${elevationSourceLabel(profile)}）",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }
