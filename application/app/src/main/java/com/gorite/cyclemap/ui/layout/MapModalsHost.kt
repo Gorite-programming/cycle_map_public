@@ -73,18 +73,10 @@ internal fun MapModalsHost(
     selectedPoiSpot: NearbySpot?,
     onSelectPoiSpot: (NearbySpot?) -> Unit,
     // Panels host props
-    showRoutePanel: Boolean,
-    onCloseRoutePanel: () -> Unit,
-    realElevProfile: List<ElevationSample>,
-    routeSummary: RouteSummary?,
-    navigationRoute: List<RoutePoint>,
     navStats: NavigationStats?,
-    onOpenSearchFromRoutePanel: () -> Unit,
     onQuickSpotTypeSelectFromSpotPanel: (QuickSpotType) -> Unit,
     onRouteToSpot: (GeoPoint) -> Unit,
     showFavoritesOnlyInSheet: Boolean,
-    calculatedRoutes: List<com.gorite.cyclemap.contract.RouteOption> = emptyList(),
-    onStartNavigation: () -> Unit = {},
     onImportPlannedRoute: () -> Unit,
     // Settings dialogs props
     showRecordPanel: Boolean,
@@ -189,13 +181,6 @@ internal fun MapModalsHost(
     )
 
     MapPanelsHost(
-        showRoutePanel = showRoutePanel,
-        onCloseRoutePanel = onCloseRoutePanel,
-        realElevProfile = realElevProfile,
-        routeSummary = routeSummary,
-        navigationRoute = navigationRoute,
-        navStats = navStats,
-        onOpenSearchFromRoutePanel = onOpenSearchFromRoutePanel,
         showSpotPanel = showSpotPanel,
         onCloseSpotPanel = onCloseSpotPanel,
         spotCategory = spotCategory,
@@ -216,8 +201,6 @@ internal fun MapModalsHost(
         onSelectPoiSpot = onSelectPoiSpot,
         mapView = mapView,
         vectorMap = vectorMap,
-        onStartNavigation = onStartNavigation,
-        calculatedRoutes = calculatedRoutes,
         selectedPoiSpot = selectedPoiSpot,
     )
 

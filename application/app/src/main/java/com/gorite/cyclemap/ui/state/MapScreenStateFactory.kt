@@ -181,7 +181,6 @@ internal fun rememberMapScreenState(
 
     val bottomTabState = remember { mutableStateOf(CyclingTab.MAP) }
     val googleNavTabState = remember { mutableStateOf(GoogleNavTab.EXPLORE) }
-    val showRoutePanelState = remember { mutableStateOf(false) }
     val showSpotPanelState = remember { mutableStateOf(false) }
     val showFavoritesOnlyInSheetState = remember { mutableStateOf(false) }
     val showRecordPanelState = remember { mutableStateOf(false) }
@@ -436,7 +435,6 @@ internal fun rememberMapScreenState(
         showDeveloperOptionsState = showDeveloperOptionsState,
         bottomTabState = bottomTabState,
         googleNavTabState = googleNavTabState,
-        showRoutePanelState = showRoutePanelState,
         showSpotPanelState = showSpotPanelState,
         showFavoritesOnlyInSheetState = showFavoritesOnlyInSheetState,
         showRecordPanelState = showRecordPanelState,

@@ -340,23 +340,8 @@ internal fun MapScreenScaffold(
                 state.showSpotPanelState.value = true
             }
         },
-        onStartNavigation = startNavigation,
         onImportPlannedRoute = importPlannedRoute,
-        calculatedRoutes = state.calculatedRouteOptionsState.value,
-        showRoutePanel = state.showRoutePanelState.value,
-        onCloseRoutePanel = {
-            state.showRoutePanelState.value = false
-            state.bottomTabState.value = CyclingTab.MAP
-        },
-        realElevProfile = state.realElevProfileState.value,
-        routeSummary = state.routeSummaryState.value,
-        navigationRoute = state.navigationRouteState.value,
         navStats = state.navStatsState.value,
-        onOpenSearchFromRoutePanel = {
-            state.showRoutePanelState.value = false
-            state.bottomTabState.value = CyclingTab.MAP
-            state.showDestinationSearchState.value = true
-        },
         onQuickSpotTypeSelectFromSpotPanel = { type ->
             state.showSpotPanelState.value = false
             state.bottomTabState.value = CyclingTab.MAP

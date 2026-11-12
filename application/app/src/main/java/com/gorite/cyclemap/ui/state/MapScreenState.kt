@@ -143,7 +143,6 @@ internal class MapScreenState(
     val showDeveloperOptionsState: MutableState<Boolean>,
     val bottomTabState: MutableState<CyclingTab>,
     val googleNavTabState: MutableState<GoogleNavTab>,
-    val showRoutePanelState: MutableState<Boolean>,
     val showSpotPanelState: MutableState<Boolean>,
     val showFavoritesOnlyInSheetState: MutableState<Boolean>,
     val showRecordPanelState: MutableState<Boolean>,
