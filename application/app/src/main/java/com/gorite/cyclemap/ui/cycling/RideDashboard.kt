@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -164,8 +165,8 @@ fun CyclingBottomBar(
 ) {
     NavigationBar(
         modifier = modifier.height(68.dp),
-        containerColor = Color.White,
-        contentColor = Color(0xFF202124),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 6.dp,
     ) {
         CyclingTab.entries.forEach { tab ->
@@ -188,11 +189,11 @@ fun CyclingBottomBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF1A73E8),
-                    selectedTextColor = Color(0xFF1A73E8),
-                    unselectedIconColor = Color(0xFF5F6368),
-                    unselectedTextColor = Color(0xFF5F6368),
-                    indicatorColor = Color(0xFFE8F0FE),
+                    selectedIconColor = CycleMapTheme.palette.accent,
+                    selectedTextColor = CycleMapTheme.palette.accent,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = CycleMapTheme.palette.accentContainer,
                 ),
             )
         }

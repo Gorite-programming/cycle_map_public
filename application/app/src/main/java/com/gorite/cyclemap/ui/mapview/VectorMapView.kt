@@ -276,7 +276,7 @@ internal fun VectorMapView(
                                     map.setStyle(Style.Builder().fromJson(finalStyleJson)) { style ->
                                         lastLoadedNightMode = night
                                         map.uiSettings.isCompassEnabled = false
-                                        setupRouteLayers(context, style)
+                                        setupRouteLayers(context, style, night)
                                         setupDynamicPoiLayers(context, style, night)
                                         updateRouteLine(style, routePoints, alternativeRoutes, destination)
                                         updateLocationPoint(style, currentLocUpdated ?: currentLocation, bearing, currentNavigationActive, gpsStatus)
@@ -412,7 +412,7 @@ internal fun VectorMapView(
             map.setStyle(Style.Builder().fromJson(finalStyleJson)) { style ->
                 lastLoadedNightMode = night
                 map.uiSettings.isCompassEnabled = false
-                setupRouteLayers(context, style)
+                setupRouteLayers(context, style, night)
                 setupDynamicPoiLayers(context, style, night)
                 updateRouteLine(style, routePoints, alternativeRoutes, destination)
                 updateLocationPoint(style, currentLocation, bearing, isNavigationActive, gpsStatus)

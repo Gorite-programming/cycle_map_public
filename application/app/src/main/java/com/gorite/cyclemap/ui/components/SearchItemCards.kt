@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.components
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -88,7 +89,7 @@ internal fun SearchResultItemCard(
                 Icon(
                     painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
                     contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
-                    tint = if (isFavorite) androidx.compose.ui.graphics.Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -133,7 +134,7 @@ internal fun FavoriteSpotItemCard(
                 Icon(
                     painterResource(R.drawable.ic_star_filled),
                     contentDescription = "お気に入り解除",
-                    tint = androidx.compose.ui.graphics.Color(0xFFFFB300),
+                    tint = CycleMapTheme.palette.favorite,
                     modifier = Modifier.size(20.dp),
                 )
             }

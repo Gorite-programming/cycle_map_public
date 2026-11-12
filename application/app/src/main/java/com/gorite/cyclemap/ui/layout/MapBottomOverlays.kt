@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.layout
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
@@ -321,7 +322,7 @@ internal fun BoxScope.MapBottomOverlays(
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE6F4EA)),
+                    colors = CardDefaults.cardColors(containerColor = CycleMapTheme.palette.successContainer),
                     shape = RoundedCornerShape(14.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                     modifier = Modifier
@@ -339,15 +340,15 @@ internal fun BoxScope.MapBottomOverlays(
                             "目的地に到着しました",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF137333),
+                            color = CycleMapTheme.palette.success,
                             modifier = Modifier.weight(1f),
                         )
                         Button(
                             onClick = onClearRoute,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF137333)),
+                            colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.success),
                         ) {
-                            Text("終了", color = Color.White)
+                            Text("終了", color = CycleMapTheme.palette.onSuccess)
                         }
                     }
                 }
@@ -391,7 +392,7 @@ internal fun BoxScope.MapBottomOverlays(
                 // Right: GPX Controls
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isRecording) Color(0xFFD93025) else MaterialTheme.colorScheme.surface,
+                        containerColor = if (isRecording) CycleMapTheme.palette.danger else MaterialTheme.colorScheme.surface,
                     ),
                     shape = RoundedCornerShape(20.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
@@ -414,14 +415,14 @@ internal fun BoxScope.MapBottomOverlays(
                             modifier = Modifier
                                 .size(10.dp)
                                 .clip(CircleShape)
-                                .background(if (isRecording) Color.White else Color(0xFFD93025)),
+                                .background(if (isRecording) CycleMapTheme.palette.onDanger else CycleMapTheme.palette.danger),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (isRecording) "記録中 (${gpxPointCount}pt)" else "GPX記録",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (isRecording) Color.White else MaterialTheme.colorScheme.onSurface,
+                            color = if (isRecording) CycleMapTheme.palette.onDanger else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }

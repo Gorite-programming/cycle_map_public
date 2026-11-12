@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.layout
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import android.graphics.drawable.Drawable
@@ -78,6 +79,7 @@ internal fun MapViewsContainer(
     onPoiClick: (NearbySpot) -> Unit,
     onVectorMapReady: (MapLibreMap) -> Unit,
 ) {
+    val areaSelectColor = CycleMapTheme.palette.accent
     Box(modifier = modifier) {
         // Raster MapView (osmdroid): ベクター単体表示時は裏で常駐させず、ラスター選択時または範囲指定DL時のみマウント
         if (selectedLayer != MapLayer.VECTOR_LIBERTY || isAreaSelectMode) {
@@ -101,8 +103,8 @@ internal fun MapViewsContainer(
                         isVerticalMapRepetitionEnabled = false
                         isFlingEnabled = true
                         overlayManager.tilesOverlay.apply {
-                            loadingBackgroundColor = android.graphics.Color.parseColor("#F4F1EA")
-                            loadingLineColor = android.graphics.Color.parseColor("#C5CBD3")
+                            loadingBackgroundColor = android.graphics.Color.parseColor(if (isDarkTheme) "#1C1A17" else "#F4F1EA")
+                            loadingLineColor = android.graphics.Color.parseColor(if (isDarkTheme) "#2E2A25" else "#C5CBD3")
                             setLoadingDrawable(null)
                         }
                         setTileSource(gsiTileSource())
@@ -316,13 +318,13 @@ internal fun MapViewsContainer(
                             val bottom = maxOf(drag.anchorY, drag.currentY)
                             // Semi-transparent fill
                             drawRect(
-                                color = Color(0x330066FF),
+                                color = areaSelectColor.copy(alpha = 0.2f),
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                             )
                             // Solid border
                             drawRect(
-                                color = Color(0xFF0066FF),
+                                color = areaSelectColor,
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                                 style = Stroke(width = 2.dp.toPx()),

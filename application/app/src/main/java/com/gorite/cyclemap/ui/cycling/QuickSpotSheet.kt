@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -88,12 +89,12 @@ fun QuickSpotPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = if (isSelected) Color(0xFFE8F0FE) else Color.White
-    val contentColor = if (isSelected) Color(0xFF1A73E8) else Color(0xFF3C4043)
+    val containerColor = if (isSelected) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surface
+    val contentColor = if (isSelected) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon
     val borderStroke = if (isSelected) {
-        BorderStroke(1.5.dp, Color(0xFF1A73E8))
+        BorderStroke(1.5.dp, CycleMapTheme.palette.accent)
     } else {
-        BorderStroke(1.dp, Color(0xFFDADCE0))
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     }
 
     Surface(
@@ -150,7 +151,7 @@ fun QuickSpotBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surface,
         modifier = modifier,
     ) {
         Column(
@@ -172,14 +173,14 @@ fun QuickSpotBottomSheet(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFFE8F0FE),
+                        color = CycleMapTheme.palette.accentContainer,
                         modifier = Modifier.size(40.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 painter = painterResource(selectedType.iconRes),
                                 contentDescription = null,
-                                tint = Color(0xFF1A73E8),
+                                tint = CycleMapTheme.palette.accent,
                                 modifier = Modifier.size(22.dp),
                             )
                         }
@@ -190,19 +191,19 @@ fun QuickSpotBottomSheet(
                                 text = "周辺の${selectedType.label}",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF202124),
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                             if (spots.isNotEmpty()) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFE8F0FE),
+                                    color = CycleMapTheme.palette.accentContainer,
                                 ) {
                                     Text(
                                         text = "${spots.size}件",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF1A73E8),
+                                        color = CycleMapTheme.palette.accent,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     )
                                 }
@@ -211,7 +212,7 @@ fun QuickSpotBottomSheet(
                         Text(
                             text = "最寄りから順に表示・ワンタップでルート案内",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF5F6368),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -219,7 +220,7 @@ fun QuickSpotBottomSheet(
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_x),
                         contentDescription = "閉じる",
-                        tint = Color(0xFF5F6368),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -251,7 +252,7 @@ fun QuickSpotBottomSheet(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(32.dp),
                                 strokeWidth = 3.dp,
-                                color = CyclingPink,
+                                color = cyclingAccent,
                             )
                             Text(
                                 text = "周辺の${selectedType.label}を検索中…",
@@ -419,7 +420,7 @@ private fun QuickSpotCard(
                     Icon(
                         painter = painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
                         contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
-                        tint = if (isFavorite) Color(0xFFFFB300) else Color(0xFF9AA0A6),
+                        tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -428,8 +429,8 @@ private fun QuickSpotCard(
                     onClick = onRouteClick,
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF1A73E8),
-                        contentColor = Color.White,
+                        containerColor = CycleMapTheme.palette.accent,
+                        contentColor = CycleMapTheme.palette.onAccent,
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.height(36.dp),
@@ -437,7 +438,7 @@ private fun QuickSpotCard(
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_navigation),
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onAccent,
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -445,7 +446,7 @@ private fun QuickSpotCard(
                         text = "ここへ行く",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = CycleMapTheme.palette.onAccent,
                     )
                 }
             }

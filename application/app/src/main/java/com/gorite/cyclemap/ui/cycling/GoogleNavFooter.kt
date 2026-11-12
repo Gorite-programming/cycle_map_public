@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,7 +82,7 @@ internal fun GoogleNavFooter(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         ) {
             Row(
@@ -102,19 +103,20 @@ internal fun GoogleNavFooter(
                         text = etaText,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
-                        color = Color(0xFF0F9D58),
+                        fontFamily = CycleMapTheme.palette.displayFontFamily,
+                        color = CycleMapTheme.palette.etaText,
                     )
 
                     Text(
                         text = "$remainingTimeText · $remainingDistanceText",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF202124),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (isRecording) Color(0xFFFCE8E6) else Color(0xFFF1F3F4),
+                        color = if (isRecording) CycleMapTheme.palette.dangerContainer else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .clickable(onClick = onToggleRecording),
@@ -127,14 +129,14 @@ internal fun GoogleNavFooter(
                                 modifier = Modifier
                                     .size(6.dp)
                                     .clip(CircleShape)
-                                    .background(if (isRecording) Color(0xFFD93025) else Color(0xFF5F6368)),
+                                    .background(if (isRecording) CycleMapTheme.palette.danger else MaterialTheme.colorScheme.onSurfaceVariant),
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = if (isRecording) "REC ${gpxPointCount}p" else "GPX",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isRecording) Color(0xFFD93025) else Color(0xFF3C4043),
+                                color = if (isRecording) CycleMapTheme.palette.danger else CycleMapTheme.palette.mapControlIcon,
                             )
                         }
                     }
@@ -142,7 +144,7 @@ internal fun GoogleNavFooter(
                     Text(
                         text = "© OSM / 地理院",
                         fontSize = 11.sp,
-                        color = Color(0xFF70757A),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .clickable(onClick = onShowLicense)
@@ -154,7 +156,7 @@ internal fun GoogleNavFooter(
 
                 Button(
                     onClick = onStopNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD93025)),
+                    colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.danger),
                     shape = CircleShape,
                     modifier = Modifier.size(40.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
@@ -162,7 +164,7 @@ internal fun GoogleNavFooter(
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_x),
                         contentDescription = "案内終了",
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onDanger,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -172,7 +174,7 @@ internal fun GoogleNavFooter(
         Card(
             modifier = modifier.fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
         ) {
             Column(
@@ -192,7 +194,7 @@ internal fun GoogleNavFooter(
                     // GPX 記録トグルボタン
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = if (isRecording) Color(0xFFFCE8E6) else Color(0xFFF1F3F4),
+                        color = if (isRecording) CycleMapTheme.palette.dangerContainer else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
                             .clickable(onClick = onToggleRecording),
@@ -205,14 +207,14 @@ internal fun GoogleNavFooter(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(if (isRecording) Color(0xFFD93025) else Color(0xFF5F6368)),
+                                    .background(if (isRecording) CycleMapTheme.palette.danger else MaterialTheme.colorScheme.onSurfaceVariant),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = if (isRecording) "REC ${gpxPointCount}p" else "GPX記録",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isRecording) Color(0xFFD93025) else Color(0xFF3C4043),
+                                color = if (isRecording) CycleMapTheme.palette.danger else CycleMapTheme.palette.mapControlIcon,
                             )
                         }
                     }
@@ -236,7 +238,8 @@ internal fun GoogleNavFooter(
                             text = etaText,
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color(0xFF0F9D58),
+                            fontFamily = CycleMapTheme.palette.displayFontFamily,
+                            color = CycleMapTheme.palette.etaText,
                         )
 
                         Spacer(modifier = Modifier.width(10.dp))
@@ -249,13 +252,13 @@ internal fun GoogleNavFooter(
                                 text = remainingTimeText,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF202124),
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
                                 text = remainingDistanceText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFF5F6368),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -263,7 +266,7 @@ internal fun GoogleNavFooter(
                     // 赤色 案内終了ボタン (丸型✕)
                     Button(
                         onClick = onStopNavigation,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD93025)),
+                        colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.danger),
                         shape = CircleShape,
                         modifier = Modifier.size(48.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
@@ -271,7 +274,7 @@ internal fun GoogleNavFooter(
                         Icon(
                             painter = painterResource(R.drawable.ic_lucide_x),
                             contentDescription = "案内終了",
-                            tint = Color.White,
+                            tint = CycleMapTheme.palette.onDanger,
                             modifier = Modifier.size(24.dp),
                         )
                     }
@@ -287,7 +290,7 @@ internal fun GoogleNavFooter(
                     Text(
                         text = "© OSM / 地理院",
                         fontSize = 11.sp,
-                        color = Color(0xFF70757A),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .clickable(onClick = onShowLicense)

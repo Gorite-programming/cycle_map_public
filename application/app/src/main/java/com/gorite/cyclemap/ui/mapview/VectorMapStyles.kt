@@ -219,7 +219,16 @@ internal fun createGoogleLocationPuckBitmap(
 /**
  * ルート描画および現在地・案内矢印描画用の GeoJSON ソース・レイヤーを初期化
  */
-internal fun setupRouteLayers(context: Context, style: Style) {
+internal fun setupRouteLayers(context: Context, style: Style, isNight: Boolean = false) {
+    // 夜は「墨と朱」: ルートは朱、代わりのルートは薄墨、GPX の軌跡は金茶、ピンは朱
+    val altCasingHex = if (isNight) "#3F3A33" else "#546E7A"
+    val altLineHex = if (isNight) "#8A7F70" else "#90A4AE"
+    val gpxCasingHex = if (isNight) "#3A2F1E" else "#006064"
+    val gpxLineHex = if (isNight) "#D8A84E" else "#00E5FF"
+    val routeCasingHex = if (isNight) "#6E2410" else "#0D47A1"
+    val routeLineHex = if (isNight) "#E8603C" else "#00B0FF"
+    val pinFillHex = if (isNight) "#E8603C" else "#EA4335"
+    val pinDotHex = if (isNight) "#6E2410" else "#A50E0E"
     for (status in GpsSignalStatus.entries) {
         val suffix = status.name.lowercase()
         val dotId = "cyclemap-location-dot-$suffix"
@@ -248,7 +257,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         style.addSource(GeoJsonSource("cyclemap-alt-route-source"))
         val altCasing = LineLayer("cyclemap-alt-route-casing", "cyclemap-alt-route-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#546E7A")),
+                PropertyFactory.lineColor(Color.parseColor(altCasingHex)),
                 PropertyFactory.lineWidth(7f),
                 PropertyFactory.lineOpacity(0.65f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
@@ -257,7 +266,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         }
         val altLine = LineLayer("cyclemap-alt-route-line", "cyclemap-alt-route-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#90A4AE")),
+                PropertyFactory.lineColor(Color.parseColor(altLineHex)),
                 PropertyFactory.lineWidth(4.5f),
                 PropertyFactory.lineOpacity(0.80f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
@@ -278,7 +287,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         style.addSource(gpxSource)
         val gpxCasing = LineLayer("cyclemap-gpx-track-casing", "cyclemap-gpx-track-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#006064")),
+                PropertyFactory.lineColor(Color.parseColor(gpxCasingHex)),
                 PropertyFactory.lineWidth(9f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -286,7 +295,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         }
         val gpxLine = LineLayer("cyclemap-gpx-track-line", "cyclemap-gpx-track-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#00E5FF")),
+                PropertyFactory.lineColor(Color.parseColor(gpxLineHex)),
                 PropertyFactory.lineWidth(6f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -308,13 +317,13 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         // ① 通常のルート線（100%不透明度、地面レベル） -> 3D建物の下に潜り込ませる
         val casingLayer = LineLayer("cyclemap-route-casing", "cyclemap-route-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#0D47A1")), PropertyFactory.lineWidth(9f),
+                PropertyFactory.lineColor(Color.parseColor(routeCasingHex)), PropertyFactory.lineWidth(9f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         }
         val routeLayer = LineLayer("cyclemap-route-line", "cyclemap-route-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#00B0FF")), PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineColor(Color.parseColor(routeLineHex)), PropertyFactory.lineWidth(6f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         }
@@ -327,7 +336,7 @@ internal fun setupRouteLayers(context: Context, style: Style) {
         }
         style.addLayer(LineLayer("cyclemap-route-xray", "cyclemap-route-source").apply {
             setProperties(
-                PropertyFactory.lineColor(Color.parseColor("#00B0FF")), PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineColor(Color.parseColor(routeLineHex)), PropertyFactory.lineWidth(6f),
                 PropertyFactory.lineOpacity(0.50f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -381,10 +390,10 @@ internal fun setupRouteLayers(context: Context, style: Style) {
 
     // DEF-07: POIハイライトピンおよび目的地ピン用アイコン・ソース・レイヤーの登録 (透過ワイヤーフレームを使わず塗りつぶしピンを使用)
     if (style.getImage("cyclemap-poi-pin-icon") == null) {
-        style.addImage("cyclemap-poi-pin-icon", createGoogleSolidPinBitmap(context, "#EA4335", "#A50E0E"))
+        style.addImage("cyclemap-poi-pin-icon", createGoogleSolidPinBitmap(context, pinFillHex, pinDotHex))
     }
     if (style.getImage("cyclemap-dest-pin-icon") == null) {
-        style.addImage("cyclemap-dest-pin-icon", createGoogleSolidPinBitmap(context, "#EA4335", "#A50E0E"))
+        style.addImage("cyclemap-dest-pin-icon", createGoogleSolidPinBitmap(context, pinFillHex, pinDotHex))
     }
     if (style.getSource("cyclemap-poi-source") == null) {
         style.addSource(GeoJsonSource("cyclemap-poi-source"))

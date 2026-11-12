@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -126,7 +127,7 @@ fun LocationSummarySheet(
                     .width(36.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFFC4C7C5)),
+                    .background(MaterialTheme.colorScheme.outline),
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -140,7 +141,8 @@ fun LocationSummarySheet(
                 Text(
                     text = shortName,
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (CycleMapTheme.palette.isDark) FontWeight.SemiBold else FontWeight.Medium,
+                    fontFamily = CycleMapTheme.palette.displayFontFamily,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -172,13 +174,7 @@ fun LocationSummarySheet(
                             com.gorite.cyclemap.weather.WeatherCategory.SNOWY -> R.drawable.ic_lucide_snowflake
                             com.gorite.cyclemap.weather.WeatherCategory.UNKNOWN -> R.drawable.ic_lucide_cloud
                         }
-                        val iconTint = when (category) {
-                            com.gorite.cyclemap.weather.WeatherCategory.SUNNY -> Color(0xFFF9AB00)
-                            com.gorite.cyclemap.weather.WeatherCategory.CLOUDY -> Color(0xFF78909C)
-                            com.gorite.cyclemap.weather.WeatherCategory.RAINY -> Color(0xFF1976D2)
-                            com.gorite.cyclemap.weather.WeatherCategory.SNOWY -> Color(0xFF00ACC1)
-                            com.gorite.cyclemap.weather.WeatherCategory.UNKNOWN -> MaterialTheme.colorScheme.onSurface
-                        }
+                        val iconTint = com.gorite.cyclemap.weather.weatherTint(category, sunny = Color(0xFFF9AB00))
 
                         Icon(
                             painter = painterResource(iconRes),
@@ -348,8 +344,8 @@ fun GoogleNavTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val pillColor = Color(0xFFC2E7FF)
-    val selectedIconTint = Color(0xFF004A77)
+    val pillColor = if (CycleMapTheme.palette.isDark) CycleMapTheme.palette.accentContainer else Color(0xFFC2E7FF)
+    val selectedIconTint = if (CycleMapTheme.palette.isDark) CycleMapTheme.palette.onAccentContainer else Color(0xFF004A77)
     val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(

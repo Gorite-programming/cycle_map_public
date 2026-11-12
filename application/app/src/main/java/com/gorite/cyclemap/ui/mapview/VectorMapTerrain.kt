@@ -119,7 +119,7 @@ internal fun injectTerrain(styleJson: String, isNight: Boolean, terrain: Terrain
             })
             add("paint", obj {
                 addProperty("text-color", if (isNight) "#D8C09A" else "#7A5A38")
-                addProperty("text-halo-color", if (isNight) "#1F1F1F" else "#FFFFFF")
+                addProperty("text-halo-color", if (isNight) "#141210" else "#FFFFFF")
                 addProperty("text-halo-width", 1.5)
             })
         })

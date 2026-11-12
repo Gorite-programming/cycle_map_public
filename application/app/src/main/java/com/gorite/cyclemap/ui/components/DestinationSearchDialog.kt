@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.components
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
@@ -380,7 +381,7 @@ internal fun DestinationSearchDialog(
                     if (showFts5Notice) {
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFFFEF7E0),
+                                containerColor = CycleMapTheme.palette.warningContainer,
                             ),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
@@ -396,7 +397,7 @@ internal fun DestinationSearchDialog(
                                 Icon(
                                     painterResource(R.drawable.ic_lucide_info),
                                     contentDescription = null,
-                                    tint = Color(0xFFE37400),
+                                    tint = CycleMapTheme.palette.warning,
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))

@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,8 +27,8 @@ fun GoogleFloatingActionButton(
     modifier: Modifier = Modifier,
     iconRes: Int? = null,
     contentDescription: String? = null,
-    tint: Color = Color(0xFF3C4043),
-    containerColor: Color = Color.White,
+    tint: Color = CycleMapTheme.palette.mapControlIcon,
+    containerColor: Color = CycleMapTheme.palette.mapControlSurface,
     content: (@Composable () -> Unit)? = null,
 ) {
     Surface(
@@ -73,7 +74,7 @@ fun NavStartFAB(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF006A60),
+        color = CycleMapTheme.palette.primaryAction,
         shadowElevation = 6.dp,
         modifier = modifier.size(56.dp),
     ) {
@@ -84,7 +85,7 @@ fun NavStartFAB(
             Icon(
                 painter = painterResource(R.drawable.ic_google_nav_arrow),
                 contentDescription = "ナビ・ルート探索を開始",
-                tint = Color.White,
+                tint = CycleMapTheme.palette.onPrimaryAction,
                 modifier = Modifier.size(28.dp),
             )
         }
@@ -103,7 +104,7 @@ fun GoogleLayerButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlSurface,
+        color = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlSurface,
         tonalElevation = 0.dp,
         shadowElevation = 5.dp,
         modifier = modifier.size(42.dp),
@@ -115,7 +116,7 @@ fun GoogleLayerButton(
             Icon(
                 painter = painterResource(R.drawable.ic_lucide_layers),
                 contentDescription = "地図レイヤー切替: $label",
-                tint = com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlIcon,
+                tint = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlIcon,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -134,7 +135,7 @@ fun GoogleGpsButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlSurface,
+        color = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlSurface,
         tonalElevation = 0.dp,
         shadowElevation = 5.dp,
         modifier = modifier.size(48.dp),
@@ -146,7 +147,7 @@ fun GoogleGpsButton(
             Icon(
                 painter = painterResource(R.drawable.ic_lucide_locate_fixed),
                 contentDescription = "現在地へ移動",
-                tint = if (following) com.gorite.cyclemap.ui.theme.CycleMapColors.RouteBlue else com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlIcon,
+                tint = if (following) com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.accent else com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlIcon,
                 modifier = Modifier.size(24.dp),
             )
         }
@@ -166,7 +167,7 @@ fun GoogleZoomButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlSurface,
+        color = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlSurface,
         tonalElevation = 0.dp,
         shadowElevation = 5.dp,
         modifier = modifier.size(42.dp),
@@ -178,7 +179,7 @@ fun GoogleZoomButton(
             Icon(
                 painter = painterResource(iconRes),
                 contentDescription = contentDescription,
-                tint = com.gorite.cyclemap.ui.theme.CycleMapColors.MapControlIcon,
+                tint = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.mapControlIcon,
                 modifier = Modifier.size(20.dp),
             )
         }

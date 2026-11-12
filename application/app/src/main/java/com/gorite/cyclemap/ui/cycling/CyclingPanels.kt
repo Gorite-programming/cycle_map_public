@@ -13,6 +13,18 @@ val CyclingSubText = Color(0xFF9FB3C8)
 val CyclingPink = Color(0xFFEC407A)
 val CyclingPinkLight = Color(0xFFF48FB1)
 
+/** 記録・「ここへ行く」の強調色。ライトはピンク、ダーク (墨と朱) は朱。 */
+val cyclingAccent: Color
+    @androidx.compose.runtime.Composable
+    @androidx.compose.runtime.ReadOnlyComposable
+    get() = if (com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Shu else CyclingPink
+
+/** 記録の 2 つめの強調色 (獲得標高・速度のグラフ)。ライトはシアン、ダークは金茶。 */
+val cyclingAccent2: Color
+    @androidx.compose.runtime.Composable
+    @androidx.compose.runtime.ReadOnlyComposable
+    get() = if (com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Kin else CyclingCyan
+
 /** 秒 → "H:MM" (見本の残り時間表記)。 */
 fun formatHMM(seconds: Double): String {
     if (!seconds.isFinite()) return "--:--"

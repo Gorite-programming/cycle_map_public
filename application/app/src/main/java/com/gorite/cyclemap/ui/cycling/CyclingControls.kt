@@ -1,5 +1,7 @@
 package com.gorite.cyclemap.ui.cycling
 
+import androidx.compose.material3.MaterialTheme
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -59,7 +61,7 @@ fun DarkCircleButton(
 ) {
     Surface(
         shape = CircleShape,
-        color = Color.White,
+        color = CycleMapTheme.palette.mapControlSurface,
         shadowElevation = 6.dp,
         modifier = modifier,
     ) {
@@ -72,7 +74,7 @@ fun DarkCircleButton(
             Icon(
                 painterResource(iconRes),
                 contentDescription = contentDescription,
-                tint = Color(0xFF3C4043),
+                tint = CycleMapTheme.palette.mapControlIcon,
                 modifier = Modifier.size(iconSize.dp),
             )
         }
@@ -91,15 +93,16 @@ fun CompassDial(
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer()
+    val pal = CycleMapTheme.palette
     // ヘディングアップ時は枠をアクセントにし、ノースアップ時は通常枠。白背景Google Mapsスタイル
     Surface(
         shape = CircleShape,
-        color = Color.White,
+        color = CycleMapTheme.palette.mapControlSurface,
         shadowElevation = 6.dp,
         border = if (headingUp) {
-            BorderStroke(2.dp, Color(0xFFD93025))
+            BorderStroke(2.dp, pal.compassNorth)
         } else {
-            BorderStroke(1.dp, Color(0xFFE0E0E0))
+            BorderStroke(1.dp, pal.mapControlDivider)
         },
         modifier = modifier,
     ) {
@@ -121,7 +124,7 @@ fun CompassDial(
                     lineTo(cx + 5.dp.toPx(), cy - 2.dp.toPx())
                     close()
                 }
-                drawPath(needle, Color(0xFFD93025))
+                drawPath(needle, pal.compassNorth)
                 // 南針 (シルバー/グレーの三角)
                 val southNeedle = Path().apply {
                     moveTo(cx, cy + r + 2.dp.toPx())
@@ -129,7 +132,7 @@ fun CompassDial(
                     lineTo(cx + 5.dp.toPx(), cy + 2.dp.toPx())
                     close()
                 }
-                drawPath(southNeedle, Color(0xFFBDC1C6))
+                drawPath(southNeedle, pal.compassSouth)
                 // 方位文字
                 val label = { text: String, color: Color, dx: Float, dy: Float ->
                     val layout = measurer.measure(
@@ -154,10 +157,10 @@ fun CompassDial(
                         ),
                     )
                 }
-                label("N", Color(0xFFD93025), 0f, -r + 8.dp.toPx())
-                label("E", Color(0xFF5F6368), r - 8.dp.toPx(), 0f)
-                label("S", Color(0xFF5F6368), 0f, r - 8.dp.toPx())
-                label("W", Color(0xFF5F6368), -(r - 8.dp.toPx()), 0f)
+                label("N", pal.compassNorth, 0f, -r + 8.dp.toPx())
+                label("E", pal.mapControlIconMuted, r - 8.dp.toPx(), 0f)
+                label("S", pal.mapControlIconMuted, 0f, r - 8.dp.toPx())
+                label("W", pal.mapControlIconMuted, -(r - 8.dp.toPx()), 0f)
             }
         }
     }
@@ -194,7 +197,7 @@ fun DarkControlStack(
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
-        color = CyclingNavy.copy(alpha = 0.94f),
+        color = (if (CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Sumi2 else CyclingNavy).copy(alpha = 0.94f),
         shadowElevation = 6.dp,
         modifier = modifier,
     ) {
@@ -210,7 +213,7 @@ fun DarkControlStack(
                 iconRes = R.drawable.ic_lucide_locate_fixed,
                 description = "現在地へ移動",
                 onClick = onTargetClick,
-                tint = if (following) Color.White else Color(0xFF64B5F6),
+                tint = if (following) Color.White else if (CycleMapTheme.palette.isDark) CycleMapTheme.palette.accent else Color(0xFF64B5F6),
                 showDivider = !horizontal,
             )
             DarkStackRepeatButton(
@@ -390,7 +393,7 @@ private fun DarkStackButton(
 fun SpeedChip(speedKmh: Double, modifier: Modifier = Modifier) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = Color.White,
+        color = CycleMapTheme.palette.mapControlSurface,
         shadowElevation = 6.dp,
         modifier = modifier,
     ) {
@@ -401,13 +404,13 @@ fun SpeedChip(speedKmh: Double, modifier: Modifier = Modifier) {
             Icon(
                 painterResource(R.drawable.ic_lucide_gauge),
                 contentDescription = "現在速度",
-                tint = Color(0xFF5F6368),
+                tint = CycleMapTheme.palette.mapControlIconMuted,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text("${"%.1f".format(java.util.Locale.US, speedKmh)}", color = Color(0xFF202124), fontWeight = FontWeight.Bold, fontSize = 22.sp)
+            Text("${"%.1f".format(java.util.Locale.US, speedKmh)}", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 22.sp, fontFamily = CycleMapTheme.palette.displayFontFamily)
             Spacer(modifier = Modifier.width(4.dp))
-            Text("km/h", color = Color(0xFF5F6368), fontSize = 12.sp, modifier = Modifier.padding(bottom = 3.dp))
+            Text("km/h", color = CycleMapTheme.palette.mapControlIconMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 3.dp))
         }
     }
 }

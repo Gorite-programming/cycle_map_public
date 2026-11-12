@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.map
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -206,9 +207,9 @@ fun NetworkStatusIndicator(link: Link) {
         is Link.OnlineMetered, is Link.OnlineUnmetered -> R.drawable.ic_lucide_cloud
     }
     val tint = when (link) {
-        is Link.Offline -> Color.Gray
-        is Link.OnlineMetered -> Color(0xFFFF9800)
-        is Link.OnlineUnmetered -> Color(0xFF4CAF50)
+        is Link.Offline -> MaterialTheme.colorScheme.onSurfaceVariant
+        is Link.OnlineMetered -> CycleMapTheme.palette.warning
+        is Link.OnlineUnmetered -> CycleMapTheme.palette.success
     }
     Icon(
         painter = painterResource(iconRes),
