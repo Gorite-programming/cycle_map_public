@@ -26,8 +26,14 @@ import zipfile
 import zlib
 from pathlib import Path
 
+# Support direct CLI execution and importlib-based callers alike.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.prefectures import BY_NAME, resolve
+from scripts._platform import gradle_command, java_environment
+
 ROOT = Path(__file__).resolve().parent.parent
-PREFECTURES = ["Tottori", "Shimane", "Okayama", "Hiroshima", "Yamaguchi"]
+PREFECTURES = list(BY_NAME)
 CH_MAGIC_AND_VERSION_BYTES = 20   # magic, version, nodeCount, upCount, downCount (各 Int)
 CH_HEADER_BYTES = 44              # 上記 + 識別 (size, firstCrc, lastCrc の各 Long)
 
@@ -66,12 +72,12 @@ def extract_graph(zip_path: Path, name: str, dest: Path) -> Path:
 def build(name: str, source_dir: Path, out_dir: Path, heap: str, force: bool, dry_run: bool) -> bool:
     zip_path = source_dir / ("%s.zip" % name)
     out = out_dir / ("%s.graph.ch" % name)
-    if not zip_path.is_file():
-        print("[%s] ZIP がありません: %s" % (name, zip_path), file=sys.stderr)
-        return False
     if dry_run:
         print("[%s] %s -> %s" % (name, zip_path, out))
         return True
+    if not zip_path.is_file():
+        print("[%s] ZIP がありません: %s" % (name, zip_path), file=sys.stderr)
+        return False
     with tempfile.TemporaryDirectory(prefix="ch_%s_" % name, dir=ROOT / "work") as tmp:
         tmp_dir = Path(tmp)
         graph = extract_graph(zip_path, name, tmp_dir)
@@ -80,9 +86,9 @@ def build(name: str, source_dir: Path, out_dir: Path, heap: str, force: bool, dr
             return True
         started = time.time()
         tmp_out = tmp_dir / out.name
-        cmd = ["./gradlew", ":routing-core:buildCh", "-q", "-Pgraph=%s" % graph, "-Pout=%s" % tmp_out, "-Pheap=%s" % heap]
+        cmd = [gradle_command(ROOT / "application"), ":routing-core:buildCh", "-q", "-Pgraph=%s" % graph, "-Pout=%s" % tmp_out, "-Pheap=%s" % heap]
         print("[%s] 前処理: %s" % (name, " ".join(cmd)))
-        rc = subprocess.run(cmd, cwd=ROOT / "application").returncode
+        rc = subprocess.run(cmd, cwd=ROOT / "application", env=java_environment()).returncode
         if rc != 0 or not tmp_out.is_file():
             print("[%s] buildCh に失敗 (rc=%s)" % (name, rc), file=sys.stderr)
             return False
@@ -100,20 +106,20 @@ def build(name: str, source_dir: Path, out_dir: Path, heap: str, force: bool, dr
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
     ap.add_argument("--source-dir", type=Path, default=ROOT / "packages", help="<県>.zip のある場所")
     ap.add_argument("--out", type=Path, default=ROOT / "packages", help=".graph.ch の出力先")
     ap.add_argument("--heap", default="6g", help="前処理の JVM ヒープ (既定 6g)")
     ap.add_argument("--force", action="store_true", help="一致する .graph.ch があっても作り直す")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    names = PREFECTURES
-    if args.only:
-        wanted = {x.strip().lower() for x in args.only.split(",") if x.strip()}
-        names = [p for p in PREFECTURES if p.lower() in wanted]
-        if not names:
-            ap.error("対象の県がありません: %s" % args.only)
-    (ROOT / "work").mkdir(exist_ok=True)
+    try:
+        names = resolve(args.only)
+    except ValueError as exc:
+        ap.error(str(exc))
+    print("対象: %s" % ",".join(names))
+    if not args.dry_run:
+        (ROOT / "work").mkdir(exist_ok=True)
     failed = [n for n in names if not build(n, args.source_dir, args.out, args.heap, args.force, args.dry_run)]
     if failed:
         print("失敗: %s" % ", ".join(failed), file=sys.stderr)

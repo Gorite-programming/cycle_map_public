@@ -31,22 +31,30 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import numpy as np
-from contourpy import contour_generator
-from PIL import Image
-from pmtiles.tile import Compression, TileType, zxy_to_tileid
-from pmtiles.writer import write as pmtiles_write
-from shapely.geometry import LineString, MultiLineString, box, shape
-from shapely.ops import unary_union
-from shapely.validation import make_valid
+# Support direct CLI execution and importlib-based callers alike.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.prefectures import BY_NAME, resolve
 
-import mapbox_vector_tile as mvt
+
+def _load_generation_dependencies():
+    global np, contour_generator, Image, Compression, TileType, zxy_to_tileid
+    global pmtiles_write, LineString, MultiLineString, box, shape, unary_union, mvt
+    import numpy as np
+    from contourpy import contour_generator
+    from PIL import Image
+    from pmtiles.tile import Compression, TileType, zxy_to_tileid
+    from pmtiles.writer import write as pmtiles_write
+    from shapely.geometry import LineString, MultiLineString, box, shape
+    from shapely.ops import unary_union
+    import mapbox_vector_tile as mvt
+
 
 ROOT = Path(__file__).resolve().parent.parent
 BOUNDARY_DIR = ROOT / "boundaries"
 PACKAGES = ROOT / "packages"
 CACHE = ROOT / "work" / "terrain" / "dem14"
-PREFECTURES = ["Tottori", "Shimane", "Okayama", "Hiroshima", "Yamaguchi"]
+PREFECTURES = list(BY_NAME)
 
 DEM_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem_png/14/{x}/{y}.png"
 Z_DEM = 14
@@ -77,6 +85,9 @@ def tile_bounds(x, y, z):
 
 
 def prefecture_shape(name):
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    from shapely.validation import make_valid
     path = BOUNDARY_DIR / ("%s.geojson" % name)
     if not path.is_file():
         sys.exit("境界ポリゴンがありません: %s (先に build_prefectures.py で取得してください)" % path)
@@ -93,6 +104,7 @@ def dem_tiles_for(name, max_tiles=None):
     minx, miny, maxx, maxy = poly.bounds
     x0, y1 = lonlat_to_tile(minx, miny, Z_DEM)
     x1, y0 = lonlat_to_tile(maxx, maxy, Z_DEM)
+    from shapely.geometry import box
     from shapely.prepared import prep
     prepared = prep(poly)
     tiles = []
@@ -326,7 +338,7 @@ def write_pmtiles(path, tiles, tile_type, compression, min_zoom, max_zoom, bound
 def run_pool(fn, jobs, workers, label):
     results = {}
     started = time.time()
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_load_generation_dependencies) as pool:
         for i, (key, data) in enumerate(pool.map(fn, jobs, chunksize=8), 1):
             if data:
                 results[key] = data
@@ -336,6 +348,7 @@ def run_pool(fn, jobs, workers, label):
 
 
 def build_prefecture(name, workers, force, max_tiles, out_dir):
+    _load_generation_dependencies()
     lname = name.lower()
     hill_path = out_dir / ("%s.hillshade.pmtiles" % lname)
     cont_path = out_dir / ("%s.contours.pmtiles" % lname)
@@ -370,7 +383,7 @@ def build_prefecture(name, workers, force, max_tiles, out_dir):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
     ap.add_argument("--force", action="store_true", help="出力があっても作り直す")
     ap.add_argument("--dry-run", action="store_true", help="対象タイル数だけ表示する")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="生成の並列数")
@@ -378,13 +391,11 @@ def main():
     ap.add_argument("--out", type=Path, default=PACKAGES, help="出力先 (既定: packages/)")
     args = ap.parse_args()
 
-    names = PREFECTURES
-    if args.only:
-        wanted = [x.strip().lower() for x in args.only.split(",") if x.strip()]
-        unknown = [x for x in wanted if x not in [p.lower() for p in PREFECTURES]]
-        if unknown:
-            ap.error("不明な県: %s" % ",".join(unknown))
-        names = [p for p in PREFECTURES if p.lower() in wanted]
+    try:
+        names = resolve(args.only)
+    except ValueError as exc:
+        ap.error(str(exc))
+    print("Selected: %s" % ",".join(names))
     for name in names:
         if args.dry_run:
             tiles = dem_tiles_for(name, args.max_tiles)

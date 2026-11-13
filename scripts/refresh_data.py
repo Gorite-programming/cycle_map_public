@@ -3,7 +3,8 @@
 
 流れ:
   1. 準備   : 必要なツール・ディスク空きの確認、現行の成果物を `packages/_prev/<日時>/` に退避
-  2. OSM    : Geofabrik の中国地方 PBF (chugoku-latest) を `data/` に取得 (または --source-pbf)
+  2. OSM    : 既定は中国地方 PBF (chugoku-latest) を取得。中国5県外を含む場合は
+             既存の `data/japan-latest.osm.pbf` を使う (または --source-pbf)
   3. 検索DB : sandbox/data-tool/rebuild_all.py (OSM 切り出し → 取り込み → Overture → 統合 → 書き出し)
   4. graph  : build_prefectures.py をステージング (work/refresh/<日時>/packages) に出力
   4b. CH    : build_ch.py (graph ごとの Contraction Hierarchies、<県>.graph.ch。ZIP の外の別成果物)
@@ -39,15 +40,21 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+# Support direct CLI execution and importlib-based callers alike.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.prefectures import BY_NAME, DEFAULT_PREFECTURES, resolve
+from scripts._platform import find_tool, gradle_command, java_environment, find_jdk
+
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ROOT / "packages"
 DATA_DIR = ROOT / "data"
 DATA_TOOL = ROOT / "sandbox" / "data-tool"
 DATA_TOOL_OUT = DATA_TOOL / "out"
 MASTER_DB = DATA_TOOL / "data" / "work" / "master.db"
-IMPORTER = ROOT / "application/osm-importer/build/install/osm-importer/bin/osm-importer"
+IMPORTER = ROOT / ("application/osm-importer/build/install/osm-importer/bin/osm-importer" + (".bat" if sys.platform == "win32" else ""))
 GEOFABRIK_URL = "https://download.geofabrik.de/asia/japan/chugoku-latest.osm.pbf"
-PREFECTURES = ["Tottori", "Shimane", "Okayama", "Hiroshima", "Yamaguchi"]
+PREFECTURES = list(BY_NAME)
 ZIP_MEMBERS = {"%s.search.db", "%s.graph", "%s.graph.idx", "manifest.json", "LICENSE.txt"}
 
 # 昇格の許容範囲 (前回比)。これを外れるものは異常として昇格しない
@@ -58,7 +65,7 @@ MIN_FREE_GB = 12
 REGRESSION_OD = 60
 REGRESSION_MAX_REACH_DROP = 3.0       # 到達率の低下 (ポイント)
 REGRESSION_MAX_DISTANCE_CHANGE = 5.0  # 経路距離の中央値の変化 (%)
-GRADLEW = ROOT / "application" / "gradlew"
+GRADLEW = gradle_command(ROOT / "application")
 
 
 class Step:
@@ -85,7 +92,7 @@ def run_cmd(cmd, log_path, cwd=ROOT, env=None):
     print("$ " + " ".join(str(c) for c in cmd), flush=True)
     with open(log_path, "a", encoding="utf-8") as log:
         log.write("$ %s\n" % " ".join(str(c) for c in cmd))
-        proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE,
+        proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=java_environment(env), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in proc.stdout:
             log.write(line)
@@ -109,7 +116,7 @@ def free_gb(path):
 
 
 def osm_timestamp(pbf):
-    out = subprocess.run(["osmium", "fileinfo", "-g", "header.option.osmosis_replication_timestamp", str(pbf)],
+    out = subprocess.run([find_tool("osmium") or "osmium", "fileinfo", "-g", "header.option.osmosis_replication_timestamp", str(pbf)],
                          capture_output=True, text=True)
     return out.stdout.strip() or None
 
@@ -118,9 +125,9 @@ def osm_timestamp(pbf):
 
 def preflight(names):
     problems = []
-    if shutil.which("osmium") is None:
+    if find_tool("osmium") is None:
         problems.append("osmium が PATH にありません")
-    if shutil.which("java") is None:
+    if find_jdk() is None and shutil.which("java") is None:
         problems.append("java が PATH にありません")
     if not IMPORTER.is_file():
         problems.append("osm-importer が未ビルドです (cd application && ./gradlew :osm-importer:installDist)")
@@ -203,9 +210,12 @@ def build_ch(names, stage, log):
              "--source-dir", stage / "packages", "--out", stage / "packages"], log)
 
 
-def build_portals(log):
+def build_portals(log, names=None):
     """県またぎの通り口 (<A>__<B>.portals) を、昇格後の packages/ の ZIP から作る。古い組だけ作り直される。"""
-    run_cmd([sys.executable, ROOT / "scripts" / "build_portals.py"], log)
+    cmd = [sys.executable, ROOT / "scripts" / "build_portals.py"]
+    if names is not None:
+        cmd += ["--only", ",".join(names), "--within"]
+    run_cmd(cmd, log)
 
 
 def build_tiles(names, stage, log):
@@ -301,7 +311,10 @@ def check_pref(name, stage, prev, check_tiles=True):
     elif not tiles.is_file():
         fail("タイルがありません: %s" % tiles)
     else:
-        cli = shutil.which("pmtiles") or str(ROOT / "sandbox/vector_test/pipeline/pmtiles")
+        cli = find_tool("pmtiles")
+        if cli is None:
+            fail("pmtiles CLI not found")
+            return ok, notes, facts
         if subprocess.run([cli, "verify", str(tiles)], capture_output=True).returncode != 0:
             fail("タイルの検証に失敗")
     if ok:
@@ -313,7 +326,7 @@ def bench_baseline(graph_path, log):
     """routing-core のベンチで、基準 (おすすめ) の到達率 (%) と経路距離の中央値 (m) を返す。"""
     out = subprocess.run([str(GRADLEW), "-q", "--offline", ":routing-core:benchmarkRealGraph",
                           "-Pgraph=%s" % graph_path, "-Pod=%d" % REGRESSION_OD],
-                         cwd=ROOT / "application", capture_output=True, text=True)
+                         cwd=ROOT / "application", env=java_environment(), capture_output=True, text=True)
     with open(log, "a", encoding="utf-8") as f:
         f.write(out.stdout + out.stderr)
     if out.returncode != 0:
@@ -425,19 +438,17 @@ def write_report(stage, stamp, steps, results, sources):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", help="カンマ区切りの県名 (例: Tottori,Shimane)")
-    ap.add_argument("--source-pbf", type=Path, help="使う OSM PBF (省略時は Geofabrik の chugoku-latest を取得)")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
+    ap.add_argument("--source-pbf", type=Path, help="使う OSM PBF (既定: 中国5県内は chugoku-latest を取得、それ以外は data/japan-latest.osm.pbf)")
     ap.add_argument("--skip", default="", help="省く段階 (カンマ区切り): download,search,graph,ch,portals,tiles,regression")
     ap.add_argument("--overture-release", help="Overture の版 (例 2026-09-23.1)。'latest' で最新")
     ap.add_argument("--dry-run", action="store_true", help="計画だけ表示する")
     args = ap.parse_args()
 
-    names = PREFECTURES
-    if args.only:
-        wanted = {x.strip().lower() for x in args.only.split(",") if x.strip()}
-        names = [p for p in PREFECTURES if p.lower() in wanted]
-        if not names:
-            ap.error("対象の県がありません: %s" % args.only)
+    try:
+        names = resolve(args.only)
+    except ValueError as exc:
+        ap.error(str(exc))
     skip = {x.strip() for x in args.skip.split(",") if x.strip()}
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     stage = ROOT / "work" / "refresh" / stamp
@@ -445,6 +456,7 @@ def main():
 
     print("対象: %s / 省略: %s / ステージング: %s" % (",".join(names), ",".join(sorted(skip)) or "なし", stage))
     if args.dry_run:
+        print("OSM: %s" % (args.source_pbf or (GEOFABRIK_URL if set(names).issubset(DEFAULT_PREFECTURES) else DATA_DIR / "japan-latest.osm.pbf")))
         print("計画: 事前確認 → 退避 → OSM取得 → 検索DB → graph → CH → タイル → 検証 → 昇格 → 通り口 → 記録 (何も実行しません)")
         return 0
 
@@ -460,6 +472,8 @@ def main():
         return 2
 
     pbf = args.source_pbf
+    if pbf is None and not set(names).issubset(DEFAULT_PREFECTURES):
+        pbf = DATA_DIR / "japan-latest.osm.pbf"
     if pbf is None and "download" not in skip:
         pbf = steps.run("OSM取得", lambda: fetch_osm(GEOFABRIK_URL, False))
     if pbf is None:
@@ -504,7 +518,7 @@ def main():
             restore_search_db(name, prev)  # 検索DBも現行のものに戻す
     if "graph" not in skip and "portals" not in skip and any(i["promoted"] for i in results.values()):
         # 失敗しても昇格は取り消さない (古い .portals は識別が合わず、アプリは従来の照合に戻る)
-        steps.run("通り口", lambda: build_portals(log))
+        steps.run("通り口", lambda: build_portals(log, None if set(names).issubset(DEFAULT_PREFECTURES) else names))
     write_manifest(sources, results)
     report = write_report(stage, stamp, steps, results, sources)
     print("\nレポート: %s" % report)

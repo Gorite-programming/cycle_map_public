@@ -3,7 +3,8 @@
 
 `packages/<県>.zip` (または --source-dir の ZIP) の graph 同士で共通する OSM ノード (通り口) を
 `./gradlew :routing-core:buildPortals` で計算し、`packages/<A>__<B>.portals` に置く (A, B は県名の辞書順)。
-- 対象は 5 県のすべての組。隣り合う組かどうかは計算して決める (通り口が 0 件の組はファイルを作らない)。
+- 既定は中国5県の全組。--only は指定県を含む全国の組、--within は指定県同士の組。
+  隣り合う組かどうかは計算して決める (通り口が 0 件の組はファイルを作らない)。
 - ZIP (5 ファイル構成) には入れず、CH と同じく別成果物にする。アプリは無くても従来の ID 照合で動く。
 - ヘッダにある 2 つの graph の識別 (サイズ + 先頭/末尾 1MB の CRC32) が今の graph と一致する
   ファイルはスキップする (--force で作り直し)。0 件だった組は `portals_empty.json` に識別を
@@ -32,7 +33,15 @@ import zipfile
 import zlib
 from pathlib import Path
 
-from build_ch import PREFECTURES, extract_graph, graph_fingerprint
+# Support direct CLI execution and importlib-based callers alike.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.prefectures import BY_NAME, resolve
+from scripts._platform import gradle_command, java_environment
+
+from scripts.build_ch import extract_graph, graph_fingerprint
+
+PREFECTURES = list(BY_NAME)
 
 ROOT = Path(__file__).resolve().parent.parent
 PORTALS_MAGIC = 0x434D5054        # "CMPT"
@@ -104,9 +113,18 @@ def save_empty(out_dir: Path, empty: dict) -> None:
     tmp.replace(path)
 
 
+def select_pairs(only=None, within=False):
+    """Default: five-prefecture pairs; --only: all pairs touching the selection."""
+    selected = set(resolve(only))
+    universe = resolve() if only is None else PREFECTURES
+    return [tuple(sorted(pair, key=str.lower)) for pair in itertools.combinations(universe, 2)
+            if (all(p in selected for p in pair) if within else any(p in selected for p in pair))]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", help="カンマ区切りの県名。その県を含む組だけを対象にする")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
+    ap.add_argument("--within", action="store_true", help="Only pairs within the selected prefectures")
     ap.add_argument("--source-dir", type=Path, default=ROOT / "packages", help="<県>.zip のある場所")
     ap.add_argument("--out", type=Path, default=ROOT / "packages", help=".portals の出力先")
     ap.add_argument("--heap", default="2g", help="JVM ヒープ (既定 2g)")
@@ -114,13 +132,16 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    wanted = None
-    if args.only:
-        wanted = {x.strip().lower() for x in args.only.split(",") if x.strip()}
-        if not any(p.lower() in wanted for p in PREFECTURES):
-            ap.error("対象の県がありません: %s" % args.only)
-    pairs = [tuple(sorted(pair, key=str.lower)) for pair in itertools.combinations(PREFECTURES, 2)
-             if wanted is None or any(p.lower() in wanted for p in pair)]
+    try:
+        pairs = select_pairs(args.only, args.within)
+    except ValueError as exc:
+        ap.error(str(exc))
+    print("対象: %s" % ",".join(resolve(args.only)))
+    if args.dry_run:
+        for a, b in pairs:
+            print("[%s] %s + %s -> %s" % (pair_name(a, b), args.source_dir / (a + ".zip"),
+                  args.source_dir / (b + ".zip"), args.out / (pair_name(a, b) + ".portals")))
+        return 0
 
     failed = False
     fingerprints = {}
@@ -148,11 +169,6 @@ def main() -> int:
             todo.append((a, b, key, out, fps))
     if not todo:
         return 1 if failed else 0
-    if args.dry_run:
-        for a, b, key, out, _ in todo:
-            print("[%s] %s + %s -> %s" % (key, args.source_dir / (a + ".zip"), args.source_dir / (b + ".zip"), out))
-        return 1 if failed else 0
-
     (ROOT / "work").mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="portals_", dir=ROOT / "work") as tmp:
         tmp_dir = Path(tmp)
@@ -170,10 +186,10 @@ def main() -> int:
             graphs.append(graph)
         started = time.time()
         # 1 回の JVM で、取り出した graph のすべての組を計算する (各 graph の ID 索引を読むのは 1 回)。
-        cmd = ["./gradlew", ":routing-core:buildPortals", "-q", "-Pgraphs=%s" % ",".join(str(g) for g in graphs),
+        cmd = [gradle_command(ROOT / "application"), ":routing-core:buildPortals", "-q", "-Pgraphs=%s" % ",".join(str(g) for g in graphs),
                "-PoutDir=%s" % result_dir, "-Pheap=%s" % args.heap]
         print("通り口の計算 (%s): %s" % (",".join(names), " ".join(cmd)))
-        proc = subprocess.run(cmd, cwd=ROOT / "application", stdout=subprocess.PIPE, text=True)
+        proc = subprocess.run(cmd, cwd=ROOT / "application", env=java_environment(), stdout=subprocess.PIPE, text=True)
         counts = {m.group(1): int(m.group(2)) for m in re.finditer(r"^PORTALS pair=(\S+) count=(\d+)", proc.stdout, re.M)}
         if proc.returncode != 0:
             sys.stderr.write(proc.stdout)
