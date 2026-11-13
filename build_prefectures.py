@@ -231,6 +231,8 @@ def run_live(cmd: Sequence[str], log_file: Path, env: Optional[Dict[str, str]] =
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=env,
         )
