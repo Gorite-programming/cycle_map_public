@@ -26,46 +26,53 @@ BACKUP_KEEP = 5
 # 県定義。bbox は data/raw/boundaries/<Boundary>.geojson から算出
 # (lon_min, lat_min, lon_max, lat_max)。検索DB名は <県ID小文字>.search.db に統一。
 PREFECTURES = {
-    "tottori": {
-        "id": "tottori",
-        "name_ja": "鳥取",
-        "name_en": "Tottori",
-        "search_db": "tottori.search.db",
-        "boundary": "Tottori.geojson",
-        "bbox": (133.13628, 35.05768, 134.51537, 35.61459),
-    },
-    "shimane": {
-        "id": "shimane",
-        "name_ja": "島根",
-        "name_en": "Shimane",
-        "search_db": "shimane.search.db",
-        "boundary": "Shimane.geojson",
-        "bbox": (131.66797, 34.30244, 133.38599, 37.24426),
-    },
-    "okayama": {
-        "id": "okayama",
-        "name_ja": "岡山",
-        "name_en": "Okayama",
-        "search_db": "okayama.search.db",
-        "boundary": "Okayama.geojson",
-        "bbox": (133.26679, 34.2986, 134.41316, 35.3529),
-    },
-    "hiroshima": {
-        "id": "hiroshima",
-        "name_ja": "広島",
-        "name_en": "Hiroshima",
-        "search_db": "hiroshima.search.db",
-        "boundary": "Hiroshima.geojson",
-        "bbox": (132.0366, 34.03423, 133.47064, 35.10508),
-    },
-    "yamaguchi": {
-        "id": "yamaguchi",
-        "name_ja": "山口",
-        "name_en": "Yamaguchi",
-        "search_db": "yamaguchi.search.db",
-        "boundary": "Yamaguchi.geojson",
-        "bbox": (130.775, 33.71288, 132.49121, 34.79865),
-    },
+    "hokkaido": {"id": "hokkaido", "name_ja": "北海道", "name_en": "Hokkaido", "search_db": "hokkaido.search.db", "boundary": "Hokkaido.geojson", "bbox": (139.33437, 41.35212, 148.89234, 45.55724)},
+    "aomori": {"id": "aomori", "name_ja": "青森県", "name_en": "Aomori", "search_db": "aomori.search.db", "boundary": "Aomori.geojson", "bbox": (139.85973, 40.21771, 141.68259, 41.55541)},
+    "iwate": {"id": "iwate", "name_ja": "岩手県", "name_en": "Iwate", "search_db": "iwate.search.db", "boundary": "Iwate.geojson", "bbox": (140.65323, 38.74781, 142.07248, 40.45026)},
+    "miyagi": {"id": "miyagi", "name_ja": "宮城県", "name_en": "Miyagi", "search_db": "miyagi.search.db", "boundary": "Miyagi.geojson", "bbox": (140.27489, 37.77337, 141.67464, 39.00276)},
+    "akita": {"id": "akita", "name_ja": "秋田県", "name_en": "Akita", "search_db": "akita.search.db", "boundary": "Akita.geojson", "bbox": (139.69296, 38.87301, 140.99543, 40.51106)},
+    "yamagata": {"id": "yamagata", "name_ja": "山形県", "name_en": "Yamagata", "search_db": "yamagata.search.db", "boundary": "Yamagata.geojson", "bbox": (139.52046, 37.73383, 140.64646, 39.20853)},
+    "fukushima": {"id": "fukushima", "name_ja": "福島県", "name_en": "Fukushima", "search_db": "fukushima.search.db", "boundary": "Fukushima.geojson", "bbox": (139.16491, 36.7916, 141.04586, 37.97664)},
+    "ibaraki": {"id": "ibaraki", "name_ja": "茨城県", "name_en": "Ibaraki", "search_db": "ibaraki.search.db", "boundary": "Ibaraki.geojson", "bbox": (139.68794, 35.73914, 140.85197, 36.94528)},
+    "tochigi": {"id": "tochigi", "name_ja": "栃木県", "name_en": "Tochigi", "search_db": "tochigi.search.db", "boundary": "Tochigi.geojson", "bbox": (139.32657, 36.19968, 140.29216, 37.15506)},
+    "gunma": {"id": "gunma", "name_ja": "群馬県", "name_en": "Gunma", "search_db": "gunma.search.db", "boundary": "Gunma.geojson", "bbox": (138.39709, 35.98533, 139.66994, 37.05863)},
+    "saitama": {"id": "saitama", "name_ja": "埼玉県", "name_en": "Saitama", "search_db": "saitama.search.db", "boundary": "Saitama.geojson", "bbox": (138.71136, 35.75338, 139.89997, 36.2834)},
+    "chiba": {"id": "chiba", "name_ja": "千葉県", "name_en": "Chiba", "search_db": "chiba.search.db", "boundary": "Chiba.geojson", "bbox": (139.73956, 34.8994, 140.88162, 36.1041)},
+    "tokyo": {"id": "tokyo", "name_ja": "東京都", "name_en": "Tokyo", "search_db": "tokyo.search.db", "boundary": "Tokyo.geojson", "bbox": (138.94287, 24.22485, 153.98607, 35.89826)},
+    "kanagawa": {"id": "kanagawa", "name_ja": "神奈川県", "name_en": "Kanagawa", "search_db": "kanagawa.search.db", "boundary": "Kanagawa.geojson", "bbox": (138.9164, 35.12919, 139.80139, 35.67241)},
+    "niigata": {"id": "niigata", "name_ja": "新潟県", "name_en": "Niigata", "search_db": "niigata.search.db", "boundary": "Niigata.geojson", "bbox": (137.63498, 36.73655, 139.8999, 38.55295)},
+    "toyama": {"id": "toyama", "name_ja": "富山県", "name_en": "Toyama", "search_db": "toyama.search.db", "boundary": "Toyama.geojson", "bbox": (136.76838, 36.27436, 137.76244, 36.9798)},
+    "ishikawa": {"id": "ishikawa", "name_ja": "石川県", "name_en": "Ishikawa", "search_db": "ishikawa.search.db", "boundary": "Ishikawa.geojson", "bbox": (136.24304, 36.06723, 137.36101, 37.85517)},
+    "fukui": {"id": "fukui", "name_ja": "福井県", "name_en": "Fukui", "search_db": "fukui.search.db", "boundary": "Fukui.geojson", "bbox": (135.44941, 35.34368, 136.83235, 36.2953)},
+    "yamanashi": {"id": "yamanashi", "name_ja": "山梨県", "name_en": "Yamanashi", "search_db": "yamanashi.search.db", "boundary": "Yamanashi.geojson", "bbox": (138.18009, 35.16838, 139.13441, 35.97144)},
+    "nagano": {"id": "nagano", "name_ja": "長野県", "name_en": "Nagano", "search_db": "nagano.search.db", "boundary": "Nagano.geojson", "bbox": (137.32455, 35.19847, 138.73925, 37.03038)},
+    "gifu": {"id": "gifu", "name_ja": "岐阜県", "name_en": "Gifu", "search_db": "gifu.search.db", "boundary": "Gifu.geojson", "bbox": (136.27623, 35.13373, 137.65306, 36.46507)},
+    "shizuoka": {"id": "shizuoka", "name_ja": "静岡県", "name_en": "Shizuoka", "search_db": "shizuoka.search.db", "boundary": "Shizuoka.geojson", "bbox": (137.47411, 34.57361, 139.17656, 35.64596)},
+    "aichi": {"id": "aichi", "name_ja": "愛知県", "name_en": "Aichi", "search_db": "aichi.search.db", "boundary": "Aichi.geojson", "bbox": (136.67105, 34.57829, 137.83812, 35.4242)},
+    "mie": {"id": "mie", "name_ja": "三重県", "name_en": "Mie", "search_db": "mie.search.db", "boundary": "Mie.geojson", "bbox": (135.85325, 33.7229, 136.9877, 35.25753)},
+    "shiga": {"id": "shiga", "name_ja": "滋賀県", "name_en": "Shiga", "search_db": "shiga.search.db", "boundary": "Shiga.geojson", "bbox": (135.76407, 34.79059, 136.45504, 35.70374)},
+    "kyoto": {"id": "kyoto", "name_ja": "京都府", "name_en": "Kyoto", "search_db": "kyoto.search.db", "boundary": "Kyoto.geojson", "bbox": (134.85373, 34.70597, 136.05548, 35.77891)},
+    "osaka": {"id": "osaka", "name_ja": "大阪府", "name_en": "Osaka", "search_db": "osaka.search.db", "boundary": "Osaka.geojson", "bbox": (135.09202, 34.27182, 135.74659, 35.05104)},
+    "hyogo": {"id": "hyogo", "name_ja": "兵庫県", "name_en": "Hyogo", "search_db": "hyogo.search.db", "boundary": "Hyogo.geojson", "bbox": (134.25274, 34.15569, 135.46859, 35.67471)},
+    "nara": {"id": "nara", "name_ja": "奈良県", "name_en": "Nara", "search_db": "nara.search.db", "boundary": "Nara.geojson", "bbox": (135.5397, 33.85896, 136.22976, 34.78133)},
+    "wakayama": {"id": "wakayama", "name_ja": "和歌山県", "name_en": "Wakayama", "search_db": "wakayama.search.db", "boundary": "Wakayama.geojson", "bbox": (134.99907, 33.43302, 136.01316, 34.38448)},
+    "tottori": {"id": "tottori", "name_ja": "鳥取県", "name_en": "Tottori", "search_db": "tottori.search.db", "boundary": "Tottori.geojson", "bbox": (133.13628, 35.05768, 134.51537, 35.61459)},
+    "shimane": {"id": "shimane", "name_ja": "島根県", "name_en": "Shimane", "search_db": "shimane.search.db", "boundary": "Shimane.geojson", "bbox": (131.66797, 34.30244, 133.38599, 37.24426)},
+    "okayama": {"id": "okayama", "name_ja": "岡山県", "name_en": "Okayama", "search_db": "okayama.search.db", "boundary": "Okayama.geojson", "bbox": (133.26679, 34.2986, 134.41316, 35.3529)},
+    "hiroshima": {"id": "hiroshima", "name_ja": "広島県", "name_en": "Hiroshima", "search_db": "hiroshima.search.db", "boundary": "Hiroshima.geojson", "bbox": (132.0366, 34.03423, 133.47064, 35.10508)},
+    "yamaguchi": {"id": "yamaguchi", "name_ja": "山口県", "name_en": "Yamaguchi", "search_db": "yamaguchi.search.db", "boundary": "Yamaguchi.geojson", "bbox": (130.775, 33.71288, 132.49121, 34.79865)},
+    "tokushima": {"id": "tokushima", "name_ja": "徳島県", "name_en": "Tokushima", "search_db": "tokushima.search.db", "boundary": "Tokushima.geojson", "bbox": (133.66075, 33.53956, 134.82083, 34.25202)},
+    "kagawa": {"id": "kagawa", "name_ja": "香川県", "name_en": "Kagawa", "search_db": "kagawa.search.db", "boundary": "Kagawa.geojson", "bbox": (133.44704, 34.01252, 134.44021, 34.56403)},
+    "ehime": {"id": "ehime", "name_ja": "愛媛県", "name_en": "Ehime", "search_db": "ehime.search.db", "boundary": "Ehime.geojson", "bbox": (132.01264, 32.89789, 133.6928, 34.29979)},
+    "kochi": {"id": "kochi", "name_ja": "高知県", "name_en": "Kochi", "search_db": "kochi.search.db", "boundary": "Kochi.geojson", "bbox": (132.47997, 32.7025, 134.31253, 33.88336)},
+    "fukuoka": {"id": "fukuoka", "name_ja": "福岡県", "name_en": "Fukuoka", "search_db": "fukuoka.search.db", "boundary": "Fukuoka.geojson", "bbox": (130.03268, 33.00002, 131.19057, 34.25)},
+    "saga": {"id": "saga", "name_ja": "佐賀県", "name_en": "Saga", "search_db": "saga.search.db", "boundary": "Saga.geojson", "bbox": (129.73971, 32.95052, 130.54196, 33.61899)},
+    "nagasaki": {"id": "nagasaki", "name_ja": "長崎県", "name_en": "Nagasaki", "search_db": "nagasaki.search.db", "boundary": "Nagasaki.geojson", "bbox": (128.34402, 31.98641, 130.38194, 34.70802)},
+    "kumamoto": {"id": "kumamoto", "name_ja": "熊本県", "name_en": "Kumamoto", "search_db": "kumamoto.search.db", "boundary": "Kumamoto.geojson", "bbox": (129.9636, 32.09492, 131.32951, 33.19518)},
+    "oita": {"id": "oita", "name_ja": "大分県", "name_en": "Oita", "search_db": "oita.search.db", "boundary": "Oita.geojson", "bbox": (130.82485, 32.71478, 132.08532, 33.74028)},
+    "miyazaki": {"id": "miyazaki", "name_ja": "宮崎県", "name_en": "Miyazaki", "search_db": "miyazaki.search.db", "boundary": "Miyazaki.geojson", "bbox": (130.70338, 31.36088, 131.88571, 32.83898)},
+    "kagoshima": {"id": "kagoshima", "name_ja": "鹿児島県", "name_en": "Kagoshima", "search_db": "kagoshima.search.db", "boundary": "Kagoshima.geojson", "bbox": (128.39537, 27.01868, 131.20545, 32.30815)},
+    "okinawa": {"id": "okinawa", "name_ja": "沖縄県", "name_en": "Okinawa", "search_db": "okinawa.search.db", "boundary": "Okinawa.geojson", "bbox": (122.93382, 24.04588, 131.33196, 27.88545)},
 }
 
 # SPEC 4.2: アプリが前方一致 LIKE で判定するカテゴリプレフィックス
@@ -117,13 +124,7 @@ def search_db_path(pref_id):
 # --- 国土数値情報 (第3段階・SPEC追記) ---
 
 # 県コード (ファイル名 P04-20_<code> / P29-21_<code> 用)
-KOKUDO_PREF_CODES = {
-    "tottori": "31",
-    "shimane": "32",
-    "okayama": "33",
-    "hiroshima": "34",
-    "yamaguchi": "35",
-}
+KOKUDO_PREF_CODES = {pref_id: f"{index:02d}" for index, pref_id in enumerate(PREFECTURES, 1)}
 
 KOKUDO_DATASETS = {
     "medical": {

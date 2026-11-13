@@ -20,8 +20,8 @@
 # =============================================================================
 set -euo pipefail
 
-DEST_DIR="/sdcard/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap"
-PACKAGE_NAME="com.gorite.cyclemap.test"
+PACKAGE_NAME="${CYCLEMAP_PACKAGE_NAME:-com.gorite.cyclemap.test}"
+DEST_DIR="/sdcard/Android/data/${PACKAGE_NAME}/files/Documents/CycleMap"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -30,7 +30,7 @@ DB_ONLY=false
 TILES_ONLY=false
 TARGET_PREF=""
 
-ALL_PREFS=("Tottori" "Shimane" "Okayama" "Hiroshima" "Yamaguchi")
+ALL_PREFS=("Hokkaido" "Aomori" "Iwate" "Miyagi" "Akita" "Yamagata" "Fukushima"     "Ibaraki" "Tochigi" "Gunma" "Saitama" "Chiba" "Tokyo" "Kanagawa" "Niigata"     "Toyama" "Ishikawa" "Fukui" "Yamanashi" "Nagano" "Gifu" "Shizuoka" "Aichi"     "Mie" "Shiga" "Kyoto" "Osaka" "Hyogo" "Nara" "Wakayama" "Tottori" "Shimane"     "Okayama" "Hiroshima" "Yamaguchi" "Tokushima" "Kagawa" "Ehime" "Kochi"     "Fukuoka" "Saga" "Nagasaki" "Kumamoto" "Oita" "Miyazaki" "Kagoshima" "Okinawa")
 
 usage() {
     cat <<EOF

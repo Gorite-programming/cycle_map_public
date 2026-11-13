@@ -65,6 +65,14 @@ WORK_DIR = Path("work")
 OUTPUT_DIR = Path("packages")
 LOG_DIR = Path("logs")
 DATA_TOOL_OUT_DIR = Path("sandbox/data-tool/out")
+VECTOR_TILE_DIR = Path("sandbox/vector_test/data")
+PMTILES_FILENAMES = {
+    "Tottori": "tottori.pmtiles",
+    "Shimane": "shimane.pmtiles",
+    "Okayama": "okayama.pmtiles",
+    "Hiroshima": "hiroshima.pmtiles",
+    "Yamaguchi": "yamaguchi.pmtiles",
+}
 
 PACKAGE_LICENSE_TEXT = """\
 CycleMap Data Package License & Attribution
@@ -161,15 +169,13 @@ def verify_search_db(db_path: Path) -> Dict[str, Any]:
         con.close()
 
 
-def generate_manifest(name: str, db_stats: Dict[str, Any], has_pmtiles: bool = False) -> str:
+def generate_manifest(name: str, db_stats: Dict[str, Any]) -> str:
     """Generate manifest.json content for prefecture package."""
     files_map: Dict[str, str] = {
         "search_db": f"{name}.search.db",
         "graph": f"{name}.graph",
         "graph_idx": f"{name}.graph.idx",
     }
-    if has_pmtiles:
-        files_map["pmtiles"] = f"{name}.pmtiles"
 
     sources = [
         {
@@ -188,15 +194,6 @@ def generate_manifest(name: str, db_stats: Dict[str, Any], has_pmtiles: bool = F
             "url": "https://nlftp.mlit.go.jp/ksj/",
         },
     ]
-    if has_pmtiles:
-        sources.append(
-            {
-                "name": "Protomaps Basemaps (PMTiles)",
-                "license": "CC-BY 4.0 / BSD-3-Clause / ODbL 1.0",
-                "url": "https://protomaps.com/",
-            }
-        )
-
     manifest = {
         "format_version": 1,
         "prefecture": name,
@@ -401,13 +398,46 @@ def parse_importer_counts(text: str) -> Dict[str, int]:
     return out
 
 
+def expected_pmtiles_path(name: str) -> Optional[Path]:
+    file_name = PMTILES_FILENAMES.get(name)
+    if not file_name:
+        return None
+    for directory in (DATA_TOOL_OUT_DIR, VECTOR_TILE_DIR):
+        if not directory.is_dir():
+            continue
+        candidate = next(
+            (p for p in directory.iterdir() if p.is_file() and p.name.lower() == file_name.lower() and p.stat().st_size > 0),
+            None,
+        )
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def publish_pmtiles_sidecar(name: str) -> Optional[Path]:
+    source = expected_pmtiles_path(name)
+    if source is None:
+        return None
+    with source.open("rb") as f:
+        if f.read(8) != b"PMTiles\x03":
+            raise ValueError(f"Invalid PMTiles v3 archive: {source}")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    target = OUTPUT_DIR / PMTILES_FILENAMES[name]
+    if source.resolve() != target.resolve():
+        partial = target.with_suffix(target.suffix + ".partial")
+        shutil.copy2(source, partial)
+        os.replace(partial, target)
+    return target
+
+
 def valid_zip(path: Path, name: str) -> bool:
     needed = {f"{name}.search.db", f"{name}.graph", f"{name}.graph.idx", "manifest.json", "LICENSE.txt"}
     if not path.is_file() or path.stat().st_size == 0:
         return False
     try:
         with zipfile.ZipFile(path, "r") as z:
-            return z.testzip() is None and needed.issubset(set(z.namelist()))
+            names = set(z.namelist())
+            return z.testzip() is None and names == needed
     except (OSError, zipfile.BadZipFile):
         return False
 
@@ -419,7 +449,6 @@ def make_zip(
     idx: Path,
     out: Path,
     manifest_content: str,
-    pmtiles: Optional[Path] = None,
 ) -> None:
     for p in (db, graph, idx):
         if not p.is_file() or p.stat().st_size == 0:
@@ -431,8 +460,6 @@ def make_zip(
         z.write(db, db.name)
         z.write(graph, graph.name)
         z.write(idx, idx.name)
-        if pmtiles is not None and pmtiles.is_file() and pmtiles.stat().st_size > 0:
-            z.write(pmtiles, f"{name}.pmtiles")
         z.writestr("manifest.json", manifest_content)
         z.writestr("LICENSE.txt", PACKAGE_LICENSE_TEXT)
     os.replace(partial, out)
@@ -449,6 +476,9 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
 
     if not force and valid_zip(final_zip, name):
         LOG.info("[%s] SKIP: valid package exists: %s", name, final_zip)
+        pmtiles_path = publish_pmtiles_sidecar(name)
+        if pmtiles_path is not None:
+            LOG.info("[%s] offline vector tiles sidecar: %s (%s)", name, pmtiles_path, psize(pmtiles_path))
         return True, time.monotonic() - start
 
     work = WORK_DIR / name
@@ -525,19 +555,16 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
         else:
             LOG.info("[%s] importer counts: not parseable from stdout/stderr", name)
 
-        # 4) Optional PMTiles lookup (data-tool/out or work dir)
-        pmtiles_candidates = [
-            DATA_TOOL_OUT_DIR / f"{name.lower()}.pmtiles",
-            DATA_TOOL_OUT_DIR / f"{name}.pmtiles",
-            work / f"{name}.pmtiles",
-        ]
-        pmtiles_path = next((p for p in pmtiles_candidates if p.is_file() and p.stat().st_size > 0), None)
+        # 4) Optional PMTiles sidecar. The prefecture ZIP remains the five-file contract.
+        pmtiles_path = publish_pmtiles_sidecar(name)
         if pmtiles_path is not None:
-            LOG.info("[%s] Including offline vector tiles: %s (%s)", name, pmtiles_path, psize(pmtiles_path))
+            LOG.info("[%s] offline vector tiles sidecar: %s (%s)", name, pmtiles_path, psize(pmtiles_path))
+        else:
+            LOG.warning("[%s] No compatible offline PMTiles found (expected %s)", name, PMTILES_FILENAMES.get(name))
 
         # 5) Atomic ZIP package with manifest & license.
-        manifest_text = generate_manifest(name, db_stats, has_pmtiles=(pmtiles_path is not None))
-        make_zip(name, db, graph, idx, final_zip, manifest_text, pmtiles=pmtiles_path)
+        manifest_text = generate_manifest(name, db_stats)
+        make_zip(name, db, graph, idx, final_zip, manifest_text)
         LOG.info("[%s] package: %s (%s)", name, final_zip, psize(final_zip))
 
         if not keep_work:

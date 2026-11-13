@@ -148,7 +148,9 @@ osm-importer/build/install/osm-importer/bin/osm-importer \
 - 出典・ライセンス: © OpenStreetMap contributors、Open Database License (ODbL) 1.0。
   `.graph` / `.search.db` はいずれもOSM由来の派生データベース。データパックとして再配布する場合は
   ODbL の share-alike 条件 (派生DBの同条件公開) を満たすこと。クレジット表示は地図隅+ライセンス画面
-  (配布前チェック参照)。`packages/<name>.zip` の3点 (`search.db`+`graph`+`idx`) を単位とする。
+  (配布前チェック参照)。`packages/<name>.zip` は検索DB・グラフ・索引・manifest・LICENSE の5点。
+  ベクター地図PMTilesは ZIP に含めず、対応する場合は `packages/` に別配置する
+  県ID小文字の `<prefecture-id>.pmtiles` として別配置します (例: `hiroshima.pmtiles`)。
 
 ## オフライン逆ジオコーディング用データ
 

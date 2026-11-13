@@ -50,26 +50,10 @@ fun resolveOfflinePmtilesPath(context: Context, lat: Double, lon: Double): Strin
  */
 fun resolveSearchDbFile(context: Context, lat: Double, lon: Double): File? {
     val dataDir = cycleMapDataDir(context)
-    val sel = SearchDbSelector.select(lat, lon)
-    if (sel is SearchDbSelection.Available) {
-        val f = SearchDbSelector.resolveDbFile(dataDir, sel.fileName)
-        if (f != null && f.exists() && f.length() > 0) return f
-    }
-    val candidates = listOf(
-        SearchDbSelector.findFirstAvailableDb(dataDir),
-        File(dataDir, "Hiroshima.search.db"),
-        File(context.getExternalFilesDir("Documents/CycleMap"), "Hiroshima.search.db"),
-        File("/sdcard/Android/data/com.gorite.cyclemap/files/Documents/CycleMap/Hiroshima.search.db"),
-        File("/storage/emulated/0/Android/data/com.gorite.cyclemap/files/Documents/CycleMap/Hiroshima.search.db"),
-        File("/sdcard/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap/Hiroshima.search.db"),
-        File("/storage/emulated/0/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap/Hiroshima.search.db"),
-    )
-    for (candidate in candidates) {
-        if (candidate != null && candidate.exists() && candidate.length() > 0) {
-            return candidate
-        }
-    }
-    return null
+    val selection = SearchDbSelector.select(lat, lon)
+    if (selection !is SearchDbSelection.Available) return null
+    return SearchDbSelector.resolveDbFile(dataDir, selection.fileName)
+        ?.takeIf { it.isFile && it.length() > 0 }
 }
 
 /**
