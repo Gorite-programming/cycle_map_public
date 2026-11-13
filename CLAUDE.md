@@ -90,7 +90,7 @@ Build release APKs only from a clean HEAD (a `-dirty` APK is for dev checks only
 - JDK は Android Studio 同梱の 21 を使う (システムの Java 25 は Gradle 8.11.1 と非互換)。
 - `osm-importer` の標準出力は Windows では Shift-JIS になり得る。Python 側で読むときは `errors="replace"` を付ける (`run_live()`)。
 - Windows/Mac の差 (gradlew.bat、pmtiles/osmium・JDK の探索) は `scripts/_platform.py` に集約済み。
-- Windows のサンドボックスでは `pmtiles.exe` (`sandbox/vector_test/pipeline/`) は未追跡のバイナリ。コミットしない。
+- Windows のサンドボックスでは `pmtiles.exe` (`sandbox/vector_test/pipeline/`) は`.gitignore` 済みのバイナリ。
 
 ## Codex への委譲 (Claude が親、Codex が子)
 
