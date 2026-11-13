@@ -18,7 +18,6 @@ Protomaps の公開ビルド (build.protomaps.com/YYYYMMDD.pmtiles, 世界全体
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import urllib.error
@@ -26,10 +25,16 @@ import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
 
+# Support direct CLI execution and importlib-based callers alike.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.prefectures import BY_NAME, resolve
+from scripts._platform import find_tool
+
 ROOT = Path(__file__).resolve().parent.parent
 BOUNDARY_DIR = ROOT / "boundaries"
 OUTPUT_DIR = ROOT / "packages"
-PREFECTURES = ["Tottori", "Shimane", "Okayama", "Hiroshima", "Yamaguchi"]
+PREFECTURES = list(BY_NAME)
 BUILD_URL = "https://build.protomaps.com/%s.pmtiles"
 MARGIN_DEG = 0.02          # 県境付近の地図が切れないよう外接矩形に足す余白 (約2km)
 LOOKBACK_DAYS = 10         # 当日分が未公開のことがあるため、遡って最新を探す
@@ -37,13 +42,10 @@ MIN_VALID_BYTES = 1_000_000
 
 
 def find_pmtiles_cli():
-    found = shutil.which("pmtiles")
+    found = find_tool("pmtiles")
     if found:
         return found
-    local = ROOT / "sandbox" / "vector_test" / "pipeline" / "pmtiles"
-    if local.is_file():
-        return str(local)
-    sys.exit("pmtiles CLI が見つかりません (PATH か sandbox/vector_test/pipeline/pmtiles)")
+    sys.exit("pmtiles CLI not found on PATH or in known local locations")
 
 
 def latest_build():
@@ -94,7 +96,7 @@ def is_valid(cli, path):
 def build_one(cli, name, build, force, dry_run, output_dir=None):
     output_dir = output_dir or OUTPUT_DIR
     out = output_dir / ("%s.pmtiles" % name.lower())
-    if not force and is_valid(cli, out):
+    if not dry_run and not force and is_valid(cli, out):
         print("[%s] SKIP: 有効なファイルがあります: %s" % (name, out))
         return True
     bbox = boundary_bbox(name)
@@ -118,23 +120,19 @@ def build_one(cli, name, build, force, dry_run, output_dir=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", help="カンマ区切りの県名 (例: Yamaguchi,Tottori)")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
     ap.add_argument("--build", help="Protomaps のビルド日 YYYYMMDD (省略時は最新)")
     ap.add_argument("--force", action="store_true", help="有効なファイルがあっても作り直す")
     ap.add_argument("--dry-run", action="store_true", help="実行内容を表示するだけ")
     ap.add_argument("--out", type=Path, help="出力先 (既定: packages/)。ステージング用")
     args = ap.parse_args()
 
-    names = PREFECTURES
-    if args.only:
-        wanted = [x.strip().lower() for x in args.only.split(",") if x.strip()]
-        unknown = [x for x in wanted if x not in [p.lower() for p in PREFECTURES]]
-        if unknown:
-            ap.error("不明な県: %s" % ",".join(unknown))
-        names = [p for p in PREFECTURES if p.lower() in wanted]
-
-    cli = find_pmtiles_cli()
-    build = args.build or latest_build()
+    try:
+        names = resolve(args.only)
+    except ValueError as exc:
+        ap.error(str(exc))
+    cli = (find_tool("pmtiles") or "pmtiles") if args.dry_run else find_pmtiles_cli()
+    build = args.build or ("YYYYMMDD" if args.dry_run else latest_build())
     print("Protomaps ビルド: %s / 対象: %s" % (build, ",".join(names)))
     results = [build_one(cli, n, build, args.force, args.dry_run, args.out) for n in names]
     return 0 if all(results) else 1

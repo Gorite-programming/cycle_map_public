@@ -22,6 +22,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from scripts.prefectures import PREFECTURES, PMTILES_FILENAMES, BY_NAME, resolve
+from scripts._platform import find_tool, java_environment
+
 # ------------------------------ CONFIG ---------------------------------
 # SOURCE_PBF: ルート直下シンボリックリンク（macOS/Linux）を優先し、
 # Windows ではシンボリックリンクが機能しないため data/ 内の実体にフォールバックする。
@@ -66,13 +69,6 @@ OUTPUT_DIR = Path("packages")
 LOG_DIR = Path("logs")
 DATA_TOOL_OUT_DIR = Path("sandbox/data-tool/out")
 VECTOR_TILE_DIR = Path("sandbox/vector_test/data")
-PMTILES_FILENAMES = {
-    "Tottori": "tottori.pmtiles",
-    "Shimane": "shimane.pmtiles",
-    "Okayama": "okayama.pmtiles",
-    "Hiroshima": "hiroshima.pmtiles",
-    "Yamaguchi": "yamaguchi.pmtiles",
-}
 
 PACKAGE_LICENSE_TEXT = """\
 CycleMap Data Package License & Attribution
@@ -103,13 +99,6 @@ The data is compiled and derived from the following open data sources:
    - Rendered with MapLibre Native (BSD-2-Clause, https://maplibre.org/)
 """
 
-PREFECTURES = [
-    {"name": "Tottori", "jp": "鳥取県", "code": "31"},
-    {"name": "Shimane", "jp": "島根県", "code": "32"},
-    {"name": "Okayama", "jp": "岡山県", "code": "33"},
-    {"name": "Hiroshima", "jp": "広島県", "code": "34"},
-    {"name": "Yamaguchi", "jp": "山口県", "code": "35"},
-]
 
 LOG = logging.getLogger("pref-builder")
 
@@ -280,7 +269,7 @@ def norm(v: Any) -> str:
     return str(v).strip().replace(" ", "").replace("　", "")
 
 
-def make_pref_boundaries() -> None:
+def make_pref_boundaries(prefectures=None) -> None:
     with BOUNDARY_SOURCE.open("r", encoding="utf-8") as f:
         fc = json.load(f)
     if fc.get("type") != "FeatureCollection" or not isinstance(fc.get("features"), list):
@@ -288,7 +277,7 @@ def make_pref_boundaries() -> None:
     if len(fc["features"]) < 47:
         raise ValueError(f"Expected 47 prefectures, got {len(fc['features'])}")
 
-    for pref in PREFECTURES:
+    for pref in (PREFECTURES if prefectures is None else prefectures):
         out = BOUNDARY_DIR / f"{pref['name']}.geojson"
         if out.exists():
             continue
@@ -320,7 +309,7 @@ def make_pref_boundaries() -> None:
 
 def osm_stats(pbf: Path) -> Dict[str, Any]:
     r = subprocess.run(
-        ["osmium", "fileinfo", "-e", "-j", "--no-crc", str(pbf)],
+        [find_tool("osmium") or "osmium", "fileinfo", "-e", "-j", "--no-crc", str(pbf)],
         capture_output=True,
         text=True,
         check=False,
@@ -497,7 +486,7 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
         # 1) Exact admin polygon -> OSM extract.
         rc = run_live(
             [
-                "osmium", "extract",
+                find_tool("osmium") or "osmium", "extract",
                 "--polygon", str(boundary),
                 "--strategy", "complete_ways",
                 str(SOURCE_PBF),
@@ -534,7 +523,7 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
         #    case) can exceed the JVM's default heap and OOM otherwise.
         graph.unlink(missing_ok=True)
         idx.unlink(missing_ok=True)
-        importer_env = {**os.environ, "JAVA_OPTS": IMPORTER_JAVA_OPTS}
+        importer_env = java_environment({**os.environ, "JAVA_OPTS": IMPORTER_JAVA_OPTS})
         # 標高タイル (scripts/build_terrain.py のキャッシュ) があれば辺の勾配を書き込む。無ければ勾配なし。
         dem_dir = Path("work") / "terrain" / "dem14"
         dem_args = ["--dem-dir", str(dem_dir)] if dem_dir.is_dir() else []
@@ -595,21 +584,13 @@ def configure_logging() -> None:
 
 
 def select_only(arg: Optional[str]) -> List[Dict[str, str]]:
-    if not arg:
-        return PREFECTURES
-    wanted = {x.strip().lower() for x in arg.split(",") if x.strip()}
-    selected = [p for p in PREFECTURES if p["name"].lower() in wanted or p["jp"].lower() in wanted]
-    known = {p["name"].lower() for p in PREFECTURES} | {p["jp"].lower() for p in PREFECTURES}
-    unknown = wanted - known
-    if unknown:
-        raise ValueError("Unknown prefecture(s): " + ", ".join(sorted(unknown)))
-    return selected
+    return [BY_NAME[name] for name in resolve(arg)]
 
 
 def main() -> int:
-    configure_logging()
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", help="Comma-separated names, e.g. Hiroshima,Okayama")
+    ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
+    ap.add_argument("--dry-run", action="store_true", help="Show selected prefectures without writing or running tools")
     ap.add_argument("--force", action="store_true", help="Rebuild even if final ZIP already exists")
     ap.add_argument("--keep-work", action="store_true", help="Keep intermediate files after success")
     ap.add_argument("--no-boundary-download", action="store_true", help="Fail instead of downloading missing boundary GeoJSON")
@@ -618,6 +599,14 @@ def main() -> int:
     ap.add_argument("--output-dir", type=Path, help="Where to write <name>.zip (default: packages/). Use a staging directory to leave existing packages untouched")
     ap.add_argument("--work-dir", type=Path, help="Intermediate files directory (default: work/)")
     args = ap.parse_args()
+    try:
+        selected = select_only(args.only)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if args.dry_run:
+        print("Selected: " + ", ".join(p["name"] for p in selected))
+        return 0
+    configure_logging()
 
     # 既定値を上書きする (process() はモジュールの設定値を参照する)
     global SOURCE_PBF, OUTPUT_DIR, WORK_DIR
@@ -633,16 +622,15 @@ def main() -> int:
         raise FileNotFoundError(f"Source PBF not found: {SOURCE_PBF}")
     if not OSM_IMPORTER.is_file():
         raise FileNotFoundError(f"Kotlin importer not found: {OSM_IMPORTER}")
-    if shutil.which("osmium") is None:
+    if find_tool("osmium") is None:
         raise FileNotFoundError("osmium not found on PATH")
 
     if not BOUNDARY_SOURCE.exists():
         if args.no_boundary_download:
             raise FileNotFoundError(f"Missing {BOUNDARY_SOURCE}")
         download_boundaries()
-    make_pref_boundaries()
+    make_pref_boundaries(selected)
 
-    selected = select_only(args.only)
     LOG.info("Source: %s (%s)", SOURCE_PBF, psize(SOURCE_PBF))
     LOG.info("Selected: %s", ", ".join(p["name"] for p in selected))
 
