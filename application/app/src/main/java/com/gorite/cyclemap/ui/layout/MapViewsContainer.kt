@@ -11,10 +11,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -25,6 +31,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import com.gorite.cyclemap.data.TileSourceSelection
 import com.gorite.cyclemap.data.TileSourceSelector
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.ui.cycling.NearbySpot
@@ -82,6 +91,9 @@ internal fun MapViewsContainer(
     onVectorMapReady: (MapLibreMap) -> Unit,
 ) {
     val areaSelectColor = CycleMapTheme.palette.accent
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var vectorDataRevision by remember { mutableIntStateOf(0) }
     Box(modifier = modifier) {
         // Raster MapView (osmdroid): ベクター単体表示時は裏で常駐させず、ラスター選択時または範囲指定DL時のみマウント
         if (selectedLayer != MapLayer.VECTOR_LIBERTY || isAreaSelectMode) {
@@ -182,7 +194,30 @@ internal fun MapViewsContainer(
                 is TileSourceSelection.Available -> vectorTileSelection.fileName
                 is TileSourceSelection.Unavailable -> "unavailable"
             }
-            key(tileKey) {
+            fun tileSignature(): String {
+                val file = TileSourceSelector.resolveTileForLocation(
+                    cycleMapDataDir(context),
+                    tileLat,
+                    tileLon,
+                ) ?: return "missing"
+                return "${file.absolutePath}:${file.length()}:${file.lastModified()}"
+            }
+            val initialTileSignature = tileSignature()
+            DisposableEffect(lifecycleOwner, tileKey) {
+                var previousSignature = initialTileSignature
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        val currentSignature = tileSignature()
+                        if (currentSignature != previousSignature) {
+                            previousSignature = currentSignature
+                            vectorDataRevision++
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+            key(tileKey, vectorDataRevision) {
                 VectorMapView(
                     modifier = Modifier.fillMaxSize(),
                     routePoints = navigationRoute.map { GeoPoint(it.latitude, it.longitude) },

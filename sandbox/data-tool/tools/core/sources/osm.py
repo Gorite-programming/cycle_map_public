@@ -159,7 +159,13 @@ class _PoiHandler(osmium.SimpleHandler):
 def parse_pbf(pbf_path):
     """PBF をパースして共通スキーマ行リストを返す (DBに触らない)。"""
     handler = _PoiHandler()
-    handler.apply_file(pbf_path, locations=True)
+    # 位置キャッシュはフィルターより先に処理されるため、way の座標を
+    # 保ったまま、Python コールバックは name タグのある要素だけに絞れる。
+    handler.apply_file(
+        pbf_path,
+        locations=True,
+        filters=[osmium.filter.KeyFilter("name")],
+    )
     return handler.rows
 
 
