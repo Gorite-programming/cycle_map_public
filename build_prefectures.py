@@ -309,6 +309,74 @@ def make_pref_boundaries(prefectures=None) -> None:
         LOG.info("Boundary ready: %s (%s)", out, psize(out))
 
 
+def batch_extract_config(prefs: Sequence[Dict[str, str]]) -> Dict[str, Any]:
+    """`osmium extract -c` の設定 (複数県の抽出先・境界ポリゴンを列挙する)。
+
+    県ごとに `osmium extract` を1回ずつ呼ぶと、全国 PBF (2GB超) を県の数だけ
+    スキャンすることになる。`-c` 設定ファイルで複数の抽出先をまとめれば、
+    入力ファイルのスキャンは1回で済む (strategy=complete_ways は既定のまま)。
+    """
+    return {
+        "extracts": [
+            {
+                "output": str((WORK_DIR / p["name"] / f"{p['name']}.osm.pbf").resolve()),
+                "output_format": "pbf",
+                "polygon": {
+                    "file_name": str((BOUNDARY_DIR / f"{p['name']}.geojson").resolve()),
+                    "file_type": "geojson",
+                },
+            }
+            for p in prefs
+        ],
+    }
+
+
+def batch_extract(prefs: List[Dict[str, str]]) -> set:
+    """`prefs` の OSM 抽出を1回の osmium パスでまとめて行う。
+
+    2 件未満なら (単独 extract と比べて得がないので) 何もせず空集合を返す。
+    失敗したら警告を出して空集合を返す。呼び出し側はこのとき各県を
+    `process()` 内の従来どおりの単独 extract にフォールバックさせる。
+    戻り値は実際に抽出できた県名の集合。
+    """
+    if len(prefs) < 2:
+        return set()
+    for p in prefs:
+        work = WORK_DIR / p["name"]
+        if work.exists():
+            shutil.rmtree(work)
+        work.mkdir(parents=True)
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = WORK_DIR / "osmium_batch_extract.json"
+    config_path.write_text(
+        json.dumps(batch_extract_config(prefs), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    log_path = LOG_DIR / "osmium-batch-extract.log"
+    names = ", ".join(p["name"] for p in prefs)
+    LOG.info("Batch extracting %d prefectures in a single osmium pass: %s", len(prefs), names)
+    rc = run_live(
+        [
+            find_tool("osmium") or "osmium", "extract",
+            "--config", str(config_path),
+            "--overwrite",
+            "--strategy", "complete_ways",
+            str(SOURCE_PBF),
+        ],
+        log_path,
+    )
+    if rc != 0:
+        LOG.warning("Batch extract failed (exit %s); falling back to per-prefecture extraction", rc)
+        return set()
+    done = set()
+    for p in prefs:
+        extract = WORK_DIR / p["name"] / f"{p['name']}.osm.pbf"
+        if extract.is_file() and extract.stat().st_size > 0:
+            done.add(p["name"])
+        else:
+            LOG.warning("[%s] Batch extract did not produce output", p["name"])
+    return done
+
+
 def osm_stats(pbf: Path) -> Dict[str, Any]:
     r = subprocess.run(
         [find_tool("osmium") or "osmium", "fileinfo", "-e", "-j", "--no-crc", str(pbf)],
@@ -459,7 +527,13 @@ def make_zip(
         raise RuntimeError(f"ZIP validation failed: {out}")
 
 
-def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db: bool = False) -> Tuple[bool, float]:
+def process(
+    pref: Dict[str, str],
+    force: bool,
+    keep_work: bool,
+    legacy_search_db: bool = False,
+    pre_extracted: bool = False,
+) -> Tuple[bool, float]:
     name = pref["name"]
     start = time.monotonic()
     final_zip = OUTPUT_DIR / f"{name}.zip"
@@ -473,32 +547,40 @@ def process(pref: Dict[str, str], force: bool, keep_work: bool, legacy_search_db
         return True, time.monotonic() - start
 
     work = WORK_DIR / name
-    if work.exists():
-        shutil.rmtree(work)
-    work.mkdir(parents=True)
     boundary = BOUNDARY_DIR / f"{name}.geojson"
     extract = work / f"{name}.osm.pbf"
     db = work / f"{name}.search.db"
     graph = work / f"{name}.graph"
     idx = work / f"{name}.graph.idx"
+    # batch_extract() がすでにこの県を抽出済みならそれを使う (work/ はそのまま)。
+    have_batch_extract = pre_extracted and extract.is_file() and extract.stat().st_size > 0
+    if have_batch_extract:
+        work.mkdir(parents=True, exist_ok=True)
+    else:
+        if work.exists():
+            shutil.rmtree(work)
+        work.mkdir(parents=True)
 
     try:
         LOG.info("[%s] ===== START =====", name)
 
-        # 1) Exact admin polygon -> OSM extract.
-        rc = run_live(
-            [
-                find_tool("osmium") or "osmium", "extract",
-                "--polygon", str(boundary),
-                "--strategy", "complete_ways",
-                str(SOURCE_PBF),
-                "--output", str(extract),
-            ],
-            pref_log,
-        )
-        if rc != 0:
-            raise RuntimeError(f"osmium extract failed (exit {rc})")
-        LOG.info("[%s] extract: %s", name, psize(extract))
+        # 1) Exact admin polygon -> OSM extract (複数県まとめての抽出は batch_extract() 参照)。
+        if have_batch_extract:
+            LOG.info("[%s] extract (batch): %s", name, psize(extract))
+        else:
+            rc = run_live(
+                [
+                    find_tool("osmium") or "osmium", "extract",
+                    "--polygon", str(boundary),
+                    "--strategy", "complete_ways",
+                    str(SOURCE_PBF),
+                    "--output", str(extract),
+                ],
+                pref_log,
+            )
+            if rc != 0:
+                raise RuntimeError(f"osmium extract failed (exit {rc})")
+            LOG.info("[%s] extract: %s", name, psize(extract))
         log_osm_stats(name, osm_stats(extract))
 
         # 2) Search DB selection (prefer data-tool/out integrated DB)
@@ -636,9 +718,16 @@ def main() -> int:
     LOG.info("Source: %s (%s)", SOURCE_PBF, psize(SOURCE_PBF))
     LOG.info("Selected: %s", ", ".join(p["name"] for p in selected))
 
+    # force でなければ、すでに有効な ZIP がある県は extract もスキップできる。
+    to_build = [p for p in selected if args.force or not valid_zip(OUTPUT_DIR / f"{p['name']}.zip", p["name"])]
+    extracted = batch_extract(to_build)
+
     results = []
     for pref in selected:
-        results.append((pref["name"],) + process(pref, args.force, args.keep_work, args.legacy_osm_search_db))
+        results.append((pref["name"],) + process(
+            pref, args.force, args.keep_work, args.legacy_osm_search_db,
+            pref["name"] in extracted,
+        ))
 
     LOG.info("========== SUMMARY ==========")
     failed = []
