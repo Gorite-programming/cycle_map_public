@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.map
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +46,7 @@ fun GoogleNavHeaderV2(
     animationEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val isDarkTheme = MaterialTheme.colorScheme.background.red < 0.25f
-    val containerColor = if (isRerouting) MaterialTheme.colorScheme.error else if (isDarkTheme) Color(0xFF00695C) else GoogleGreen
+    val containerColor = if (isRerouting) CycleMapTheme.palette.navBannerRerouting else CycleMapTheme.palette.navBanner
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -67,7 +67,7 @@ fun GoogleNavHeaderV2(
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_route),
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onNavBanner,
                         modifier = Modifier.size(44.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
@@ -75,7 +75,7 @@ fun GoogleNavHeaderV2(
                         text = stringResource(R.string.nav_recalculating),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = CycleMapTheme.palette.onNavBanner
                     )
                 }
             } else if (currentStep != null) {
@@ -94,7 +94,7 @@ fun GoogleNavHeaderV2(
                     Icon(
                         painter = painterResource(turnTypeToDrawableRes(currentStep.turnType)),
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onNavBanner,
                         modifier = Modifier.size(48.dp)
                     )
 
@@ -105,19 +105,19 @@ fun GoogleNavHeaderV2(
                             text = formatDistance(currentStep.distanceToTurnMeters),
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = CycleMapTheme.palette.onNavBanner
                         )
                         Text(
                             text = currentStep.instructionText,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White
+                            color = CycleMapTheme.palette.onNavBanner
                         )
                         if (!currentStep.streetName.isNullOrEmpty()) {
                             Text(
                                 text = currentStep.streetName,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFD4EED8)
+                                color = CycleMapTheme.palette.onNavBannerSub
                             )
                         }
                     }
@@ -133,14 +133,14 @@ fun GoogleNavHeaderV2(
                         laneHints.forEach { lane ->
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = if (lane.isRecommended) Color.White else Color(0x55FFFFFF),
+                                color = if (lane.isRecommended) CycleMapTheme.palette.laneActive else CycleMapTheme.palette.laneInactive,
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         painter = painterResource(turnTypeToDrawableRes(lane.direction)),
                                         contentDescription = stringResource(R.string.lane_guidance),
-                                        tint = if (lane.isRecommended) GoogleGreen else Color.White,
+                                        tint = if (lane.isRecommended) CycleMapTheme.palette.laneActiveIcon else CycleMapTheme.palette.onNavBanner,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -161,19 +161,19 @@ fun GoogleNavHeaderV2(
                         Text(
                             text = stringResource(R.string.next_turn) + ": ",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFD4EED8)
+                            color = CycleMapTheme.palette.onNavBannerSub
                         )
                         Icon(
                             painter = painterResource(turnTypeToDrawableRes(nextStep.turnType)),
                             contentDescription = null,
-                            tint = Color(0xFFD4EED8),
+                            tint = CycleMapTheme.palette.onNavBannerSub,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = nextStep.instructionText,
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White
+                            color = CycleMapTheme.palette.onNavBanner
                         )
                     }
                 }
@@ -197,7 +197,7 @@ fun GoogleNavFooterV2(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color(0xFF101114),
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 10.dp,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
@@ -224,7 +224,7 @@ fun GoogleNavFooterV2(
                     text = duration,
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFFC928),
+                    color = CycleMapTheme.palette.etaText,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -262,7 +262,7 @@ fun GoogleNavFooterV2(
 
                 Button(
                     onClick = onStopNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF303134)),
+                    colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.danger),
                     shape = CircleShape,
                     modifier = Modifier.size(48.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
@@ -270,7 +270,7 @@ fun GoogleNavFooterV2(
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_x),
                         contentDescription = stringResource(R.string.nav_stop),
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onDanger,
                         modifier = Modifier.size(24.dp),
                     )
                 }
@@ -293,7 +293,7 @@ fun LandscapeNavHudBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = GoogleGreen,
+        color = CycleMapTheme.palette.navBanner,
         shadowElevation = 6.dp
     ) {
         Row(
@@ -312,7 +312,7 @@ fun LandscapeNavHudBar(
                     Icon(
                         painter = painterResource(turnTypeToDrawableRes(currentStep.turnType)),
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = CycleMapTheme.palette.onNavBanner,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -320,7 +320,7 @@ fun LandscapeNavHudBar(
                         text = "${formatDistance(currentStep.distanceToTurnMeters)} ${currentStep.instructionText}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = CycleMapTheme.palette.onNavBanner
                     )
                 }
             }
@@ -338,7 +338,7 @@ fun LandscapeNavHudBar(
                     text = etaText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White
+                    color = CycleMapTheme.palette.onNavBanner
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(

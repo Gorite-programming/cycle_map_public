@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
@@ -199,7 +200,7 @@ fun SpotPanelSheet(
                                     Icon(
                                         painterResource(R.drawable.ic_star_filled),
                                         contentDescription = "お気に入り解除",
-                                        tint = Color(0xFFFFB300),
+                                        tint = CycleMapTheme.palette.favorite,
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }
@@ -255,7 +256,7 @@ fun SpotPanelSheet(
                                         Icon(
                                             painterResource(R.drawable.ic_lucide_navigation),
                                             contentDescription = "ここへ行く",
-                                            tint = CyclingPink,
+                                            tint = cyclingAccent,
                                             modifier = Modifier.size(18.dp),
                                         )
                                     }
@@ -277,7 +278,7 @@ fun SpotPanelSheet(
                                     Icon(
                                         painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
                                         contentDescription = if (isFav) "お気に入り解除" else "お気に入り追加",
-                                        tint = if (isFav) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (isFav) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }

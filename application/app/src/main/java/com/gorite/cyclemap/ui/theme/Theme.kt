@@ -38,35 +38,51 @@ internal val GoogleLightColorScheme = lightColorScheme(
 )
 
 /**
- * Google Maps 夜間ナビゲーション仕様のダーク配色。
- * 背景 (#1F1F1F)、サーフェス (#28292A)、テキスト白 (#E8EAED)、案内ヘッダー深緑 (#0D652D)。
+ * 「墨と朱」のダーク配色。温かみのある墨色の地に、朱を操作とルートの色として使う。
+ * 色の素は [SumiShu]、Material で表せない役割は [SumiShuPalette]。
  */
 @VisibleForTesting
-internal val GoogleDarkColorScheme = darkColorScheme(
-    primary = Color(0xFF8AB4F8),
-    onPrimary = Color(0xFF1F1F1F),
-    primaryContainer = Color(0xFF0D652D),
-    onPrimaryContainer = Color(0xFFE8EAED),
-    secondary = Color(0xFF0D652D),
-    onSecondary = Color(0xFFE8EAED),
-    secondaryContainer = Color(0xFF137333),
-    onSecondaryContainer = Color(0xFFE8EAED),
-    surface = Color(0xFF28292A),
-    onSurface = Color(0xFFE8EAED),
-    surfaceVariant = Color(0xFF3C4043),
-    onSurfaceVariant = Color(0xFFBDC1C6),
-    background = Color(0xFF1F1F1F),
-    onBackground = Color(0xFFE8EAED),
-    error = Color(0xFFF28B82),
-    onError = Color(0xFF1F1F1F),
-    errorContainer = Color(0xFF5C0000),
-    onErrorContainer = Color(0xFFFCE8E6),
-    outline = Color(0xFF5F6368),
-    outlineVariant = Color(0xFF3C4043),
+internal val SumiShuColorScheme = darkColorScheme(
+    primary = SumiShu.Shu,
+    onPrimary = SumiShu.Sumi0,
+    primaryContainer = SumiShu.ShuDeep,
+    onPrimaryContainer = SumiShu.ShuPale,
+    inversePrimary = Color(0xFFA83A1E),
+    secondary = Color(0xFFC9B79C),
+    onSecondary = SumiShu.Sumi0,
+    secondaryContainer = SumiShu.Sumi3,
+    onSecondaryContainer = SumiShu.Washi,
+    tertiary = SumiShu.Kin,
+    onTertiary = SumiShu.Sumi0,
+    tertiaryContainer = SumiShu.KinDeep,
+    onTertiaryContainer = Color(0xFFF3DDB0),
+    background = SumiShu.Sumi0,
+    onBackground = SumiShu.Washi,
+    surface = SumiShu.Sumi1,
+    onSurface = SumiShu.Washi,
+    surfaceVariant = SumiShu.Sumi3,
+    onSurfaceVariant = SumiShu.Usuzumi,
+    surfaceTint = SumiShu.Shu,
+    inverseSurface = SumiShu.Washi,
+    inverseOnSurface = SumiShu.Sumi0,
+    error = SumiShu.Beni,
+    onError = SumiShu.Sumi0,
+    errorContainer = SumiShu.BeniDeep,
+    onErrorContainer = Color(0xFFFFDAD6),
+    outline = SumiShu.Sumi5,
+    outlineVariant = SumiShu.Sumi4,
+    scrim = Color(0xFF000000),
+    surfaceBright = SumiShu.Sumi3,
+    surfaceDim = SumiShu.Sumi0,
+    surfaceContainerLowest = Color(0xFF171512),
+    surfaceContainerLow = SumiShu.Sumi1,
+    surfaceContainer = SumiShu.Sumi2,
+    surfaceContainerHigh = SumiShu.Sumi3,
+    surfaceContainerHighest = SumiShu.Sumi4,
 )
 
 @VisibleForTesting
-internal val DarkColorScheme = GoogleDarkColorScheme
+internal val DarkColorScheme = SumiShuColorScheme
 
 @VisibleForTesting
 internal fun getAppColorScheme(
@@ -75,14 +91,15 @@ internal fun getAppColorScheme(
     isDark: Boolean = true,
 ): ColorScheme {
     return if (isDark) {
-        GoogleDarkColorScheme
+        SumiShuColorScheme
     } else {
         GoogleLightColorScheme
     }
 }
 
 /**
- * CycleMap 専用テーマ (Google Maps スタイル 昼夜連動テーマ)。
+ * CycleMap 専用テーマ。昼は Google マップ風、夜は「墨と朱」。
+ * 色に加えて、CycleMap 固有の色の役割 ([CycleMapTheme.palette])・文字・角の丸みも昼夜で切り替える。
  */
 @Composable
 fun CycleMapTheme(
@@ -96,11 +113,16 @@ fun CycleMapTheme(
         dynamicColor = dynamicColor,
         isDark = darkTheme,
     )
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalCycleMapPalette provides if (darkTheme) SumiShuPalette else LightCycleMapPalette,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = if (darkTheme) SumiShuTypography else Typography,
+            shapes = if (darkTheme) SumiShuShapes else androidx.compose.material3.Shapes(),
+            content = content,
+        )
+    }
 }
 
 /**

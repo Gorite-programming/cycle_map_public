@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.map
 
+import com.gorite.cyclemap.ui.theme.SumiShu
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -89,17 +90,26 @@ internal data class NavPalette(
     val sub: Color,
     val stop: Color,
     val route: Color,
+    /** リルート中の帯と、その上の文字。 */
+    val reroute: Color,
+    val onReroute: Color,
+    /** 数値の書体。null なら細身のゴシック (sans-serif-condensed)。 */
+    val numFont: FontFamily? = null,
 )
 
+/** 夜は「墨と朱」: 墨の札に朱の矢印、数字は明朝、速度は金茶。 */
 private val NAV_DARK = NavPalette(
-    card = Color(0xFF0E1317), chip = Color(0xFF1C252C), go = Color(0xFF1FD0A6), goFg = Color(0xFF04211B),
-    warn = Color(0xFFFFC928), text = Color(0xFFF3F7F9), sub = Color(0xFF9AA8B4), stop = Color(0xFF2B353D),
-    route = Color(0xFF3DB8FF),
+    card = SumiShu.Sumi2, chip = SumiShu.Sumi3, go = SumiShu.Shu, goFg = SumiShu.Sumi0,
+    warn = SumiShu.Kin, text = SumiShu.Washi, sub = SumiShu.Usuzumi, stop = SumiShu.Sumi3,
+    route = SumiShu.Shu,
+    reroute = SumiShu.KinDeep, onReroute = SumiShu.Kin,
+    numFont = FontFamily.Serif,
 )
 private val NAV_LIGHT = NavPalette(
     card = Color(0xFFFFFFFF), chip = Color(0xFFEDF1F3), go = Color(0xFF00755F), goFg = Color(0xFFFFFFFF),
     warn = Color(0xFFA85F00), text = Color(0xFF11171C), sub = Color(0xFF55616B), stop = Color(0xFFE6EBEE),
     route = Color(0xFF1A73E8),
+    reroute = Color(0xFFB3261E), onReroute = Color.White,
 )
 
 @Composable
@@ -112,8 +122,8 @@ internal fun rememberNavPalette(): NavPalette {
 // 遅延初期化: クラス読み込み時に android.graphics を触らない (JVM ユニットテストで純関数を使えるようにする)
 private val NumFont: FontFamily by lazy { FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD)) }
 
-private fun numStyle(sizeSp: Int, color: Color) = TextStyle(
-    fontFamily = NumFont,
+private fun numStyle(sizeSp: Int, color: Color, palette: NavPalette) = TextStyle(
+    fontFamily = palette.numFont ?: NumFont,
     fontWeight = FontWeight.Bold,
     fontSize = sizeSp.sp,
     lineHeight = sizeSp.sp,
@@ -162,7 +172,7 @@ internal fun NavTopBarC(
     modifier: Modifier = Modifier,
 ) {
     val p = rememberNavPalette()
-    val container = if (isRerouting) MaterialTheme.colorScheme.error else p.card
+    val container = if (isRerouting) p.reroute else p.card
     val (num, unit) = splitDistance(distanceMeters)
     val a11y = if (isRerouting) "ルートを再計算中" else "${num}${unit}先、$instructionText"
     Surface(
@@ -181,13 +191,13 @@ internal fun NavTopBarC(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (isRerouting) Color.White.copy(alpha = 0.2f) else p.go),
+                    .background(if (isRerouting) p.onReroute.copy(alpha = 0.2f) else p.go),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     painter = painterResource(if (isRerouting) R.drawable.ic_lucide_route else turnTypeToDrawableRes(turnType)),
                     contentDescription = null,
-                    tint = if (isRerouting) Color.White else p.goFg,
+                    tint = if (isRerouting) p.onReroute else p.goFg,
                     modifier = Modifier.size(36.dp),
                 )
             }
@@ -195,14 +205,14 @@ internal fun NavTopBarC(
             if (isRerouting) {
                 Text(
                     text = "ルートを再計算中",
-                    style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White),
+                    style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = p.onReroute),
                 )
             } else {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text(text = num, style = numStyle(38, p.text))
+                        Text(text = num, style = numStyle(38, p.text, p))
                         Spacer(Modifier.width(3.dp))
-                        Text(text = unit, style = numStyle(18, p.sub), modifier = Modifier.padding(bottom = 3.dp))
+                        Text(text = unit, style = numStyle(18, p.sub, p), modifier = Modifier.padding(bottom = 3.dp))
                     }
                     Text(
                         text = instructionText,
@@ -308,10 +318,10 @@ internal fun NavBottomPanelC(
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = data.speedKmh.coerceAtLeast(0.0).roundToInt().toString(),
-                            style = numStyle(76, p.warn),
+                            style = numStyle(76, p.warn, p),
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(text = "km/h", style = numStyle(18, p.sub), modifier = Modifier.padding(bottom = 8.dp))
+                        Text(text = "km/h", style = numStyle(18, p.sub, p), modifier = Modifier.padding(bottom = 8.dp))
                     }
                 }
                 Column(
@@ -335,7 +345,7 @@ internal fun NavBottomPanelC(
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
-                        style = numStyle(20, p.warn),
+                        style = numStyle(20, p.warn, p),
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis,
@@ -411,9 +421,9 @@ private fun MetricCard(
 @Composable
 private fun ValueWithUnit(value: String, unit: String, palette: NavPalette) {
     Row(verticalAlignment = Alignment.Bottom) {
-        Text(text = value, style = numStyle(36, palette.text))
+        Text(text = value, style = numStyle(36, palette.text, palette))
         Spacer(Modifier.width(2.dp))
-        Text(text = unit, style = numStyle(15, palette.sub), modifier = Modifier.padding(bottom = 3.dp))
+        Text(text = unit, style = numStyle(15, palette.sub, palette), modifier = Modifier.padding(bottom = 3.dp))
     }
 }
 

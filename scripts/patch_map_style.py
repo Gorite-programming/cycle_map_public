@@ -12,6 +12,8 @@
   3. 土地利用: 公園・森林・農地・墓地・住宅地・商業地・運動場・軍用地を別々の色で塗り分け、水域を濃くする。
      色の定義はこのスクリプトが正。Kotlin 側の VectorMapThemeHelper.vectorMapAreaFillColors も同じ色にそろえる
      (StyleJsonTest が一致を検証する)。
+  5. ダーク (夜) は「墨と朱」: 青みのある灰色を、温かみのある墨色に置き換える (SUMI_SHU_DARK)。
+     アプリの画面の配色 (ui/theme/Palette.kt の SumiShu) と同じ系統。
   4. タイル内 POI: 動的 POI ピン (検索DB由来) が担うカテゴリ (飲食・コンビニ・トイレ・給水・バス停) は
      スタイル側から外し、同じ施設が二重に出ないようにする。
 
@@ -32,7 +34,7 @@ POI_KINDS_COVERED_BY_PINS = {"restaurant", "fast_food", "cafe", "convenience", "
 # テーマ別の鉄道配色 (base=黒地, tick=白い破線)
 RAIL = {
     "light": {"base": "#4B5058", "tick": "#FFFFFF", "tram": "#7C838B"},
-    "dark": {"base": "#6E7681", "tick": "#1B1F24", "tram": "#5A616A"},
+    "dark": {"base": "#7D7468", "tick": "#1C1A17", "tram": "#5A5248"},
 }
 
 # 鉄道の太さ (ズーム → 幅)
@@ -101,17 +103,83 @@ def patch_pois(layer):
 LANDUSE_PARK_KINDS = ["national_park", "park", "protected_area", "nature_reserve", "golf_course", "grassland", "grass",
                       "glacier", "sand", "airfield"]
 LANDUSE_SPLIT = [
-    ("landuse_wood", ["forest", "wood", "scrub"], "#B7D9B0", "#162A1D"),
+    ("landuse_wood", ["forest", "wood", "scrub"], "#B7D9B0", "#1D251A"),
     ("landuse_farmland", ["farmland", "orchard", "vineyard", "meadow", "greenhouse_horticulture", "plant_nursery"],
-     "#E8EDC8", "#26301F"),
-    ("landuse_cemetery", ["cemetery"], "#D6E3D2", "#1F2C25"),
-    ("landuse_residential", ["residential"], "#ECEEF3", "#262729"),
-    ("landuse_commercial", ["commercial", "retail"], "#F3E9DE", "#2D2823"),
-    ("landuse_pitch", ["pitch", "recreation_ground", "sports_centre"], "#CDE8C8", "#23402F"),
-    ("landuse_military", ["military", "naval_base"], "#E3E1E6", "#2B2B30"),
+     "#E8EDC8", "#26261C"),
+    ("landuse_cemetery", ["cemetery"], "#D6E3D2", "#222820"),
+    ("landuse_residential", ["residential"], "#ECEEF3", "#221F1C"),
+    ("landuse_commercial", ["commercial", "retail"], "#F3E9DE", "#2B241E"),
+    ("landuse_pitch", ["pitch", "recreation_ground", "sports_centre"], "#CDE8C8", "#26301F"),
+    ("landuse_military", ["military", "naval_base"], "#E3E1E6", "#27231F"),
 ]
-PARK_COLORS = {"light": "#C9E8C4", "dark": "#20372A"}
-WATER_COLORS = {"light": "#AFCFE6", "dark": "#1A3552"}
+PARK_COLORS = {"light": "#C9E8C4", "dark": "#232B1F"}
+WATER_COLORS = {"light": "#AFCFE6", "dark": "#1E2A33"}
+
+# ダークの「墨と朱」: 層ごとの色 (paint のキー → 色)。土地利用の分割分と水域は上の表が担当する。
+# 墨の地 #1C1A17、道は少し明るい墨、文字は和紙色、ハローは地より暗い墨。
+_SUMI_ROAD_CASING = "#141210"
+_SUMI_ROAD_MINOR = "#2E2A25"
+_SUMI_ROAD_MAJOR = "#3B342C"
+_SUMI_ROAD_HIGHWAY = "#6B5A44"
+_SUMI_HALO = "#141210"
+SUMI_SHU_DARK = {
+    "background": {"background-color": "#1C1A17"},
+    "earth": {"fill-color": "#1C1A17"},
+    "landuse_urban_green": {"fill-color": "#212A1F"},
+    "landuse_hospital": {"fill-color": "#2A2220"},
+    "landuse_industrial": {"fill-color": "#24221E"},
+    "landuse_school": {"fill-color": "#27241F"},
+    "landuse_beach": {"fill-color": "#2A2620"},
+    "landuse_zoo": {"fill-color": "#222820"},
+    "landuse_aerodrome": {"fill-color": "#26231F"},
+    "landuse_runway": {"fill-color": "#2E2A25"},
+    "landuse_pedestrian": {"fill-color": "#25221E"},
+    "landuse_pier": {"fill-color": "#25221E"},
+    "landuse_platform": {"fill-color": "#322B23"},
+    "roads_runway": {"line-color": "#2E2A25"},
+    "roads_taxiway": {"line-color": "#2E2A25"},
+    "roads_pier": {"line-color": "#25221E"},
+    "buildings-2d": {"fill-color": "#28241F", "fill-outline-color": "#3A342D"},
+    "buildings_station": {"fill-color": "#322B23", "fill-outline-color": "#3A342D"},
+    "buildings-3d": {"fill-extrusion-color": "#2E2A25"},
+    "boundaries_country": {"line-color": "#5A5248"},
+    "boundaries": {"line-color": "#5A5248"},
+    "address_label": {"text-color": "#CFC6B8", "text-halo-color": _SUMI_HALO},
+    "roads_labels_minor": {"text-color": "#E3DACB", "text-halo-color": _SUMI_HALO},
+    "roads_labels_major": {"text-color": "#F2EBDF", "text-halo-color": _SUMI_HALO},
+    "earth_label_islands": {"text-color": "#E3DACB", "text-halo-color": _SUMI_HALO},
+    "water_waterway_label": {"text-color": "#A9C0D2", "text-halo-color": "#121A20"},
+    "water_label_ocean": {"text-color": "#A9C0D2", "text-halo-color": "#121A20"},
+    "water_label_lakes": {"text-color": "#A9C0D2", "text-halo-color": "#121A20"},
+    "places_subplace": {"text-color": "#E3DACB", "text-halo-color": _SUMI_HALO},
+    "places_region": {"text-color": "#CFC6B8", "text-halo-color": _SUMI_HALO},
+    "places_locality": {"text-color": "#F5EFE4", "text-halo-color": "#0E0D0B"},
+    "places_country": {"text-color": "#EDE6DA", "text-halo-color": _SUMI_HALO},
+    "pois": {"text-halo-color": _SUMI_HALO},
+}
+
+
+def patch_sumi_shu(style):
+    """ダークを「墨と朱」の色にする。道路は id の形 (casing / highway / major / それ以外) で塗り分ける。"""
+    for layer in style["layers"]:
+        lid = layer["id"]
+        paint = layer.setdefault("paint", {})
+        if lid in SUMI_SHU_DARK:
+            paint.update(SUMI_SHU_DARK[lid])
+            continue
+        if not lid.startswith("roads_") or layer["type"] != "line" or "rail" in lid:
+            continue
+        if lid in ("roads_runway", "roads_taxiway", "roads_pier"):
+            continue
+        if "casing" in lid:
+            color = _SUMI_ROAD_CASING
+        elif "highway" in lid:
+            color = _SUMI_ROAD_HIGHWAY
+        elif "major" in lid:
+            color = _SUMI_ROAD_MAJOR
+        else:
+            color = _SUMI_ROAD_MINOR
+        paint["line-color"] = color
 
 
 def patch_landuse(style, theme):
@@ -166,6 +234,8 @@ def patch_style(theme):
     patch_rail(layers, theme)
     patch_pois(layers["pois"])
     patch_landuse(style, theme)
+    if theme == "dark":
+        patch_sumi_shu(style)
     raise_shields(style)
     path.write_text(json.dumps(style, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("patched %s" % path.name)

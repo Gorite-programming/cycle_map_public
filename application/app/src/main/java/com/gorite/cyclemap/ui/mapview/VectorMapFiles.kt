@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.mapview
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import android.content.Context
 import com.gorite.cyclemap.utils.cycleMapDataDir
 import com.gorite.cyclemap.data.OfflinePackageManager
@@ -94,9 +95,10 @@ internal fun OfflineVectorMissingBanner(
         buildOfflineDataGuide(prefectureName, pmtilesFileName, cycleMapDataDir(context).absolutePath)
     }
     var showSteps by remember { mutableStateOf(false) }
+    val dark = CycleMapTheme.palette.isDark
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF37474F)),
+        colors = CardDefaults.cardColors(containerColor = if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Sumi3 else Color(0xFF37474F)),
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -105,19 +107,19 @@ internal fun OfflineVectorMissingBanner(
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = guide.title,
-                color = Color.White,
+                color = if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Washi else Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = guide.summary,
-                color = Color.White.copy(alpha = 0.9f),
+                color = if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Usuzumi else Color.White.copy(alpha = 0.9f),
                 fontSize = 12.sp,
             )
             if (guide.hasInstallSteps) {
                 TextButton(onClick = { showSteps = true }) {
-                    Text("導入方法を見る", color = Color(0xFF90CAF9))
+                    Text("導入方法を見る", color = if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Shu else Color(0xFF90CAF9))
                 }
             }
         }

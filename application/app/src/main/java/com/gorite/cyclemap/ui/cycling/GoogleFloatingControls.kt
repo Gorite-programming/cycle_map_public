@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -93,7 +94,7 @@ fun GoogleZoomRepeatButton(
             }
             .then(
                 if (isPressed.value && enabled) {
-                    Modifier.background(Color(0xFFE8EAED))
+                    Modifier.background(CycleMapTheme.palette.mapControlDivider)
                 } else {
                     Modifier
                 }
@@ -116,7 +117,7 @@ fun GoogleZoomRepeatButton(
         Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
-            tint = Color(0xFF3C4043).copy(alpha = alpha),
+            tint = CycleMapTheme.palette.mapControlIcon.copy(alpha = alpha),
             modifier = Modifier.size(24.dp),
         )
     }
@@ -135,7 +136,7 @@ fun GoogleZoomPill(
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
-        color = Color.White,
+        color = CycleMapTheme.palette.mapControlSurface,
         shadowElevation = 6.dp,
         modifier = modifier.width(48.dp),
     ) {
@@ -149,7 +150,7 @@ fun GoogleZoomPill(
                 enabled = canZoomIn,
             )
             HorizontalDivider(
-                color = Color(0xFFE8EAED),
+                color = CycleMapTheme.palette.mapControlDivider,
                 thickness = 1.dp,
                 modifier = Modifier.width(32.dp),
             )
@@ -205,7 +206,7 @@ fun GoogleMapsControlColumn(
                 // エリア選択
                 Surface(
                     shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
-                    color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else Color.White,
+                    color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else CycleMapTheme.palette.mapControlSurface,
                     shadowElevation = 6.dp,
                 ) {
                     Row(
@@ -222,7 +223,7 @@ fun GoogleMapsControlColumn(
                             Icon(
                                 painterResource(R.drawable.ic_lucide_square_dashed),
                                 contentDescription = "エリア選択",
-                                tint = if (isAreaSelectMode) Color.White else Color(0xFF3C4043),
+                                tint = if (isAreaSelectMode) MaterialTheme.colorScheme.onPrimary else CycleMapTheme.palette.mapControlIcon,
                                 modifier = Modifier.size(22.dp),
                             )
                         }
@@ -231,7 +232,7 @@ fun GoogleMapsControlColumn(
                                 text = "選択中",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(end = 6.dp),
                             )
                         }
@@ -255,7 +256,7 @@ fun GoogleMapsControlColumn(
                     text = if (currentTilt > 15.0) "2D" else "3D",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = if (currentTilt > 15.0) Color(0xFF1A73E8) else Color(0xFF3C4043),
+                    color = if (currentTilt > 15.0) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
                 )
             }
 
@@ -264,7 +265,7 @@ fun GoogleMapsControlColumn(
                 onClick = onLayerClick,
                 iconRes = R.drawable.ic_lucide_layers,
                 contentDescription = "地図レイヤー切替: $layerLabel",
-                tint = Color(0xFF3C4043),
+                tint = CycleMapTheme.palette.mapControlIcon,
             )
 
             // 現在地 (GPS)
@@ -272,13 +273,13 @@ fun GoogleMapsControlColumn(
                 onClick = onTargetClick,
                 iconRes = R.drawable.ic_lucide_locate_fixed,
                 contentDescription = "現在地へ移動",
-                tint = if (following) Color(0xFF1A73E8) else Color(0xFF5F6368),
+                tint = if (following) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIconMuted,
             )
 
             // ズームイン/アウト (横画面時は横並び)
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = Color.White,
+                color = CycleMapTheme.palette.mapControlSurface,
                 shadowElevation = 6.dp,
                 modifier = Modifier.height(48.dp),
             ) {
@@ -296,7 +297,7 @@ fun GoogleMapsControlColumn(
                         modifier = Modifier
                             .width(1.dp)
                             .height(28.dp)
-                            .background(Color(0xFFE8EAED))
+                            .background(CycleMapTheme.palette.mapControlDivider)
                     )
                     GoogleZoomRepeatButton(
                         iconRes = R.drawable.ic_ms_remove,
@@ -335,7 +336,7 @@ fun GoogleMapsControlColumn(
                     text = if (currentTilt > 15.0) "2D" else "3D",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = if (currentTilt > 15.0) Color(0xFF1A73E8) else Color(0xFF3C4043),
+                    color = if (currentTilt > 15.0) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
                 )
             }
 
@@ -344,7 +345,7 @@ fun GoogleMapsControlColumn(
                 onClick = onLayerClick,
                 iconRes = R.drawable.ic_lucide_layers,
                 contentDescription = "地図レイヤー切替: $layerLabel",
-                tint = Color(0xFF3C4043),
+                tint = CycleMapTheme.palette.mapControlIcon,
             )
 
             // 4. 現在地 (GPS)
@@ -352,7 +353,7 @@ fun GoogleMapsControlColumn(
                 onClick = onTargetClick,
                 iconRes = R.drawable.ic_lucide_locate_fixed,
                 contentDescription = "現在地へ移動",
-                tint = if (following) Color(0xFF1A73E8) else Color(0xFF5F6368),
+                tint = if (following) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIconMuted,
             )
 
             // 5. ズーム一対 (+ / -)
@@ -367,7 +368,7 @@ fun GoogleMapsControlColumn(
             if (!isNavigationActive) {
                 Surface(
                     shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
-                    color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else Color.White,
+                    color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else CycleMapTheme.palette.mapControlSurface,
                     shadowElevation = 6.dp,
                 ) {
                     Row(
@@ -384,7 +385,7 @@ fun GoogleMapsControlColumn(
                             Icon(
                                 painterResource(R.drawable.ic_lucide_square_dashed),
                                 contentDescription = "エリア選択",
-                                tint = if (isAreaSelectMode) Color.White else Color(0xFF3C4043),
+                                tint = if (isAreaSelectMode) MaterialTheme.colorScheme.onPrimary else CycleMapTheme.palette.mapControlIcon,
                                 modifier = Modifier.size(22.dp),
                             )
                         }
@@ -393,7 +394,7 @@ fun GoogleMapsControlColumn(
                                 text = "選択中",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(end = 6.dp),
                             )
                         }

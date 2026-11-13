@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.layout
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
@@ -34,6 +35,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -109,6 +112,8 @@ internal fun BoxScope.MapBottomOverlays(
     onToggleMute: () -> Unit = {},
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
+    /** 待ち受けの盤面から「地図を広げる」で来たとき、盤面へ戻す。null なら従来の地名シートとタブを出す。 */
+    onBackToDashboard: (() -> Unit)? = null,
 ) {
     if (isNavigationActive && routeSummary != null && !isLandscape) {
         // 縦画面: 数値パネル (速度・残り・勾配・先の標高・到着・電池)
@@ -321,7 +326,7 @@ internal fun BoxScope.MapBottomOverlays(
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE6F4EA)),
+                    colors = CardDefaults.cardColors(containerColor = CycleMapTheme.palette.successContainer),
                     shape = RoundedCornerShape(14.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                     modifier = Modifier
@@ -339,15 +344,15 @@ internal fun BoxScope.MapBottomOverlays(
                             "目的地に到着しました",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF137333),
+                            color = CycleMapTheme.palette.success,
                             modifier = Modifier.weight(1f),
                         )
                         Button(
                             onClick = onClearRoute,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF137333)),
+                            colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.success),
                         ) {
-                            Text("終了", color = Color.White)
+                            Text("終了", color = CycleMapTheme.palette.onSuccess)
                         }
                     }
                 }
@@ -391,7 +396,7 @@ internal fun BoxScope.MapBottomOverlays(
                 // Right: GPX Controls
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isRecording) Color(0xFFD93025) else MaterialTheme.colorScheme.surface,
+                        containerColor = if (isRecording) CycleMapTheme.palette.danger else MaterialTheme.colorScheme.surface,
                     ),
                     shape = RoundedCornerShape(20.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
@@ -414,20 +419,53 @@ internal fun BoxScope.MapBottomOverlays(
                             modifier = Modifier
                                 .size(10.dp)
                                 .clip(CircleShape)
-                                .background(if (isRecording) Color.White else Color(0xFFD93025)),
+                                .background(if (isRecording) CycleMapTheme.palette.onDanger else CycleMapTheme.palette.danger),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (isRecording) "記録中 (${gpxPointCount}pt)" else "GPX記録",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (isRecording) Color.White else MaterialTheme.colorScheme.onSurface,
+                            color = if (isRecording) CycleMapTheme.palette.onDanger else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
             }
 
-            if (!isLandscape) {
+            if (!isLandscape && onBackToDashboard != null) {
+                // 地図を広げた状態: 地名シートとタブの代わりに、盤面へ戻るボタンだけを親指の位置に置く
+                Surface(
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + systemInsets.calculateBottomPadding()),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .clickable(onClick = onBackToDashboard),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    "盤面に戻る",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (!isLandscape) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {

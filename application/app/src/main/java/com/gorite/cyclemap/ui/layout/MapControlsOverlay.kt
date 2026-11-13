@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.layout
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
@@ -195,13 +196,13 @@ internal fun BoxScope.MapControlsOverlay(
                     text = if (currentVectorTilt > 15.0) "2D" else "3D",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = if (currentVectorTilt > 15.0) Color(0xFF1A73E8) else Color(0xFF3C4043),
+                    color = if (currentVectorTilt > 15.0) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
                 )
             }
             // エリア選択ボタン (縦画面)
             Surface(
                 shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
-                color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else Color.White,
+                color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else CycleMapTheme.palette.mapControlSurface,
                 shadowElevation = 6.dp,
             ) {
                 Box(
@@ -214,7 +215,7 @@ internal fun BoxScope.MapControlsOverlay(
                         painter = painterResource(R.drawable.ic_lucide_download),
                         contentDescription = if (isAreaSelectMode) "エリア選択中" else "エリアダウンロード",
                         modifier = Modifier.size(22.dp),
-                        tint = if (isAreaSelectMode) Color.White else Color(0xFF3C4043),
+                        tint = if (isAreaSelectMode) MaterialTheme.colorScheme.onPrimary else CycleMapTheme.palette.mapControlIcon,
                     )
                 }
             }
@@ -235,7 +236,7 @@ internal fun BoxScope.MapControlsOverlay(
                         modifier = Modifier
                             .size(20.dp)
                             .rotate(-safeBearing),
-                        tint = Color(0xFFD32F2F),
+                        tint = CycleMapTheme.palette.danger,
                     )
                 }
             }
@@ -289,7 +290,7 @@ internal fun BoxScope.MapControlsOverlay(
                     painter = painterResource(R.drawable.ic_lucide_compass),
                     contentDescription = null,
                     modifier = Modifier.size(21.dp).rotate(-safeBearing),
-                    tint = Color(0xFFD32F2F),
+                    tint = CycleMapTheme.palette.danger,
                 )
             }
             GoogleZoomButton(

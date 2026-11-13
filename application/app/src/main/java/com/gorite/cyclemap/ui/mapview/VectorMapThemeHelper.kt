@@ -19,13 +19,13 @@ import java.util.Locale
  * 昼夜モード切替時に MapLibre の主要レイヤーの描画色を動的に上書きするヘルパー
  */
 internal fun applyNightModeColors(style: Style, isNight: Boolean) {
-    val bgColor = if (isNight) "#1F1F1F" else "#F5F6F8"
-    val waterColor = if (isNight) "#17263C" else "#D7E6EC"
-    val b2dOutline = if (isNight) "#3C4043" else "#DBDAE0"
-    val b3dColor = if (isNight) "#2E3035" else "#F0F1F5"
-    val roadMinorColor = if (isNight) "#2C313A" else "#FFFFFF"
-    val roadMajorColor = if (isNight) "#3C4452" else "#FFFFFF"
-    val roadCasingColor = if (isNight) "#181B20" else "#D6DDE5"
+    val bgColor = if (isNight) "#1C1A17" else "#F5F6F8"
+    val waterColor = if (isNight) "#1E2A33" else "#D7E6EC"
+    val b2dOutline = if (isNight) "#3A342D" else "#DBDAE0"
+    val b3dColor = if (isNight) "#2E2A25" else "#F0F1F5"
+    val roadMinorColor = if (isNight) "#2E2A25" else "#FFFFFF"
+    val roadMajorColor = if (isNight) "#3B342C" else "#FFFFFF"
+    val roadCasingColor = if (isNight) "#141210" else "#D6DDE5"
 
     style.getLayer("background")?.setProperties(PropertyFactory.backgroundColor(bgColor))
     style.getLayer("earth")?.setProperties(PropertyFactory.fillColor(bgColor))
@@ -66,8 +66,8 @@ internal fun applyNightModeColors(style: Style, isNight: Boolean) {
     }
 
     // MED-02: 地名ラベル・道路ラベル・POIラベルの昼夜文字色・ハロー色更新
-    val textColor = if (isNight) "#E0E0E0" else "#202124"
-    val textHaloColor = if (isNight) "#1F1F1F" else "#FFFFFF"
+    val textColor = if (isNight) "#EDE6DA" else "#202124"
+    val textHaloColor = if (isNight) "#141210" else "#FFFFFF"
     listOf(
         "places_locality", "places_subplace", "places_region", "places_country",
         "roads_labels_minor", "roads_labels_major",
@@ -119,28 +119,28 @@ internal fun applyMapLabelReadability(style: Style) {
 
 internal fun vectorMapAreaFillColors(isNight: Boolean): Map<String, String> = listOf(
     // 土地利用・水域の色は scripts/patch_map_style.py が正。ここは同じ値にそろえる (StyleJsonTest が一致を検証)
-    "water" to if (isNight) "#1A3552" else "#AFCFE6",
-    "landuse_park" to if (isNight) "#20372A" else "#C9E8C4",
-    "landuse_wood" to if (isNight) "#162A1D" else "#B7D9B0",
-    "landuse_farmland" to if (isNight) "#26301F" else "#E8EDC8",
-    "landuse_cemetery" to if (isNight) "#1F2C25" else "#D6E3D2",
-    "landuse_residential" to if (isNight) "#262729" else "#ECEEF3",
-    "landuse_commercial" to if (isNight) "#2D2823" else "#F3E9DE",
-    "landuse_pitch" to if (isNight) "#23402F" else "#CDE8C8",
-    "landuse_military" to if (isNight) "#2B2B30" else "#E3E1E6",
-    "landuse_urban_green" to if (isNight) "#1B2A22" else "#C2F0D6",
-    "landuse_hospital" to if (isNight) "#252628" else "#FDF9EE",
-    "landuse_industrial" to if (isNight) "#252628" else "#eceae6",
-    "landuse_school" to if (isNight) "#252628" else "#FDF9EE",
-    "landuse_beach" to if (isNight) "#262523" else "#f5f0e6",
-    "landuse_zoo" to if (isNight) "#1E2828" else "#c6dcdc",
-    "landuse_aerodrome" to if (isNight) "#28292C" else "#dadbdf",
-    "landuse_runway" to if (isNight) "#25272B" else "#e9e9ed",
-    "landuse_pedestrian" to if (isNight) "#242528" else "#f3f0ec",
-    "landuse_pier" to if (isNight) "#242528" else "#e0e0e0",
-    "landuse_platform" to if (isNight) "#332E28" else "#FFE8D6",
-    "buildings-2d" to if (isNight) "#28292A" else "#E9EAEF",
-    "buildings_station" to if (isNight) "#332E28" else "#FFE8D6",
+    "water" to if (isNight) "#1E2A33" else "#AFCFE6",
+    "landuse_park" to if (isNight) "#232B1F" else "#C9E8C4",
+    "landuse_wood" to if (isNight) "#1D251A" else "#B7D9B0",
+    "landuse_farmland" to if (isNight) "#26261C" else "#E8EDC8",
+    "landuse_cemetery" to if (isNight) "#222820" else "#D6E3D2",
+    "landuse_residential" to if (isNight) "#221F1C" else "#ECEEF3",
+    "landuse_commercial" to if (isNight) "#2B241E" else "#F3E9DE",
+    "landuse_pitch" to if (isNight) "#26301F" else "#CDE8C8",
+    "landuse_military" to if (isNight) "#27231F" else "#E3E1E6",
+    "landuse_urban_green" to if (isNight) "#212A1F" else "#C2F0D6",
+    "landuse_hospital" to if (isNight) "#2A2220" else "#FDF9EE",
+    "landuse_industrial" to if (isNight) "#24221E" else "#eceae6",
+    "landuse_school" to if (isNight) "#27241F" else "#FDF9EE",
+    "landuse_beach" to if (isNight) "#2A2620" else "#f5f0e6",
+    "landuse_zoo" to if (isNight) "#222820" else "#c6dcdc",
+    "landuse_aerodrome" to if (isNight) "#26231F" else "#dadbdf",
+    "landuse_runway" to if (isNight) "#2E2A25" else "#e9e9ed",
+    "landuse_pedestrian" to if (isNight) "#25221E" else "#f3f0ec",
+    "landuse_pier" to if (isNight) "#25221E" else "#e0e0e0",
+    "landuse_platform" to if (isNight) "#322B23" else "#FFE8D6",
+    "buildings-2d" to if (isNight) "#28241F" else "#E9EAEF",
+    "buildings_station" to if (isNight) "#322B23" else "#FFE8D6",
 ).toMap()
 
 internal fun buildVectorStyleJson(context: Context, isNightMode: Boolean, pmtilesPath: String): String {
@@ -263,7 +263,7 @@ internal fun updateBuildingExtrusion(style: Style, shouldExtrude: Boolean, isNig
             PropertyFactory.visibility(
                 if (shouldExtrude) Property.VISIBLE else Property.NONE,
             ),
-            PropertyFactory.fillExtrusionColor(if (isNightMode) "#2E3035" else "#F0F1F5"),
+            PropertyFactory.fillExtrusionColor(if (isNightMode) "#2E2A25" else "#F0F1F5"),
             PropertyFactory.fillExtrusionOpacity(0.95f),
             PropertyFactory.fillExtrusionVerticalGradient(true),
         )

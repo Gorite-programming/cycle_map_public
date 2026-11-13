@@ -124,7 +124,7 @@ fun RideHistorySheet(
             // 現在の記録ステータスカード
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isRecording) CyclingPink.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = if (isRecording) cyclingAccent.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -140,7 +140,7 @@ fun RideHistorySheet(
                                 if (isRecording) "記録中..." else "未記録",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isRecording) CyclingPink else MaterialTheme.colorScheme.onSurface,
+                                color = if (isRecording) cyclingAccent else MaterialTheme.colorScheme.onSurface,
                             )
                             if (isRecording) {
                                 Text("$pointCount 地点取得", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -149,7 +149,7 @@ fun RideHistorySheet(
                         if (isRecording) {
                             Button(
                                 onClick = onStopRecording,
-                                colors = ButtonDefaults.buttonColors(containerColor = CyclingPink),
+                                colors = ButtonDefaults.buttonColors(containerColor = cyclingAccent),
                             ) {
                                 Text("記録停止・保存")
                             }
@@ -343,9 +343,9 @@ fun RideDetailDialog(
             ) {
                 // 統計グリッド
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatPill("総距離", "%.2f km".format(Locale.US, ride.totalDistanceMeters / 1000.0), CyclingPink)
+                    StatPill("総距離", "%.2f km".format(Locale.US, ride.totalDistanceMeters / 1000.0), cyclingAccent)
                     StatPill("走行時間", formatDuration(ride.totalDurationSeconds), MaterialTheme.colorScheme.primary)
-                    StatPill("獲得標高", "+%.0f m".format(Locale.US, ride.elevationGainMeters), CyclingCyan)
+                    StatPill("獲得標高", "+%.0f m".format(Locale.US, ride.elevationGainMeters), cyclingAccent2)
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatPill("平均速度", "%.1f km/h".format(Locale.US, ride.averageSpeedKmh), MaterialTheme.colorScheme.onSurface)
@@ -413,7 +413,9 @@ private fun SpeedProfileChart(
     maxSpeed: Double,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier.background(Color(0xFF1E2430), RoundedCornerShape(8.dp))) {
+    val lineColor = cyclingAccent2
+    val chartBackground = if (com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Sumi2 else Color(0xFF1E2430)
+    Canvas(modifier = modifier.background(chartBackground, RoundedCornerShape(8.dp))) {
         val w = size.width
         val h = size.height
         val pad = 12f
@@ -429,7 +431,7 @@ private fun SpeedProfileChart(
 
         drawPath(
             path = path,
-            color = CyclingCyan,
+            color = lineColor,
             style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
         )
     }

@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.components
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.R
 import android.content.Intent
 import android.provider.Settings
@@ -251,9 +252,9 @@ internal fun MapNotificationBanners(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFF1A73E8))
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = CycleMapTheme.palette.accent)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("県データグラフを切替・読み込み中…", style = MaterialTheme.typography.bodySmall, color = Color(0xFF202124), fontWeight = FontWeight.Bold)
+                    Text("県データグラフを切替・読み込み中…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -275,9 +276,9 @@ internal fun MapNotificationBanners(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFF1A73E8))
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = CycleMapTheme.palette.accent)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("最適サイクリングルートを探索中…", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1A73E8), fontWeight = FontWeight.Bold)
+                    Text("最適サイクリングルートを探索中…", style = MaterialTheme.typography.bodySmall, color = CycleMapTheme.palette.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

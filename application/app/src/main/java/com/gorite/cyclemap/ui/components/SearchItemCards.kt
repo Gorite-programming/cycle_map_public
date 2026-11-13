@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.components
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -32,15 +33,22 @@ internal fun SearchResultItemCard(
     isFavorite: Boolean,
     onResultSelected: (SearchResult) -> Unit,
     onToggleFavorite: () -> Unit,
+    /** 一覧のいちばん下 (親指の近く) に置く最有力の候補なら、その理由 (「いちばん近い」など)。強調して出す。 */
+    highlightLabel: String? = null,
 ) {
+    val highlighted = highlightLabel != null
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { onResultSelected(result) },
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = if (highlighted) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surfaceVariant,
+        border = if (highlighted) {
+            BorderStroke(1.5.dp, CycleMapTheme.palette.accent)
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
     ) {
         Row(
             modifier = Modifier
@@ -50,7 +58,15 @@ internal fun SearchResultItemCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(result.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                highlightLabel?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = CycleMapTheme.palette.accent)
+                }
+                Text(
+                    result.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (highlighted) 16.sp else 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -88,7 +104,7 @@ internal fun SearchResultItemCard(
                 Icon(
                     painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
                     contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
-                    tint = if (isFavorite) androidx.compose.ui.graphics.Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -133,7 +149,7 @@ internal fun FavoriteSpotItemCard(
                 Icon(
                     painterResource(R.drawable.ic_star_filled),
                     contentDescription = "お気に入り解除",
-                    tint = androidx.compose.ui.graphics.Color(0xFFFFB300),
+                    tint = CycleMapTheme.palette.favorite,
                     modifier = Modifier.size(20.dp),
                 )
             }

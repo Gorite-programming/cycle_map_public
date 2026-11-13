@@ -116,13 +116,7 @@ private fun WeatherPillContent(
         WeatherCategory.SNOWY -> R.drawable.ic_lucide_snowflake
         WeatherCategory.UNKNOWN -> R.drawable.ic_lucide_cloud
     }
-    val iconTint = when (category) {
-        WeatherCategory.SUNNY -> Color(0xFFF57C00)
-        WeatherCategory.CLOUDY -> Color(0xFF78909C)
-        WeatherCategory.RAINY -> Color(0xFF1976D2)
-        WeatherCategory.SNOWY -> Color(0xFF00ACC1)
-        WeatherCategory.UNKNOWN -> MaterialTheme.colorScheme.onSurface
-    }
+    val iconTint = weatherTint(category, sunny = Color(0xFFF57C00))
 
     val tempText = if (data.currentTemp != null) {
         "${data.currentTemp.roundToInt()}℃"
@@ -325,4 +319,20 @@ fun WeatherDetailDialog(
             }
         }
     )
+}
+
+/**
+ * 天気アイコンの色。ライトは従来の色、ダーク (墨と朱) は墨の地で読める伝統色 (金茶・薄墨・藍・白藍)。
+ * [sunny] はライトの晴れの色 (画面によって橙と黄を使い分けている)。
+ */
+@Composable
+fun weatherTint(category: WeatherCategory, sunny: Color): Color {
+    val dark = com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark
+    return when (category) {
+        WeatherCategory.SUNNY -> if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Kin else sunny
+        WeatherCategory.CLOUDY -> if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Usuzumi else Color(0xFF78909C)
+        WeatherCategory.RAINY -> if (dark) com.gorite.cyclemap.ui.theme.SumiShu.Ai else Color(0xFF1976D2)
+        WeatherCategory.SNOWY -> if (dark) Color(0xFFBFD9E6) else Color(0xFF00ACC1)
+        WeatherCategory.UNKNOWN -> MaterialTheme.colorScheme.onSurface
+    }
 }

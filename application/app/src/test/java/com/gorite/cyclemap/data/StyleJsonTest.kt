@@ -8,6 +8,9 @@ import org.junit.Test
 import java.io.File
 import kotlin.math.pow
 
+/** ダーク (墨と朱) の地図の地の色。scripts/patch_map_style.py の SUMI_SHU_DARK["background"]。 */
+private const val DARK_MAP_BACKGROUND = "#1C1A17"
+
 class StyleJsonTest {
 
     private fun findAssetStyle(name: String): File {
@@ -130,14 +133,14 @@ class StyleJsonTest {
             paint.haloColorHexes.forEach { halo ->
                 assertTrue(
                     "${paint.id} halo $halo must stay darker than the map background",
-                    relativeLuminance(halo) <= relativeLuminance("#1F1F1F") + 0.01,
+                    relativeLuminance(halo) <= relativeLuminance(DARK_MAP_BACKGROUND) + 0.01,
                 )
             }
             val colors = if (paint.id == "pois") listOf(paint.textColorHexes.last()) else paint.textColorHexes
             colors.forEach { color ->
-                val contrast = contrastRatio(color, "#1F1F1F")
+                val contrast = contrastRatio(color, DARK_MAP_BACKGROUND)
                 assertTrue(
-                    "${paint.id} text $color contrast $contrast is below 4.5:1 on #1F1F1F",
+                    "${paint.id} text $color contrast $contrast is below 4.5:1 on $DARK_MAP_BACKGROUND",
                     contrast >= 4.5,
                 )
             }

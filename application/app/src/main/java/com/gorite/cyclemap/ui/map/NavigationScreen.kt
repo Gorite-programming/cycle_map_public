@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.map
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gorite.cyclemap.R
 
-val GoogleGreen = Color(0xFF0F9D58)
 
 @Composable
 fun GoogleNavHeaderView(
@@ -83,7 +83,7 @@ fun GoogleNavHeaderView(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = GoogleGreen,
+        color = CycleMapTheme.palette.navBanner,
         shadowElevation = 6.dp
     ) {
         Column(
@@ -105,7 +105,7 @@ fun GoogleNavHeaderView(
                 Icon(
                     painter = painterResource(R.drawable.ic_lucide_navigation),
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = CycleMapTheme.palette.onNavBanner,
                     modifier = Modifier.size(36.dp)
                 )
 
@@ -116,18 +116,18 @@ fun GoogleNavHeaderView(
                         text = formatDistance(distanceToTurnMeters),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = CycleMapTheme.palette.onNavBanner
                     )
                     Text(
                         text = instructionText,
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
+                        color = CycleMapTheme.palette.onNavBanner
                     )
                     if (!streetName.isNullOrEmpty()) {
                         Text(
                             text = streetName,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFD4EED8)
+                            color = CycleMapTheme.palette.onNavBannerSub
                         )
                     }
                 }
@@ -143,13 +143,13 @@ fun GoogleNavHeaderView(
                     lanes.forEach { lane ->
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0x33FFFFFF),
+                            color = CycleMapTheme.palette.onNavBanner.copy(alpha = 0.2f),
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = lane,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
+                                color = CycleMapTheme.palette.onNavBanner,
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             )
                         }
@@ -187,7 +187,7 @@ fun GoogleNavFooterView(
                     text = formatEta(remainingSeconds),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = GoogleGreen
+                    color = CycleMapTheme.palette.etaText
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -219,10 +219,10 @@ fun GoogleNavFooterView(
                 // ナビ終了ボタン
                 Button(
                     onClick = onStopNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    colors = ButtonDefaults.buttonColors(containerColor = CycleMapTheme.palette.danger),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    Text("終了", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("終了", color = CycleMapTheme.palette.onDanger, fontWeight = FontWeight.Bold)
                 }
             }
         }

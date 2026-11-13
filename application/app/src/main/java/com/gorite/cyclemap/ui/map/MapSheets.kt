@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.map
 
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -382,7 +383,7 @@ fun PlaceDetailSheet(
                     Icon(
                         painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
                         contentDescription = null,
-                        tint = if (isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
