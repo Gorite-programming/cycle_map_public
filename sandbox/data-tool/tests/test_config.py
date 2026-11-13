@@ -2,9 +2,10 @@ import pytest
 from tools.core import config
 
 
-def test_five_prefectures_defined():
-    assert set(config.PREFECTURES) == {
-        "tottori", "shimane", "okayama", "hiroshima", "yamaguchi"}
+def test_47_prefectures_defined():
+    # 全国対応で 47 都道府県に拡張済み (以前は中国 5 県のみ)。
+    assert len(config.PREFECTURES) == 47
+    assert {"tottori", "shimane", "okayama", "hiroshima", "yamaguchi"} <= set(config.PREFECTURES)
 
 
 def test_search_db_names_lowercase_id():
@@ -35,4 +36,6 @@ def test_prefecture_for_point_hiroshima_city():
 
 
 def test_prefecture_for_point_outside():
-    assert config.prefecture_for_point(35.68, 139.69) is None
+    # 47 都道府県化で東京都の bbox が伊豆・小笠原諸島まで広がり、旧来の座標 (東京都心)
+    # はもう「県の範囲外」ではなくなった。ソウル (日本国外) を使う。
+    assert config.prefecture_for_point(37.5665, 126.9780) is None
