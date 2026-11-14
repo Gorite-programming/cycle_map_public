@@ -114,3 +114,5 @@ Claude が設計・分割・検証を行い、実装とテスト実行を Codex 
 日付つきの経過 (全国対応の試験生成、見つけたバグ、未解決事項、次にやること) は [docs/handoff_20261113.md](docs/handoff_20261113.md)。設計は `docs/ch_design.md`、`docs/cross_prefecture_design.md`、`docs/nationwide_design.md`、数値は `docs/away_session_report_20261108.md`。
 
 2026-11-14 に、端末・自宅ネットワークの情報を含む検証記録を履歴から取り除いた。`3b6055d` 以降のコミットはハッシュが変わっている (新旧の対応と、別環境の作業コピーの取り直し方は [docs/history_rewrite_20261114.md](docs/history_rewrite_20261114.md))。`adb devices`・`dumpsys connectivity`/`wifi`・logcat の丸ごとの出力はリポジトリに入れない。
+
+公開用リポジトリ `Gorite-programming/cycle_map_public` は、この (非公開の) 開発リポジトリから `scripts/publish_public.sh --push` で作る。Google マップの画像・20MB 超のファイル・本名入りのパス・端末のシリアル・作者のメールを除いた履歴で、コミットのハッシュは開発側と違う (対応は [docs/public_repository_20261114.md](docs/public_repository_20261114.md))。公開側には直接コミットしない。
