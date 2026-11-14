@@ -146,6 +146,10 @@ if [[ "$DRY_RUN" == false ]]; then
 
     echo "Ensuring remote directory exists: ${DEST_DIR}"
     adb shell mkdir -p "${DEST_DIR}"
+    # A directory created by adb is owned by the shell user (mode 2770), and the
+    # app cannot read it when the app had not created it first (seen on a fresh
+    # emulator). Open it up so the app can list and read the pushed files.
+    adb shell chmod 777 "${DEST_DIR}" || true
 fi
 
 TMP_STAGE="${ROOT_DIR}/work/_push_stage"
