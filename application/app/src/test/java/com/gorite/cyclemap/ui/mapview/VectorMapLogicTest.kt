@@ -54,4 +54,12 @@ class VectorMapLogicTest {
         assertFalse(shouldSkipPoiRefetch(null, null, -1.0, 34.0, 132.0, 14.0))
         assertFalse(shouldSkipPoiRefetch(34.0, 132.0, 14.0, null, null, 14.0))
     }
+
+    @Test
+    fun glyphSanitizerKeepsTheBaseLetterOfMacronVowels() {
+        // 同梱フォントに Ō が無く、「Ōsaka」が「saka」になっていた
+        assertEquals("Bahnhof Osaka", sanitizeMapLibreGlyphText("Bahnhof Ōsaka"))
+        assertEquals("Ryukyu", sanitizeMapLibreGlyphText("Ryūkyū"))
+        assertEquals("大阪駅", sanitizeMapLibreGlyphText("大阪駅"))
+    }
 }

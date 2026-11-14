@@ -1079,7 +1079,7 @@
       "paint": {
         "fill-color": "#28241F",
         "fill-outline-color": "#3A342D",
-        "fill-opacity": 0.95
+        "fill-opacity": 0.8
       }
     },
     {
@@ -1097,7 +1097,7 @@
       "paint": {
         "fill-color": "#322B23",
         "fill-outline-color": "#3A342D",
-        "fill-opacity": 0.95
+        "fill-opacity": 0.8
       }
     },
     {
@@ -1956,6 +1956,55 @@
       }
     },
     {
+      "id": "roads_rail_base",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": [
+        "all",
+        [
+          "==",
+          "kind",
+          "rail"
+        ],
+        [
+          "!in",
+          "kind_detail",
+          "tram",
+          "light_rail",
+          "subway",
+          "narrow_gauge",
+          "funicular",
+          "monorail"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#7D7468",
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.6
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0.4,
+          12,
+          1.2,
+          15,
+          2.4,
+          18,
+          4.0
+        ]
+      }
+    },
+    {
       "id": "roads_rail_hatch",
       "type": "line",
       "source": "protomaps",
@@ -1998,62 +2047,13 @@
             "zoom"
           ],
           6,
-          0.3,
+          0.2,
           12,
-          1.0,
+          0.6,
           15,
-          1.7,
+          1.3,
           18,
-          2.8
-        ]
-      }
-    },
-    {
-      "id": "roads_rail_base",
-      "type": "line",
-      "source": "protomaps",
-      "source-layer": "roads",
-      "filter": [
-        "all",
-        [
-          "==",
-          "kind",
-          "rail"
-        ],
-        [
-          "!in",
-          "kind_detail",
-          "tram",
-          "light_rail",
-          "subway",
-          "narrow_gauge",
-          "funicular",
-          "monorail"
-        ]
-      ],
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
-      "paint": {
-        "line-color": "#7D7468",
-        "line-width": [
-          "interpolate",
-          [
-            "exponential",
-            1.6
-          ],
-          [
-            "zoom"
-          ],
-          6,
-          0.5,
-          12,
-          1.8,
-          15,
-          3.0,
-          18,
-          5.0
+          2.2
         ]
       }
     },
@@ -2678,6 +2678,59 @@
       }
     },
     {
+      "id": "roads_bridges_rail_base",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "filter": [
+        "all",
+        [
+          "has",
+          "is_bridge"
+        ],
+        [
+          "==",
+          "kind",
+          "rail"
+        ],
+        [
+          "!in",
+          "kind_detail",
+          "tram",
+          "light_rail",
+          "subway",
+          "narrow_gauge",
+          "funicular",
+          "monorail"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#7D7468",
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.6
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          0.4,
+          12,
+          1.2,
+          15,
+          2.4,
+          18,
+          4.0
+        ]
+      }
+    },
+    {
       "id": "roads_bridges_rail_hatch",
       "type": "line",
       "source": "protomaps",
@@ -2724,66 +2777,13 @@
             "zoom"
           ],
           6,
-          0.3,
+          0.2,
           12,
-          1.0,
+          0.6,
           15,
-          1.7,
+          1.3,
           18,
-          2.8
-        ]
-      }
-    },
-    {
-      "id": "roads_bridges_rail_base",
-      "type": "line",
-      "source": "protomaps",
-      "source-layer": "roads",
-      "filter": [
-        "all",
-        [
-          "has",
-          "is_bridge"
-        ],
-        [
-          "==",
-          "kind",
-          "rail"
-        ],
-        [
-          "!in",
-          "kind_detail",
-          "tram",
-          "light_rail",
-          "subway",
-          "narrow_gauge",
-          "funicular",
-          "monorail"
-        ]
-      ],
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
-      "paint": {
-        "line-color": "#7D7468",
-        "line-width": [
-          "interpolate",
-          [
-            "exponential",
-            1.6
-          ],
-          [
-            "zoom"
-          ],
-          6,
-          0.5,
-          12,
-          1.8,
-          15,
-          3.0,
-          18,
-          5.0
+          2.2
         ]
       }
     },
@@ -11425,10 +11425,33 @@
       "source": "protomaps",
       "source-layer": "places",
       "filter": [
-        "in",
-        "kind",
-        "neighbourhood",
-        "macrohood"
+        "any",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "macrohood"
+        ],
+        [
+          "all",
+          [
+            "==",
+            [
+              "get",
+              "kind"
+            ],
+            "neighbourhood"
+          ],
+          [
+            ">=",
+            [
+              "zoom"
+            ],
+            14
+          ]
+        ]
       ],
       "layout": {
         "symbol-sort-key": [

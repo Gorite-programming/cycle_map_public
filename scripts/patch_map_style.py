@@ -8,12 +8,15 @@
   1. 国道・県道のシールド: JP:national / JP:prefectural を日本の標識 (青いおにぎり型 / 六角形) にする。
      画像は実行時にコード (VectorMapStyles.kt の registerRoadShieldImages) が jp-national-Nchar /
      jp-prefectural-Nchar として登録する。高速道路 (kind=highway) は関連路線の番号が混ざるため対象外。
-  2. 鉄道: JR 等の本線を「黒地に白い破線」のゼブラ表示にする。路面電車・地下鉄などは細い実線のまま。
+  2. 鉄道: JR 等の本線を「灰色の地に白い破線」のゼブラ表示にする。路面電車・地下鉄などは細い実線のまま。
+     破線 (hatch) は地 (base) の上に描く。元のスタイルは逆順で、破線が地に隠れて黒い太線になっていた。
   3. 土地利用: 公園・森林・農地・墓地・住宅地・商業地・運動場・軍用地を別々の色で塗り分け、水域を濃くする。
      色の定義はこのスクリプトが正。Kotlin 側の VectorMapThemeHelper.vectorMapAreaFillColors も同じ色にそろえる
      (StyleJsonTest が一致を検証する)。
   5. ダーク (夜) は「墨と朱」: 青みのある灰色を、温かみのある墨色に置き換える (SUMI_SHU_DARK)。
      アプリの画面の配色 (ui/theme/Palette.kt の SumiShu) と同じ系統。
+  6. 建物を少し透かし、商業地の色が街区に出るようにする (Google マップの繁華街のベージュ)。
+  7. 丁目などの町名 (neighbourhood) は z14 から出す。引いた地図は区名・駅名・ランドマークに絞る。
   4. タイル内 POI: 動的 POI ピン (検索DB由来) が担うカテゴリ (飲食・コンビニ・トイレ・給水・バス停) は
      スタイル側から外し、同じ施設が二重に出ないようにする。
 
@@ -33,13 +36,13 @@ POI_KINDS_COVERED_BY_PINS = {"restaurant", "fast_food", "cafe", "convenience", "
 
 # テーマ別の鉄道配色 (base=黒地, tick=白い破線)
 RAIL = {
-    "light": {"base": "#4B5058", "tick": "#FFFFFF", "tram": "#7C838B"},
+    "light": {"base": "#A3A9B2", "tick": "#FFFFFF", "tram": "#A3A9B2"},
     "dark": {"base": "#7D7468", "tick": "#1C1A17", "tram": "#5A5248"},
 }
 
 # 鉄道の太さ (ズーム → 幅)
-RAIL_WIDTH_BASE = ["interpolate", ["exponential", 1.6], ["zoom"], 6, 0.5, 12, 1.8, 15, 3.0, 18, 5.0]
-RAIL_WIDTH_TICK = ["interpolate", ["exponential", 1.6], ["zoom"], 6, 0.3, 12, 1.0, 15, 1.7, 18, 2.8]
+RAIL_WIDTH_BASE = ["interpolate", ["exponential", 1.6], ["zoom"], 6, 0.4, 12, 1.2, 15, 2.4, 18, 4.0]
+RAIL_WIDTH_TICK = ["interpolate", ["exponential", 1.6], ["zoom"], 6, 0.2, 12, 0.6, 15, 1.3, 18, 2.2]
 
 
 def shield_len_image(prefix):
@@ -91,6 +94,34 @@ def patch_rail(layers, theme):
             layers[bridge_id]["paint"] = json.loads(json.dumps(src["paint"]))
 
 
+def order_rail(style):
+    """破線 (hatch) を地 (base) の直上へ移す (地下・地上・橋のそれぞれ)。冪等。"""
+    layers = style["layers"]
+    for base_id, hatch_id in (("roads_rail_base", "roads_rail_hatch"),
+                              ("roads_bridges_rail_base", "roads_bridges_rail_hatch")):
+        ids = [l["id"] for l in layers]
+        if base_id not in ids or hatch_id not in ids:
+            continue
+        hatch = layers.pop(ids.index(hatch_id))
+        base_index = [l["id"] for l in layers].index(base_id)
+        layers.insert(base_index + 1, hatch)
+
+
+BUILDING_OPACITY = 0.8
+SUBPLACE_MIN_ZOOM = 14
+
+
+def patch_city_detail(layers):
+    """建物を少し透かして土地利用の色を出し、町名は寄ってから出す。"""
+    layers["buildings-2d"]["paint"]["fill-opacity"] = BUILDING_OPACITY
+    layers["buildings_station"]["paint"]["fill-opacity"] = BUILDING_OPACITY
+    layers["places_subplace"]["filter"] = [
+        "any",
+        ["==", ["get", "kind"], "macrohood"],
+        ["all", ["==", ["get", "kind"], "neighbourhood"], [">=", ["zoom"], SUBPLACE_MIN_ZOOM]],
+    ]
+
+
 def patch_pois(layer):
     flt = layer["filter"]
     # ["all", ["in", ["get","kind"], ["literal", [...]]], [">=", ...]]
@@ -108,7 +139,7 @@ LANDUSE_SPLIT = [
      "#E8EDC8", "#26261C"),
     ("landuse_cemetery", ["cemetery"], "#D6E3D2", "#222820"),
     ("landuse_residential", ["residential"], "#ECEEF3", "#221F1C"),
-    ("landuse_commercial", ["commercial", "retail"], "#F3E9DE", "#2B241E"),
+    ("landuse_commercial", ["commercial", "retail"], "#F7E6CF", "#2B241E"),
     ("landuse_pitch", ["pitch", "recreation_ground", "sports_centre"], "#CDE8C8", "#26301F"),
     ("landuse_military", ["military", "naval_base"], "#E3E1E6", "#27231F"),
 ]
@@ -232,6 +263,8 @@ def patch_style(theme):
     layers = {l["id"]: l for l in style["layers"]}
     patch_shields(layers["roads_shields"], theme)
     patch_rail(layers, theme)
+    order_rail(style)
+    patch_city_detail(layers)
     patch_pois(layers["pois"])
     patch_landuse(style, theme)
     if theme == "dark":

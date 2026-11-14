@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-PY="$ROOT/venv/bin/python"; [ -x "$PY" ] || PY=python3
+PY="$ROOT/venv/bin/python"; [ -x "$PY" ] || PY="$ROOT/venv/Scripts/python.exe"; [ -x "$PY" ] || PY=python3
 
 if [ "${1:-}" != "--skip-gradle" ]; then
   echo "== Kotlin/JVM tests =="

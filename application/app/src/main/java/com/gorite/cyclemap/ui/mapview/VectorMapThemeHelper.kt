@@ -125,7 +125,7 @@ internal fun vectorMapAreaFillColors(isNight: Boolean): Map<String, String> = li
     "landuse_farmland" to if (isNight) "#26261C" else "#E8EDC8",
     "landuse_cemetery" to if (isNight) "#222820" else "#D6E3D2",
     "landuse_residential" to if (isNight) "#221F1C" else "#ECEEF3",
-    "landuse_commercial" to if (isNight) "#2B241E" else "#F3E9DE",
+    "landuse_commercial" to if (isNight) "#2B241E" else "#F7E6CF",
     "landuse_pitch" to if (isNight) "#26301F" else "#CDE8C8",
     "landuse_military" to if (isNight) "#27231F" else "#E3E1E6",
     "landuse_urban_green" to if (isNight) "#212A1F" else "#C2F0D6",
@@ -189,7 +189,14 @@ internal fun sanitizeMapLibreGlyphText(raw: String): String {
                     cp in 0x3400..0x4DBF ||
                     cp in 0x4E00..0x9FFF ||
                     cp in 0xFF00..0xFFEF
-                if (supported) sb.append(ch)
+                if (supported) {
+                    sb.append(ch)
+                } else {
+                    // 同梱フォントに無いラテン拡張 (Ō・ū など、ローマ字の長音) は、記号を外した字で出す。
+                    // 落とすと「Ōsaka」が「saka」になる
+                    val base = java.text.Normalizer.normalize(ch.toString(), java.text.Normalizer.Form.NFD).first()
+                    if (base != ch && base.code in 0x0020..0x00FF) sb.append(base)
+                }
             }
         }
     }
@@ -199,12 +206,12 @@ internal fun sanitizeMapLibreGlyphText(raw: String): String {
 /** この倍率で地図に出すピンの最大数。低ズームでは主要施設だけにして、画面がピンで埋まらないようにする。 */
 internal fun poiFeatureLimitForZoom(zoom: Double): Int = when {
     zoom < 10.5 -> 0
-    zoom < 12.0 -> 25
-    zoom < 13.0 -> 45
-    zoom < 14.0 -> 70
-    zoom < 15.0 -> 110
-    zoom < 16.0 -> 160
-    else -> 220
+    zoom < 12.0 -> 15
+    zoom < 13.0 -> 25
+    zoom < 14.0 -> 40
+    zoom < 15.0 -> 60
+    zoom < 16.0 -> 80
+    else -> 110
 }
 
 /** ピンに施設名を添えるか。引くほど有名な施設 (駅・大きな観光地) だけ、寄るほど多くの施設に名前を出す。 */

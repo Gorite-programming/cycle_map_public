@@ -105,4 +105,15 @@ class MapStyleAssetsTest {
             assertTrue("$theme: places_subplace", layers(loadStyle(theme)).containsKey("places_subplace"))
         }
     }
+
+    @Test
+    fun railwayDashesAreDrawnAboveTheBaseLine() {
+        // 破線が地の下にあると隠れて黒い太線になる (元の Protomaps スタイルの順序)
+        for (theme in listOf("light", "dark")) {
+            val ids = loadStyle(theme).getAsJsonArray("layers").map { it.asJsonObject.get("id").asString }
+            for ((base, hatch) in listOf("roads_rail_base" to "roads_rail_hatch", "roads_bridges_rail_base" to "roads_bridges_rail_hatch")) {
+                assertTrue("$theme: $hatch above $base", ids.indexOf(hatch) > ids.indexOf(base))
+            }
+        }
+    }
 }

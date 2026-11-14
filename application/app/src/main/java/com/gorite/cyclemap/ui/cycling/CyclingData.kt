@@ -431,7 +431,8 @@ enum class PoiCategory(
     val defaultOn: Boolean = false,
 ) {
     // 交通
-    STATION("駅・港", R.drawable.ic_poi_train, "#0284C7",
+    // 駅はバス停 (青) と見分けられるよう、濃い藍にする
+    STATION("駅・港", R.drawable.ic_poi_train, "#1E3A8A",
         listOf("railway:station", "railway:halt", "public_transport:station", "amenity:bus_station", "amenity:ferry_terminal"),
         true, minZoom = 10.5, defaultOn = true),
     BUS_STOP("バス停", R.drawable.ic_poi_bus, "#0277BD", listOf("highway:bus_stop"), false, minZoom = 15.5),
@@ -448,7 +449,7 @@ enum class PoiCategory(
     CONVENIENCE("コンビニ", R.drawable.ic_lucide_store, "#1A73E8", listOf("shop:convenience"), false, minZoom = 13.5, defaultOn = true),
     SUPERMARKET("スーパー・商業施設", R.drawable.ic_poi_cart, "#1A73E8",
         listOf("shop:supermarket", "shop:department_store", "shop:mall"), false, minZoom = 14.0, defaultOn = true),
-    FOOD("飲食", R.drawable.ic_lucide_utensils, "#EA580C", listOf("amenity:restaurant", "amenity:cafe", "amenity:fast_food"), false, minZoom = 14.5, defaultOn = true),
+    FOOD("飲食", R.drawable.ic_lucide_utensils, "#EA580C", listOf("amenity:restaurant", "amenity:cafe", "amenity:fast_food"), false, minZoom = 15.5, defaultOn = true),
     BAKERY("パン屋", R.drawable.ic_poi_bread, "#E65100", listOf("shop:bakery"), false, minZoom = 15.0, defaultOn = true),
     BAR("バー・居酒屋", R.drawable.ic_poi_glass, "#C2410C", listOf("amenity:bar", "amenity:pub"), false, minZoom = 15.5),
     // 観光・休憩

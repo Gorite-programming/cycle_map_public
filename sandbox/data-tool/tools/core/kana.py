@@ -51,7 +51,11 @@ def pykakasi_reading(name):
     name = (name or "").strip()
     if not name or not pykakasi_available():
         return None
-    parts = _converter().convert(name)
+    try:
+        parts = _converter().convert(name)
+    except IndexError:
+        # pykakasi は一部の文字列 (末尾の異体字など) で内部の添字が範囲外になる。読み無しとして扱う
+        return None
     if not parts:
         return None
     return {

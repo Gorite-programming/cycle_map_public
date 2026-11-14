@@ -167,16 +167,30 @@ def test_export_adds_search_only_reading_for_kanji_names(tmp_db, tmp_path):
 
 
 def test_export_drops_overture_stations_far_from_the_osm_station():
-    """Overture の「広島駅」(海田町など、名前と位置が合わない駅) を除き、OSM の駅と近いものは残す。"""
+    """Overture の「広島駅」(海田町など、名前と位置が合わない駅) を除き、OSM に無い駅は残す。"""
     rows = [
         {"name": "広島", "category": "railway:station", "lat": 34.3974, "lon": 132.4758, "source": "osm"},
         {"name": "広島駅", "category": "railway:station", "lat": 34.3815, "lon": 132.5645, "source": "overture:places"},
-        {"name": "ＪＲ広島駅", "category": "railway:station", "lat": 34.3980, "lon": 132.4760, "source": "overture:places"},
         {"name": "西広島駅", "category": "railway:station", "lat": 34.37, "lon": 132.42, "source": "overture:places"},
         {"name": "広島駅", "category": "highway:bus_stop", "lat": 34.30, "lon": 132.30, "source": "overture:places"},
     ]
     kept, dropped = export.drop_mislocated_overture_stations(rows)
     assert dropped == 1
     assert [r["lat"] for r in kept if r["name"] == "広島駅"] == [34.30]  # バス停は対象外
-    assert any(r["name"] == "ＪＲ広島駅" for r in kept)                 # 近いものは残す
     assert any(r["name"] == "西広島駅" for r in kept)                   # OSM に同名の駅が無ければ残す
+
+
+def test_export_drops_overture_stations_next_to_an_osm_station():
+    """OSM の駅のそばにある Overture の駅 (重複・出入口・別の駅名) は、名前を問わず除く。"""
+    rows = [
+        {"name": "大阪", "category": "railway:station", "lat": 34.7022, "lon": 135.4956, "source": "osm"},
+        {"name": "新大阪駅", "category": "railway:station", "lat": 34.7021, "lon": 135.4957, "source": "overture:places"},
+        {"name": "品川駅", "category": "railway:station", "lat": 34.7025, "lon": 135.4974, "source": "overture:places"},
+        {"name": "Bahnhof Ōsaka", "category": "railway:station", "lat": 34.7019, "lon": 135.4950, "source": "overture:places"},
+        {"name": "ＪＲ大阪駅", "category": "railway:station", "lat": 34.7025, "lon": 135.4961, "source": "overture:places"},
+        {"name": "遠くの駅", "category": "railway:station", "lat": 34.80, "lon": 135.60, "source": "overture:places"},
+        {"name": "大阪駅前", "category": "highway:bus_stop", "lat": 34.7020, "lon": 135.4957, "source": "overture:places"},
+    ]
+    kept, dropped = export.drop_mislocated_overture_stations(rows)
+    assert dropped == 4
+    assert sorted(r["name"] for r in kept) == ["大阪", "大阪駅前", "遠くの駅"]

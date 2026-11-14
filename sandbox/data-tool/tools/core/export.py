@@ -98,11 +98,15 @@ def _station_base(name):
     return n.strip().removesuffix("駅").strip()
 
 
-def drop_mislocated_overture_stations(rows, max_m=1500.0):
-    """Overture の鉄道駅のうち、同じ駅名の OSM の駅から max_m 以上離れているものを除く。
+def drop_mislocated_overture_stations(rows, max_m=1500.0, near_m=500.0):
+    """Overture の鉄道駅のうち、OSM の駅で足りるもの・位置の合わないものを除く。
 
-    Overture には「広島駅」が海田町・東広島市・尾道市にあるなど、名前と位置の合わない駅があり、
-    「広島駅」の検索で正しい駅より上に出ていた。OSM の駅の位置は信頼できるので、それを基準にする。
+    1. OSM の駅 (railway:station) から near_m 以内にあるもの。Overture の駅は出入口・広場・
+       外国語名の重複 (「Bahnhof Ōsaka」「大阪站前」)、さらに別の駅名 (大阪駅の上の「新大阪駅」
+       「品川駅」) まで混ざっており、地図のピンと検索結果を埋めていた。OSM の駅があればそれで足りる。
+    2. 同じ駅名の OSM の駅から max_m 以上離れているもの。「広島駅」が海田町・東広島市・尾道市に
+       あるなど、名前と位置が合わない。
+    OSM の駅が近くになく、同名の駅とも食い違わないもの (OSM に無い駅) は残す。
     戻り値は (残した行, 除いた件数)。
     """
     import math
@@ -113,15 +117,34 @@ def drop_mislocated_overture_stations(rows, max_m=1500.0):
              * math.sin(math.radians(b[1] - a[1]) / 2) ** 2)
         return 2 * 6371000 * math.asin(math.sqrt(min(1.0, h)))
 
+    cell = 0.01  # 約 1 km 四方。near_m (500 m) は隣のセルまで見れば足りる
+
+    def key(lat, lon):
+        return int(math.floor(lat / cell)), int(math.floor(lon / cell))
+
     osm = {}
+    grid = {}
     for r in rows:
         if r.get("source") == "osm" and r["category"] == "railway:station":
-            osm.setdefault(_station_base(r["name"]), []).append((r["lat"], r["lon"]))
+            p = (r["lat"], r["lon"])
+            osm.setdefault(_station_base(r["name"]), []).append(p)
+            grid.setdefault(key(*p), []).append(p)
+
+    def near_osm_station(p):
+        ki, kj = key(*p)
+        return any(dist(p, q) <= near_m
+                   for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                   for q in grid.get((ki + di, kj + dj), ()))
+
     kept, dropped = [], 0
     for r in rows:
         if (str(r.get("source") or "").startswith("overture") and r["category"] == "railway:station"):
+            p = (r["lat"], r["lon"])
+            if near_osm_station(p):
+                dropped += 1
+                continue
             places = osm.get(_station_base(r["name"]))
-            if places and min(dist((r["lat"], r["lon"]), p) for p in places) > max_m:
+            if places and min(dist(p, q) for q in places) > max_m:
                 dropped += 1
                 continue
         kept.append(r)
