@@ -61,6 +61,14 @@ android {
     }
 
     buildTypes {
+        // 検証版: debug と同じ中身を別のアプリ ID で入れる。署名の違う既存のアプリを消さずに並べて試せる
+        create("field") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".field"
+            versionNameSuffix = "-field"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

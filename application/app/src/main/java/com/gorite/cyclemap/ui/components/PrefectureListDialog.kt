@@ -16,6 +16,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import com.gorite.cyclemap.data.OfflineDataImporter
+import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
@@ -59,6 +65,36 @@ internal fun PrefectureListDialog(
 
     var dataStatus by remember { mutableStateOf<List<PrefectureDataStatus>>(emptyList()) }
 
+    // 端末に保存したファイル (県の ZIP、または .graph などの単体) の取り込み
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    var importing by remember { mutableStateOf(false) }
+    var importedAny by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        importing = true
+        importMessage = "取り込み中…"
+        scope.launch {
+            importMessage = try {
+                val result = withContext(Dispatchers.IO) {
+                    OfflineDataImporter.import(context, uris, cycleMapDataDir(context)) { name ->
+                        scope.launch { importMessage = "取り込み中: $name" }
+                    }
+                }
+                dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
+                importedAny = importedAny || result.imported.isNotEmpty()
+                if (result.imported.isEmpty()) {
+                    "取り込めるファイルがありませんでした (県の ZIP か .graph / .search.db / .pmtiles を選んでください)"
+                } else {
+                    "取り込みました: " + result.imported.joinToString("、") + "\n再起動すると反映されます"
+                }
+            } catch (e: Exception) {
+                "取り込みに失敗しました: ${e.message}"
+            }
+            importing = false
+        }
+    }
+
     LaunchedEffect(context) {
         dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
         downloadStatus = withContext(Dispatchers.IO) {
@@ -77,6 +113,18 @@ internal fun PrefectureListDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth().height(520.dp)) {
                 OfflineDataStatusSection(dataStatus)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(enabled = !importing, onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+                        Text("ファイルから取り込む")
+                    }
+                    if (importedAny && !importing) {
+                        OutlinedButton(onClick = { restartApp(context) }) { Text("再起動", maxLines = 1, softWrap = false) }
+                    }
+                }
+                importMessage?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 Text("地図タイルの保存 (地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(4.dp))
@@ -199,7 +247,7 @@ private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("ルート探索・施設検索・地図データ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(
-                "ルート探索・施設検索・ベクター地図のデータは、PCから端末へ転送します。",
+                "ルート探索・施設検索・ベクター地図のデータは、PCから転送するか、端末に保存した県の ZIP を「ファイルから取り込む」で入れます。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -227,4 +275,12 @@ private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
             }
         }
     }
+}
+
+/** 取り込んだデータを読み直すため、アプリを起動し直す (経路・検索・地図のファイルは起動時に選ぶ)。 */
+private fun restartApp(context: Context) {
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+    context.startActivity(intent)
+    Runtime.getRuntime().exit(0)
 }
