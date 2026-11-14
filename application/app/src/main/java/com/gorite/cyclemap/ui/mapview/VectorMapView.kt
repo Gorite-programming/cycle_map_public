@@ -114,6 +114,11 @@ internal fun VectorMapView(
     val currentBearingForMarker by rememberUpdatedState(bearing)
     val currentFollowLocation by rememberUpdatedState(followLocation)
     val currentGpsStatus by rememberUpdatedState(gpsStatus)
+    // 県のタイル切替 (rebuildStyle) など長期生存の LaunchedEffect からも最新のルートを描き直すための状態ホルダー。
+    // 値をそのまま捕まえると、最初の合成のとき (ルートが空) の値でスタイルを張り直し、ルートが消えたままになる
+    val currentRoutePoints by rememberUpdatedState(routePoints)
+    val currentAlternativeRoutes by rememberUpdatedState(alternativeRoutes)
+    val currentDestination by rememberUpdatedState(destination)
     // 案内中の現在地マーカー・カメラを、GPSの更新間 (約1秒) でも毎フレーム滑らかに動かす
     val locationGlide = remember { LocationGlide() }
     val markerBearingFollower = remember { AngleFollower(timeConstantSec = 0.12f) }
@@ -278,8 +283,8 @@ internal fun VectorMapView(
                                         map.uiSettings.isCompassEnabled = false
                                         setupRouteLayers(context, style, night)
                                         setupDynamicPoiLayers(context, style, night)
-                                        updateRouteLine(style, routePoints, alternativeRoutes, destination)
-                                        updateLocationPoint(style, currentLocUpdated ?: currentLocation, bearing, currentNavigationActive, gpsStatus)
+                                        updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination)
+                                        updateLocationPoint(style, currentLocUpdated ?: currentLocation, currentBearingForMarker, currentNavigationActive, currentGpsStatus)
                                         triggerPoisRef = { triggerFetchPois(map) }
                                         triggerFetchPois(map)
                                     }
@@ -414,8 +419,8 @@ internal fun VectorMapView(
                 map.uiSettings.isCompassEnabled = false
                 setupRouteLayers(context, style, night)
                 setupDynamicPoiLayers(context, style, night)
-                updateRouteLine(style, routePoints, alternativeRoutes, destination)
-                updateLocationPoint(style, currentLocation, bearing, isNavigationActive, gpsStatus)
+                updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination)
+                updateLocationPoint(style, currentLocUpdated ?: currentLocation, currentBearingForMarker, currentNavigationActive, currentGpsStatus)
                 triggerPoisRef?.invoke()
             }
         }
@@ -425,7 +430,7 @@ internal fun VectorMapView(
             val map = mapLibreMap ?: return@LaunchedEffect
             val pPath = activePmtilesPath ?: return@LaunchedEffect
             if (lastLoadedNightMode == isNightMode) return@LaunchedEffect
-            rebuildStyle(map, pPath, isNightMode)
+            rebuildStyle(map, pPath, currentNightMode)
         }
 
         // 現在地の県が変わったら、その県のタイルへ切り替える (県境をまたぐ走行・起動時に未導入だった県の後入れでも地図が空にならない)。
@@ -436,7 +441,7 @@ internal fun VectorMapView(
             val loc = currentLocation ?: return@LaunchedEffect
             val path = resolveOfflinePmtilesPath(context, loc.latitude, loc.longitude) ?: return@LaunchedEffect
             if (path == activePmtilesPath) return@LaunchedEffect
-            rebuildStyle(map, path, isNightMode)
+            rebuildStyle(map, path, currentNightMode)
         }
 
         // 手動でスクロールして別の県へ移動したとき (現在地は元の県のまま) も、カメラ停止時の中心の県のタイルへ切り替える。
@@ -446,6 +451,9 @@ internal fun VectorMapView(
             MapCameraCenter.center.collect { center ->
                 val (lat, lon) = center ?: return@collect
                 val path = resolveOfflinePmtilesPath(context, lat, lon)
+                if (com.gorite.cyclemap.BuildConfig.DEBUG) {
+                    android.util.Log.i("CycleMapMap", "TILE_CENTER lat=$lat lon=$lon pref=${findPrefectureName(lat, lon)} path=${path?.substringAfterLast('/')} active=${activePmtilesPath?.substringAfterLast('/')} zoom=${map.cameraPosition.zoom}")
+                }
                 if (path == null) {
                     // 地図データの無い県 (例: 兵庫) を見ているときは、灰色のまま黙らず案内を出す
                     val sel = TileSourceSelector.select(lat, lon)
@@ -458,7 +466,7 @@ internal fun VectorMapView(
                     return@collect
                 }
                 offlineDataMissing = false
-                if (path != activePmtilesPath) rebuildStyle(map, path, isNightMode)
+                if (path != activePmtilesPath) rebuildStyle(map, path, currentNightMode)
             }
         }
 
@@ -470,7 +478,7 @@ internal fun VectorMapView(
                 currentOnUserPan()
                 resolveOfflinePmtilesPath(context, request.latitude, request.longitude)
                     ?.takeIf { it != activePmtilesPath }
-                    ?.let { rebuildStyle(map, it, isNightMode) }
+                    ?.let { rebuildStyle(map, it, currentNightMode) }
                 map.moveCamera(
                     CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
