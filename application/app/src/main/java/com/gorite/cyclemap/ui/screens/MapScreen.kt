@@ -379,15 +379,27 @@ internal fun MapScreen(
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.minLat, expanded.minLon))
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.maxLat, expanded.maxLon))
             val latLngBounds = boundsBuilder.build()
-            vMap.animateCamera(
-                org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
-                    latLngBounds,
-                    padding.side,
-                    padding.top,
-                    padding.side,
-                    padding.bottom,
-                ),
-            )
+            // 地図のタイルはズーム 6 未満だと粗い陸地ポリゴンだけになるため、長距離ルートでもズーム 6 より引かない。
+            // 収まりきらない分は画面の外に出る (ルート全体が見えることより、道路・地名が読めることを優先)。
+            val fitted = vMap.getCameraForLatLngBounds(latLngBounds, intArrayOf(padding.side, padding.top, padding.side, padding.bottom))
+            if (fitted != null && fitted.zoom < PREVIEW_MIN_ZOOM) {
+                vMap.animateCamera(
+                    // パディング (下のパネルの分) を保つため、位置ごと引き継いでズームだけ替える
+                    org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
+                        org.maplibre.android.camera.CameraPosition.Builder(fitted).zoom(PREVIEW_MIN_ZOOM).build(),
+                    ),
+                )
+            } else {
+                vMap.animateCamera(
+                    org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
+                        latLngBounds,
+                        padding.side,
+                        padding.top,
+                        padding.side,
+                        padding.bottom,
+                    ),
+                )
+            }
         }
     }
 
@@ -769,6 +781,8 @@ internal fun MapScreen(
 }
 
 /** 開き直したときに前回のルートを戻す処理で、現在地を待つ時間。 */
+/** ルートプレビューで引く下限のズーム。これ未満はタイルが粗い陸地ポリゴンだけになる。 */
+private const val PREVIEW_MIN_ZOOM = 6.0
 private const val SESSION_RESTORE_LOCATION_WAIT_MS = 10_000L
 
 /** 案内を再開する前に、ルートの計算が終わるのを待つ時間 (県またぎでも足りる長さ)。 */
