@@ -2,10 +2,10 @@
 
 **CycleMap** は、電波の届かない山間部やロングライドでも単体で動作する、Android 向けの**オフライン特化・自転車専用ナビ**です。地図描画、自転車向けコストモデルによる経路探索、施設(POI)のあいまい検索をすべて端末内で完結します。データは APK に同梱せず、事前生成したデータパッケージを端末に配置して使います。
 
-- 現在の対象エリア: 中国5県(鳥取・島根・岡山・広島・山口)
-- 最新バージョン: **α0.9.8-unified**(Git `5e95451`、POIピン・国道県道標識・駅温泉パンのアイコンの仕上げ、APK SHA-256 先頭12桁 `0e89f67763c9`)
-- 1つ前のビルド: **α0.9.7-unified**(Git `2226ee0`、土地利用の塗り分け・POIの出し分け・等高線と陰影起伏、APK SHA-256 先頭12桁 `afa794c8a21c`)
-- ビルド台帳: [VERSIONS.md](VERSIONS.md) / [GitHub Releases](https://github.com/Gorite-programming/cycle_map/releases)
+- 現在の対象エリア: 中国5県(鳥取・島根・岡山・広島・山口)を中心に、全国 47 都道府県への対応を準備中 (データ生成の手順は `docs/nationwide_design.md`)
+- 最新バージョン: **α0.9.9-unified** (APK SHA-256 先頭12桁 `a173c8243123`)。経路探索の高速化 (Contraction Hierarchies)、県またぎ、地図と検索の品質改善、データの取り込みなど。詳しくは [VERSIONS.md](VERSIONS.md)
+- 配布: APK とデータは、まだ公開していない (データは APK に含まれず、事前に端末へ入れる)
+- ビルド台帳: [VERSIONS.md](VERSIONS.md)。公開リポジトリの履歴は開発側と別のハッシュで、対応は [docs/public_repository_20261114.md](docs/public_repository_20261114.md)
 
 ---
 
