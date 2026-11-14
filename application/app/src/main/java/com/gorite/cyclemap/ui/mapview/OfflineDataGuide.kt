@@ -21,9 +21,6 @@ data class OfflineDataGuide(
     val hasInstallSteps: Boolean,
 )
 
-/** 現在対応している県。ここに無い県では、導入手順ではなく「対応外」を案内する。 */
-val SUPPORTED_PREFECTURE_LABELS: List<String> = listOf("山口県", "広島県", "岡山県", "島根県", "鳥取県")
-
 /**
  * @param prefectureName 現在地の県名 (判定できなければ null)
  * @param pmtilesFileName その県のタイルのファイル名 (例: `hiroshima.pmtiles`)。対応外の県は null
@@ -38,8 +35,8 @@ fun buildOfflineDataGuide(
         val label = prefectureName ?: "この地域"
         return OfflineDataGuide(
             title = "この地域のデータはまだありません",
-            summary = "${label}は、まだ地図データに対応していません。" +
-                "対応しているのは ${SUPPORTED_PREFECTURE_LABELS.joinToString("・")} です。",
+            summary = "${label}は、対応する地域として判定できませんでした。" +
+                "対応しているのは日本国内の 47 都道府県です。",
             requiredFiles = emptyList(),
             steps = emptyList(),
             folderPath = folderPath,

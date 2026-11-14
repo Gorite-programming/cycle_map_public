@@ -251,6 +251,9 @@ private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (status.isEmpty()) {
+                Text("端末にデータが入っている県はまだありません", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+            }
             status.forEach { st ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),

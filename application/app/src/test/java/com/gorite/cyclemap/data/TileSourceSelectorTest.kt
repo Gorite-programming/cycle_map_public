@@ -50,10 +50,17 @@ class TileSourceSelectorTest {
     }
 
     @Test
-    fun unmappedCoordinatesReturnUnavailable() {
+    fun everyPrefectureHasTileName() {
+        assertEquals(47, TileSourceSelector.SUPPORTED_PMTILES.size)
         // 札幌駅
         val sapporo = TileSourceSelector.select(43.0687, 141.3508)
-        assertTrue(sapporo is TileSourceSelection.Unavailable)
+        assertTrue(sapporo is TileSourceSelection.Available)
+        assertEquals("hokkaido.pmtiles", (sapporo as TileSourceSelection.Available).fileName)
+    }
+
+    @Test
+    fun outsideJapanReturnsUnavailable() {
+        assertTrue(TileSourceSelector.select(30.0, 135.0) is TileSourceSelection.Unavailable)
     }
 
     @Test

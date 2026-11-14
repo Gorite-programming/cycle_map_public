@@ -14,7 +14,7 @@ data class PrefectureDataStatus(
     val isEmpty: Boolean get() = !hasRouting && !hasSearch && !hasVectorMap
 }
 
-/** ルート探索・施設検索・ベクター地図の 3 種が、対応県ごとにそろっているかを調べる (ファイル確認のみで軽い)。 */
+/** ルート探索・施設検索・ベクター地図の 3 種が、端末にある県ごとにそろっているかを調べる (ファイル確認のみで軽い)。何も入っていない県は載せない。 */
 internal fun offlineDataStatus(dataDir: File): List<PrefectureDataStatus> {
     val order = RoutingGraphSelector.SUPPORTED_FILES.keys
     return order.mapNotNull { id ->
@@ -26,5 +26,5 @@ internal fun offlineDataStatus(dataDir: File): List<PrefectureDataStatus> {
         val tiles = TileSourceSelector.SUPPORTED_PMTILES[id]
             ?.let { TileSourceSelector.resolveTileFile(dataDir, it) } != null
         PrefectureDataStatus(id, pref.name, graph, search, tiles)
-    }
+    }.filterNot { it.isEmpty }
 }

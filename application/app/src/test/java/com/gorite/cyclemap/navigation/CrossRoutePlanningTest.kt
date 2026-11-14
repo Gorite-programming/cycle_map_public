@@ -29,4 +29,17 @@ class CrossRoutePlanningTest {
         assertEquals(300.0, merged.distanceMeters, 0.0)
         assertEquals(270.0, merged.cost, 0.0)
     }
+
+    @Test fun plansFourPrefectureChainFromYamaguchiToHyogoOverAllPrefectures() {
+        val centers = com.gorite.cyclemap.data.PrefectureData.ALL.associate { pref ->
+            val b = pref.bounds
+            pref.name to CrossGeoPoint((b.latNorth + b.latSouth) / 2.0, (b.lonEast + b.lonWest) / 2.0)
+        }
+        val available = setOf("山口県", "広島県", "岡山県", "兵庫県", "島根県", "鳥取県")
+        val chains = planPrefectureChains("山口県", "兵庫県", available, centers)
+        assertEquals(listOf("山口県", "広島県", "岡山県", "兵庫県"), chains.first())
+        // 途中の県にデータが無ければ (広島県なし) 島根・鳥取経由に回る
+        val viaSanin = planPrefectureChains("山口県", "兵庫県", available - "広島県", centers)
+        assertEquals(listOf("山口県", "島根県", "鳥取県", "兵庫県"), viaSanin.first())
+    }
 }

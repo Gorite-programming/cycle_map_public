@@ -191,7 +191,9 @@ internal fun MapGraphEffects(
         if (isSwitchingGraph) return@LaunchedEffect
         when (val sel = RoutingGraphSelector.select(loc.latitude, loc.longitude)) {
             is RoutingGraphSelection.Available -> {
-                if (sel.fileName != loadedGraphName && (mappedGraph != null || loadedGraphName == null)) {
+                // 端末にグラフの無い県では先読みしない (経路を求めたときに「ルートデータが入っていません」と案内する)
+                val onDevice = RoutingGraphSelector.resolveGraphFiles(cycleMapDataDir(context), sel.fileName) != null
+                if (onDevice && sel.fileName != loadedGraphName && (mappedGraph != null || loadedGraphName == null)) {
                     if (BuildConfig.DEBUG) {
                         Log.i(
                             "CycleMapRoute",

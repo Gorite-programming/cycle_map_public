@@ -30,10 +30,16 @@ class SearchDbSelectionTest {
     }
 
     @Test
-    fun unsupportedPrefecture_isUnavailable() {
+    fun everyPrefecture_hasSearchDbName() {
+        assertEquals(47, SearchDbSelector.SUPPORTED_FILES.size)
         val sel = SearchDbSelector.select(43.0687, 141.3508)
-        assertTrue(sel is SearchDbSelection.Unavailable)
-        assertEquals("北海道", (sel as SearchDbSelection.Unavailable).prefectureName)
+        assertTrue(sel is SearchDbSelection.Available)
+        assertEquals("Hokkaido.search.db", (sel as SearchDbSelection.Available).fileName)
+    }
+
+    @Test
+    fun outsideJapan_isUnavailable() {
+        assertTrue(SearchDbSelector.select(30.0, 135.0) is SearchDbSelection.Unavailable)
     }
 
     @Test

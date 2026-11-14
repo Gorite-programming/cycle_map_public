@@ -21,20 +21,17 @@ sealed interface RoutingGraphSelection {
  */
 object RoutingGraphSelector {
     /**
-     * 配置済みの県グラフ (県ID → ファイル名)。
-     * ファイル命名は生成パイプライン由来で一貫しないため (Hiroshima.graph に対し yamaguchi.graph)、
-     * 推測せず対応表に固定する。県追加時は実ファイル名で1行追加する。
+     * 県グラフの名前 (県ID → ファイル名)。47 県すべてを `<Romaji>.graph` (パイプラインの出力名) で引く。
+     * 山口だけは既配備の `yamaguchi.graph` を先頭候補にする (`resolveGraphFiles` が大文字小文字を補う)。
+     * ここに載っていても端末にファイルがあるとは限らない。実在は呼び出し側が `resolveGraphFiles` で確かめる。
      */
-    internal val SUPPORTED_FILES = mapOf(
-        "tokyo" to "Tokyo.graph",
-        "aichi" to "Aichi.graph",
-        "osaka" to "Osaka.graph",
-        "yamaguchi" to "yamaguchi.graph",
-        "hiroshima" to "Hiroshima.graph",
-        "okayama" to "Okayama.graph",
-        "shimane" to "Shimane.graph",
-        "tottori" to "Tottori.graph",
-    )
+    internal val SUPPORTED_FILES: Map<String, String> = PrefectureData.ALL.associate { pref ->
+        pref.id to if (pref.id == "yamaguchi") "yamaguchi.graph" else "${pref.id.replaceFirstChar { it.uppercase() }}.graph"
+    }
+
+    /** 県名 (例: 岡山県) → グラフのファイル名。県またぎ経路の計画で使う。 */
+    fun graphFileNameForPrefectureName(prefectureName: String): String? =
+        PrefectureData.ALL.firstOrNull { it.name == prefectureName }?.let { SUPPORTED_FILES[it.id] }
 
     fun select(latitude: Double, longitude: Double): RoutingGraphSelection {
         val name = findPrefectureName(latitude, longitude)
@@ -108,20 +105,13 @@ sealed interface SearchDbSelection {
  */
 object SearchDbSelector {
     /**
-     * 配置済みの県別検索DB (県ID → ファイル名)。
-     * yamaguchi は既配備の search.db (山口県内容) をそのまま使う。
-     * hiroshima はパイプライン命名 (Hiroshima.search.db) に従う。県追加時は実ファイル名で1行追加する。
+     * 県別検索DBの名前 (県ID → ファイル名)。47 県すべてを `<Romaji>.search.db` で引く。
+     * yamaguchi は既配備の search.db (山口県内容) を先頭候補にする (`resolveDbFile` が Yamaguchi.search.db も探す)。
+     * ファイルの実在は呼び出し側が `resolveDbFile` で確かめる。
      */
-    internal val SUPPORTED_FILES = mapOf(
-        "tokyo" to "Tokyo.search.db",
-        "aichi" to "Aichi.search.db",
-        "osaka" to "Osaka.search.db",
-        "yamaguchi" to "search.db",
-        "hiroshima" to "Hiroshima.search.db",
-        "okayama" to "Okayama.search.db",
-        "shimane" to "Shimane.search.db",
-        "tottori" to "Tottori.search.db",
-    )
+    internal val SUPPORTED_FILES: Map<String, String> = PrefectureData.ALL.associate { pref ->
+        pref.id to if (pref.id == "yamaguchi") "search.db" else "${pref.id.replaceFirstChar { it.uppercase() }}.search.db"
+    }
 
     fun select(latitude: Double, longitude: Double): SearchDbSelection {
         val name = findPrefectureName(latitude, longitude)
@@ -191,16 +181,8 @@ sealed interface TileSourceSelection {
  * 県判定は既存 findPrefectureName を再利用。
  */
 object TileSourceSelector {
-    internal val SUPPORTED_PMTILES = mapOf(
-        "tokyo" to "tokyo.pmtiles",
-        "aichi" to "aichi.pmtiles",
-        "osaka" to "osaka.pmtiles",
-        "yamaguchi" to "yamaguchi.pmtiles",
-        "hiroshima" to "hiroshima.pmtiles",  // 旧名 Hiroshima_osm.pmtiles は resolveTileFile の互換候補で解決する
-        "okayama" to "okayama.pmtiles",
-        "shimane" to "shimane.pmtiles",
-        "tottori" to "tottori.pmtiles"
-    )
+    /** 県ID → `<id>.pmtiles` (47 県)。旧名 Hiroshima_osm.pmtiles などは resolveTileFile の互換候補で解決する。 */
+    internal val SUPPORTED_PMTILES: Map<String, String> = PrefectureData.ALL.associate { it.id to "${it.id}.pmtiles" }
 
     fun select(latitude: Double, longitude: Double): TileSourceSelection {
         val name = findPrefectureName(latitude, longitude)

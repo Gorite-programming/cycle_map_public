@@ -22,12 +22,12 @@ class OfflineDataGuideTest {
     }
 
     @Test
-    fun unsupportedPrefecture_explainsSupportedRegionsWithoutSteps() {
-        val guide = buildOfflineDataGuide("愛媛県", null, folder)
+    fun unresolvedRegion_explainsScopeWithoutSteps() {
+        val guide = buildOfflineDataGuide("沖合", null, folder)
         assertFalse(guide.hasInstallSteps)
         assertTrue(guide.requiredFiles.isEmpty())
-        assertTrue(guide.summary.contains("愛媛県"))
-        SUPPORTED_PREFECTURE_LABELS.forEach { assertTrue(guide.summary.contains(it)) }
+        assertTrue(guide.summary.contains("沖合"))
+        assertTrue(guide.summary.contains("47 都道府県"))
     }
 
     @Test

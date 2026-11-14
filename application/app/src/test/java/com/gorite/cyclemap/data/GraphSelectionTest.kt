@@ -33,11 +33,29 @@ class GraphSelectionTest {
     }
 
     @Test
-    fun unsupportedPrefecture_isUnavailable() {
-        // 札幌駅: 県判定はできるが対応グラフが無い → 他県流用せず明示失敗。
+    fun everyPrefecture_hasGraphFileName() {
+        // 47 県すべてが <Romaji>.graph を引く (山口だけ既配備の yamaguchi.graph)。実在は resolveGraphFiles で確かめる。
+        assertEquals(47, RoutingGraphSelector.SUPPORTED_FILES.size)
+        PrefectureData.ALL.forEach { pref ->
+            val expected = if (pref.id == "yamaguchi") "yamaguchi.graph" else pref.id.replaceFirstChar { it.uppercase() } + ".graph"
+            assertEquals(expected, RoutingGraphSelector.SUPPORTED_FILES[pref.id])
+        }
+        assertEquals("Hyogo.graph", RoutingGraphSelector.graphFileNameForPrefectureName("兵庫県"))
+        assertNull(RoutingGraphSelector.graphFileNameForPrefectureName("火星県"))
+    }
+
+    @Test
+    fun sapporo_selectsHokkaidoGraphName_evenWithoutFileOnDevice() {
+        // 札幌駅: 県は判定でき、ファイル名も決まる。端末に無いときの扱いは呼び出し側 (resolveGraphFiles が null)。
         val sel = RoutingGraphSelector.select(43.0687, 141.3508)
-        assertTrue(sel is RoutingGraphSelection.Unavailable)
-        assertEquals("北海道", (sel as RoutingGraphSelection.Unavailable).prefectureName)
+        assertTrue(sel is RoutingGraphSelection.Available)
+        assertEquals("Hokkaido.graph", (sel as RoutingGraphSelection.Available).fileName)
+        val empty = java.nio.file.Files.createTempDirectory("graph_empty").toFile()
+        try {
+            assertNull(RoutingGraphSelector.resolveGraphFiles(empty, sel.fileName))
+        } finally {
+            empty.deleteRecursively()
+        }
     }
 
     @Test

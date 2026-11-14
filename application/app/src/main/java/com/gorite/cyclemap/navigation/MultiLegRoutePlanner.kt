@@ -39,15 +39,12 @@ internal fun calculateMultiLegCrossRoute(
     val prefectures = stops.map { findPrefectureName(it.latitude, it.longitude) }
     if (prefectures.zipWithNext().none { classifyLeg(it.first, it.second) != CrossLegKind.SAME }) return null
     val dataDir = cycleMapDataDir(context)
-    val supported = listOf("山口県", "島根県", "広島県", "岡山県", "鳥取県")
-    val namesByPref: Map<String, String> = mapOf(
-        "山口県" to "yamaguchi.graph", "島根県" to "Shimane.graph", "広島県" to "Hiroshima.graph",
-        "岡山県" to "Okayama.graph", "鳥取県" to "Tottori.graph",
-    )
+    // 47 県すべてを候補にし、端末にグラフのある県だけを経路のチェーンに使う。
+    val namesByPref: Map<String, String> = PrefectureData.ALL.associate { it.name to RoutingGraphSelector.SUPPORTED_FILES.getValue(it.id) }
     val available = namesByPref.filterValues { RoutingGraphSelector.resolveGraphFiles(dataDir, it) != null }.keys
-    val centers = supported.associateWith { name ->
-        val b = PrefectureData.ALL.first { it.name == name }.bounds
-        CrossGeoPoint((b.latNorth + b.latSouth) / 2.0, (b.lonEast + b.lonWest) / 2.0)
+    val centers = PrefectureData.ALL.associate { pref ->
+        val b = pref.bounds
+        pref.name to CrossGeoPoint((b.latNorth + b.latSouth) / 2.0, (b.lonEast + b.lonWest) / 2.0)
     }
     val routeParts = ArrayList<CrossRoutePathPart>()
     val instructionParts = ArrayList<CrossInstructionPart>()
