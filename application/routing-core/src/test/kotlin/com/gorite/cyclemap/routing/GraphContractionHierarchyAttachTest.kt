@@ -170,15 +170,16 @@ class GraphContractionHierarchyAttachTest {
             // ノード数の不一致
             graphFile.writeText("graph A")
             assertEquals(ChLoadResult.Status.MISMATCH, loadContractionHierarchy(graphFile, graph.nodeCount + 1).status)
-            // 壊れたファイル
-            chFile.writeText("garbage")
-            assertEquals(ChLoadResult.Status.ERROR, loadContractionHierarchy(graphFile, graph.nodeCount).status)
-            chFile.delete()
+            // Use a separate path so this also works while Windows still maps the valid CH.
+            val corruptGraph = File(dir, "Corrupt.graph").apply { writeText("graph A"); deleteOnExit() }
+            File(dir, "Corrupt.graph.ch").apply { writeText("garbage"); deleteOnExit() }
+            assertEquals(ChLoadResult.Status.ERROR, loadContractionHierarchy(corruptGraph, graph.nodeCount).status)
             // 小文字名のフォールバック
-            val lower = File(dir, "hiroshima.graph.ch").apply { deleteOnExit() }
+            val mixedCaseGraph = File(dir, "Osaka.graph")
+            val lower = File(dir, "osaka.graph.ch").apply { deleteOnExit() }
             ch.write(lower)
-            val found = findContractionHierarchyFile(graphFile)
-            assertTrue(found != null && found.name.lowercase() == "hiroshima.graph.ch")
+            val found = findContractionHierarchyFile(mixedCaseGraph)
+            assertTrue(found != null && found.canonicalFile == lower.canonicalFile)
             lower.delete()
         }
     }

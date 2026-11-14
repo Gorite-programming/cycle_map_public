@@ -176,7 +176,7 @@ internal fun DestinationSearchDialog(
         if (trimmed.length < 2 && selectedCategory == SearchCategory.ALL) {
             results = emptyList()
             message = when {
-                unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません (対応は中国5県)"
+                unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
                 searchDb.isFile -> null
                 else -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             }
@@ -222,7 +222,7 @@ internal fun DestinationSearchDialog(
         val ranked = found
         results = ranked
         message = when {
-            unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません (対応は中国5県)"
+            unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
             !searchDb.isFile -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             ranked.isEmpty() -> "該当する目的地がありません"
             else -> null

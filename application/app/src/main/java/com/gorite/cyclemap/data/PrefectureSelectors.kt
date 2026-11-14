@@ -26,6 +26,9 @@ object RoutingGraphSelector {
      * 推測せず対応表に固定する。県追加時は実ファイル名で1行追加する。
      */
     internal val SUPPORTED_FILES = mapOf(
+        "tokyo" to "Tokyo.graph",
+        "aichi" to "Aichi.graph",
+        "osaka" to "Osaka.graph",
         "yamaguchi" to "yamaguchi.graph",
         "hiroshima" to "Hiroshima.graph",
         "okayama" to "Okayama.graph",
@@ -110,6 +113,9 @@ object SearchDbSelector {
      * hiroshima はパイプライン命名 (Hiroshima.search.db) に従う。県追加時は実ファイル名で1行追加する。
      */
     internal val SUPPORTED_FILES = mapOf(
+        "tokyo" to "Tokyo.search.db",
+        "aichi" to "Aichi.search.db",
+        "osaka" to "Osaka.search.db",
         "yamaguchi" to "search.db",
         "hiroshima" to "Hiroshima.search.db",
         "okayama" to "Okayama.search.db",
@@ -186,6 +192,9 @@ sealed interface TileSourceSelection {
  */
 object TileSourceSelector {
     internal val SUPPORTED_PMTILES = mapOf(
+        "tokyo" to "tokyo.pmtiles",
+        "aichi" to "aichi.pmtiles",
+        "osaka" to "osaka.pmtiles",
         "yamaguchi" to "yamaguchi.pmtiles",
         "hiroshima" to "hiroshima.pmtiles",  // 旧名 Hiroshima_osm.pmtiles は resolveTileFile の互換候補で解決する
         "okayama" to "okayama.pmtiles",

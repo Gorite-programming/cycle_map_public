@@ -273,13 +273,17 @@ class SearchDbReverseGeocoder(
 
 /**
  * 緯度経度を含む都道府県名を返す。
- * bboxに複数県が一致した場合 (県境重複帯) は行政界ポリゴン (ChugokuBoundaries) で
- * 包含判定する。ポリゴン無し・いずれにも含まれない場合は従来の最狭bboxへフォールバック。
+ * 東京・愛知・大阪は島嶼を含む行政界で判定する。
+ * その他の県では bbox が重なった場合に中国地方の行政界を参照し、最狭 bbox を候補とする。
  * 見つからなければ null。
  */
 fun findPrefectureName(latitude: Double, longitude: Double): String? {
+    PrefectureBoundaries.findMetroPrefecture(latitude, longitude)?.let { id ->
+        return PrefectureData.ALL.firstOrNull { it.id == id }?.name
+    }
     val matches = PrefectureData.ALL.filter { pref ->
-        latitude <= pref.bounds.latNorth && latitude >= pref.bounds.latSouth &&
+        !PrefectureBoundaries.hasMetroBoundary(pref.id) &&
+            latitude <= pref.bounds.latNorth && latitude >= pref.bounds.latSouth &&
             longitude <= pref.bounds.lonEast && longitude >= pref.bounds.lonWest
     }
     if (matches.size <= 1) return matches.firstOrNull()?.name
@@ -287,7 +291,7 @@ fun findPrefectureName(latitude: Double, longitude: Double): String? {
         (pref.bounds.latNorth - pref.bounds.latSouth) * (pref.bounds.lonEast - pref.bounds.lonWest)
     }
     for (pref in byArea) {
-        if (ChugokuBoundaries.contains(pref.id, latitude, longitude)) return pref.name
+        if (PrefectureBoundaries.contains(pref.id, latitude, longitude)) return pref.name
     }
     return byArea.firstOrNull()?.name
 }

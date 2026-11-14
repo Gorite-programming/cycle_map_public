@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * 県別グラフ選択 (RoutingGraphSelector) の検証。
- * 座標は実測値 (広島駅・山口市役所・東京駅)。他県グラフの使い回しはしない。
+ * 座標は実測値 (広島駅・山口市役所・札幌駅)。他県グラフの使い回しはしない。
  */
 class GraphSelectionTest {
 
@@ -34,10 +34,10 @@ class GraphSelectionTest {
 
     @Test
     fun unsupportedPrefecture_isUnavailable() {
-        // 東京駅: 県判定はできるが対応グラフが無い → 他県流用せず明示失敗。
-        val sel = RoutingGraphSelector.select(35.6812, 139.7671)
+        // 札幌駅: 県判定はできるが対応グラフが無い → 他県流用せず明示失敗。
+        val sel = RoutingGraphSelector.select(43.0687, 141.3508)
         assertTrue(sel is RoutingGraphSelection.Unavailable)
-        assertEquals("東京都", (sel as RoutingGraphSelection.Unavailable).prefectureName)
+        assertEquals("北海道", (sel as RoutingGraphSelection.Unavailable).prefectureName)
     }
 
     @Test

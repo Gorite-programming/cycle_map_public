@@ -95,7 +95,7 @@ internal fun PrefectureListDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別で、現在は中国 5 県のみ対応。
+                // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別途配置する。
                 Text(
                     "県をタップすると、その県の地図タイルを保存できます (ルート探索・検索データは含みません)。",
                     style = MaterialTheme.typography.bodySmall,
@@ -199,7 +199,7 @@ private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("ルート探索・施設検索・地図データ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(
-                "対応は中国5県です。このデータはアプリ内では取得できず、PCで作成して端末へ転送します。入っていない県では、ルート探索と施設検索が使えません。",
+                "ルート探索・施設検索・ベクター地図のデータは、PCから端末へ転送します。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

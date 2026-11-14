@@ -51,9 +51,9 @@ class TileSourceSelectorTest {
 
     @Test
     fun unmappedCoordinatesReturnUnavailable() {
-        // Tokyo coordinates (not in Chugoku region)
-        val tokyo = TileSourceSelector.select(35.68, 139.76)
-        assertTrue(tokyo is TileSourceSelection.Unavailable)
+        // 札幌駅
+        val sapporo = TileSourceSelector.select(43.0687, 141.3508)
+        assertTrue(sapporo is TileSourceSelection.Unavailable)
     }
 
     @Test
@@ -80,10 +80,10 @@ class TileSourceSelectorTest {
             File(tempDir, "hiroshima.pmtiles").writeText("Hiroshima tiles")
 
             val missingYamaguchi = TileSourceSelector.resolveTileForLocation(tempDir, 34.185, 131.471)
-            val unsupportedTokyo = TileSourceSelector.resolveTileForLocation(tempDir, 35.68, 139.76)
+            val missingTokyo = TileSourceSelector.resolveTileForLocation(tempDir, 35.68, 139.76)
 
             assertEquals(null, missingYamaguchi)
-            assertEquals(null, unsupportedTokyo)
+            assertEquals(null, missingTokyo)
         } finally {
             tempDir.deleteRecursively()
         }

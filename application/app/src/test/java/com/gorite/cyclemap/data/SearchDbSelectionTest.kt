@@ -31,9 +31,9 @@ class SearchDbSelectionTest {
 
     @Test
     fun unsupportedPrefecture_isUnavailable() {
-        val sel = SearchDbSelector.select(35.6812, 139.7671)
+        val sel = SearchDbSelector.select(43.0687, 141.3508)
         assertTrue(sel is SearchDbSelection.Unavailable)
-        assertEquals("東京都", (sel as SearchDbSelection.Unavailable).prefectureName)
+        assertEquals("北海道", (sel as SearchDbSelection.Unavailable).prefectureName)
     }
 
     @Test

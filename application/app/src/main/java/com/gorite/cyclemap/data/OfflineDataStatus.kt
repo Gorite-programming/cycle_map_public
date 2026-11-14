@@ -16,7 +16,7 @@ data class PrefectureDataStatus(
 
 /** ルート探索・施設検索・ベクター地図の 3 種が、対応県ごとにそろっているかを調べる (ファイル確認のみで軽い)。 */
 internal fun offlineDataStatus(dataDir: File): List<PrefectureDataStatus> {
-    val order = listOf("tottori", "shimane", "okayama", "hiroshima", "yamaguchi")
+    val order = RoutingGraphSelector.SUPPORTED_FILES.keys
     return order.mapNotNull { id ->
         val pref = PrefectureData.ALL.firstOrNull { it.id == id } ?: return@mapNotNull null
         val graph = RoutingGraphSelector.SUPPORTED_FILES[id]

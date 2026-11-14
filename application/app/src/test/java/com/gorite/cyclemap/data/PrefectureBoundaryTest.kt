@@ -37,16 +37,37 @@ class PrefectureBoundaryTest {
     }
 
     @Test
-    fun noPolygonData_fallsBackToNarrowest() {
-        // 東京駅: 千葉bboxとも重なるがポリゴン無し → 従来の最狭bbox (東京都)。
-        assertEquals("東京都", findPrefectureName(35.6812, 139.7671))
+    fun outsideJapan_isUnassigned() {
         assertNull(findPrefectureName(30.0, 135.0))
     }
 
     @Test
+    fun metroPrefectures_selectTheirOfflineFiles() {
+        val stations = listOf(
+            Triple(35.6812, 139.7671, "Tokyo"),
+            Triple(35.1709, 136.8815, "Aichi"),
+            Triple(34.7025, 135.4959, "Osaka"),
+            Triple(27.0944, 142.1917, "Tokyo"), // 小笠原・父島
+        )
+        for ((lat, lon, name) in stations) {
+            val graph = RoutingGraphSelector.select(lat, lon) as RoutingGraphSelection.Available
+            val search = SearchDbSelector.select(lat, lon) as SearchDbSelection.Available
+            val tile = TileSourceSelector.select(lat, lon) as TileSourceSelection.Available
+            assertEquals("$name.graph", graph.fileName)
+            assertEquals("$name.search.db", search.fileName)
+            assertEquals("${name.lowercase()}.pmtiles", tile.fileName)
+        }
+    }
+
+    @Test
+    fun adjacentCity_isNotMisidentifiedAsTokyo() {
+        assertEquals("千葉県", findPrefectureName(35.7282, 139.9080)) // 市川駅
+    }
+
+    @Test
     fun boundaries_unknownIdIsFalse() {
-        assertFalse(ChugokuBoundaries.contains("tokyo", 35.6812, 139.7671))
-        assertTrue(ChugokuBoundaries.contains("hiroshima", 34.4856, 133.3625))
-        assertFalse(ChugokuBoundaries.contains("okayama", 34.4856, 133.3625))
+        assertFalse(PrefectureBoundaries.contains("hokkaido", 43.0687, 141.3508))
+        assertTrue(PrefectureBoundaries.contains("hiroshima", 34.4856, 133.3625))
+        assertFalse(PrefectureBoundaries.contains("okayama", 34.4856, 133.3625))
     }
 }
