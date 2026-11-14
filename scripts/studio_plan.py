@@ -34,6 +34,9 @@ STEPS = [
 ]
 STEP_KEYS = [k for k, _, _ in STEPS]
 
+# 同じ lock のジョブを同時に走らせてよい数。標高タイルの取得 (国土地理院) は少数に絞り、adb は 1 台に 1 つ
+LOCK_LIMITS = {"dem": 3, "adb": 1}
+
 PROFILES = {
     "eco": "省電力 (CPU の 1/4、メモリ控えめ。ほかの作業をしながら)",
     "balanced": "バランス (CPU の 1/2)",
@@ -55,19 +58,40 @@ def resources() -> Dict[str, float]:
     return {"cpu": cpu, "ram_total_gb": round(total, 1), "ram_avail_gb": round(avail, 1), "disk_free_gb": round(free_disk, 1)}
 
 
+def size_hint(name: str) -> float:
+    """県の大きさの目安 (標高タイル・ノード数の多さ)。境界ポリゴンの面積。shapely が無ければ境界ファイルの大きさ。"""
+    path = ROOT / "boundaries" / ("%s.geojson" % name)
+    try:
+        import json as _json
+        from shapely.geometry import shape
+        from shapely.validation import make_valid
+        feats = _json.loads(path.read_text(encoding="utf-8"))["features"]
+        return float(sum(make_valid(shape(f["geometry"])).area for f in feats))
+    except Exception:
+        try:
+            return float(path.stat().st_size)
+        except OSError:
+            return 0.0
+
+
+def order_by_size(prefs: Iterable[str]) -> List[str]:
+    """小さい県から並べる。大きい県 (北海道など) が標高取得などの順番待ちの先頭を塞ぎ、他の県が始められなくなるのを防ぐ。"""
+    return sorted(dict.fromkeys(prefs), key=lambda n: (size_hint(n), n))
+
+
 def profile_budget(profile: str, res: Optional[Dict[str, float]] = None) -> Dict[str, float]:
     """プロファイルごとの CPU 枠・メモリ枠・各ジョブの既定値。"""
     res = res or resources()
     cpu, avail = int(res["cpu"]), float(res["ram_avail_gb"])
     if profile == "eco":
         return {"cpu": max(2, cpu // 4), "mem_gb": round(max(3.0, min(6.0, avail * 0.4)), 1),
-                "graph_heap_gb": 2.0, "ch_heap_gb": 3.0, "terrain_workers": max(1, cpu // 8)}
+                "graph_heap_gb": 1.5, "ch_heap_gb": 2.5, "terrain_workers": max(1, cpu // 8)}
     if profile == "balanced":
         return {"cpu": max(2, cpu // 2), "mem_gb": round(max(4.0, avail * 0.6), 1),
-                "graph_heap_gb": 3.0, "ch_heap_gb": 4.0, "terrain_workers": max(2, cpu // 4)}
+                "graph_heap_gb": 2.0, "ch_heap_gb": 3.0, "terrain_workers": max(2, cpu // 4)}
     # full: OS とブラウザの分だけ残す
     return {"cpu": cpu, "mem_gb": round(max(4.0, avail - 2.5), 1),
-            "graph_heap_gb": 3.0, "ch_heap_gb": 4.0, "terrain_workers": max(2, cpu // 2)}
+            "graph_heap_gb": 2.0, "ch_heap_gb": 3.0, "terrain_workers": max(2, cpu // 2)}
 
 
 def osmium_dir() -> Optional[str]:
@@ -100,13 +124,22 @@ def existing(name: str) -> Dict[str, bool]:
 
 
 def make_tasks(prefs: Iterable[str], steps: Iterable[str], *, budget: Dict[str, float], force: bool = False,
-               grade: bool = True, package: str = "com.gorite.cyclemap.test") -> List[Task]:
-    """選択した県 × 作る物 から、依存つきのジョブ一覧を作る。"""
+               grade: bool = True, package: str = "com.gorite.cyclemap.test", order: str = "size",
+               skip_existing: bool = True, exists=None) -> List[Task]:
+    """選んだ県 × 作る物 から、依存つきのジョブ一覧を作る。
+
+    - `skip_existing` (既定): 成果物がすでにある県・工程は、ジョブにしない (`force` のときは全部作り直す)。
+      標高タイルも、グラフか地形をその県で作るときだけ取る。ZIP がある県のために標高を取らない。
+    - `order="size"`: 小さい県から並べる。
+    """
     prefs = [p for p in dict.fromkeys(prefs)]
     steps = set(steps)
     unknown = [p for p in prefs if p not in BY_NAME]
     if unknown:
         raise ValueError("未知の県: %s" % unknown)
+    if order == "size":
+        prefs = order_by_size(prefs)
+    exists = exists or existing
     py = sys.executable
     f = ["--force"] if force else []
     workers = int(budget.get("terrain_workers", 2))
@@ -116,42 +149,55 @@ def make_tasks(prefs: Iterable[str], steps: Iterable[str], *, budget: Dict[str, 
         tasks.append(t)
         return t
 
-    # 標高タイルは辺の勾配 (「おすすめ」の坂道の罰則) を作るために、グラフより先に要る。取得は同時に 1 つだけ
-    need_dem = "terrain" in steps or ("graph" in steps and grade)
-    if need_dem:
-        for p in prefs:
-            add(Task("dem:" + p, "%s 標高タイルの取得" % p, "dem", [py, "scripts/build_terrain.py", "--only", p, "--dem-only"],
-                     pref=p, cpu=1, overhead_gb=0.4, lock="dem"))
+    # 県ごとに、実際に作る工程を決める
+    todo: Dict[str, set] = {}
+    for p in prefs:
+        have = exists(p) if skip_existing and not force else {}
+        want = set()
+        if "graph" in steps and not have.get("graph"):
+            want.add("graph")
+        if "tiles" in steps and not have.get("tiles"):
+            want.add("tiles")
+        if "terrain" in steps and not have.get("terrain"):
+            want.add("terrain")
+        if "ch" in steps and ("graph" in want or not have.get("ch")):   # グラフを作り直すなら CH も
+            want.add("ch")
+        todo[p] = want
+
+    # 標高タイルは、辺の勾配 (「おすすめ」の坂道の罰則) のためにグラフより先に要る。取得は少数ずつ (lock)
+    dem_prefs = [p for p in prefs if "terrain" in todo[p] or ("graph" in todo[p] and grade)]
+    for p in dem_prefs:
+        add(Task("dem:" + p, "%s 標高タイルの取得" % p, "dem", [py, "scripts/build_terrain.py", "--only", p, "--dem-only"],
+                 pref=p, cpu=1, overhead_gb=0.4, lock="dem"))
     # タイルは先に (ネットワーク待ちを他の工程と重ねる)。グラフは最新のタイルが置かれた後に作る
     # (build_prefectures が sandbox/ の古いタイルを packages/ に置くのは、packages/ に無いか古いときだけ)
     for p in prefs:
-        if "tiles" in steps:
+        if "tiles" in todo[p]:
             add(Task("tiles:" + p, "%s 地図タイル" % p, "tiles", [py, "scripts/build_tiles.py", "--only", p] + f,
                      pref=p, cpu=1, overhead_gb=0.4))
     graph_ids: List[str] = []
     for p in prefs:
-        if "graph" in steps:
-            deps = (["dem:" + p] if grade else []) + (["tiles:" + p] if "tiles" in steps else [])
+        if "graph" in todo[p]:
+            deps = (["dem:" + p] if grade else []) + (["tiles:" + p] if "tiles" in todo[p] else [])
             add(Task("graph:" + p, "%s 経路グラフ + ZIP" % p, "graph",
                      [py, "build_prefectures.py", "--only", p, "--heap", "{heap}"] + f,
-                     pref=p, deps=deps, cpu=2, overhead_gb=1.5, heap_gb=budget.get("graph_heap_gb", 3.0), heap_max_gb=12.0))
+                     pref=p, deps=deps, cpu=2, overhead_gb=1.0, heap_gb=budget.get("graph_heap_gb", 2.0), heap_max_gb=12.0))
             graph_ids.append("graph:" + p)
     for p in prefs:
-        if "terrain" in steps:
+        if "terrain" in todo[p]:
             add(Task("terrain:" + p, "%s 地形 (等高線・陰影)" % p, "terrain",
                      [py, "scripts/build_terrain.py", "--only", p, "--workers", str(workers)] + f,
                      pref=p, deps=["dem:" + p], cpu=workers, overhead_gb=1.0 + 0.4 * workers))
     for p in prefs:
-        if "ch" in steps:
+        if "ch" in todo[p]:
             add(Task("ch:" + p, "%s CH" % p, "ch", [py, "scripts/build_ch.py", "--only", p, "--heap", "{heap}"] + f,
                      pref=p, deps=(["graph:" + p] if "graph:" + p in graph_ids else []), cpu=1, overhead_gb=1.2,
-                     heap_gb=budget.get("ch_heap_gb", 4.0), heap_max_gb=12.0))
+                     heap_gb=budget.get("ch_heap_gb", 3.0), heap_max_gb=12.0))
     portals_id = ""
     if "portals" in steps and prefs:
         portals_id = "portals"
-        deps = list(graph_ids)
         add(Task("portals", "県またぎの通り口", "portals", [py, "scripts/build_portals.py", "--only", *prefs, "--heap", "{heap}"] + f,
-                 deps=deps, cpu=2, overhead_gb=1.0, heap_gb=2.0, heap_max_gb=8.0))
+                 deps=list(graph_ids), cpu=2, overhead_gb=1.0, heap_gb=2.0, heap_max_gb=8.0))
     if "push" in steps:
         bash = find_bash() or "bash"
         for p in prefs:
@@ -175,6 +221,7 @@ def write_plan(tasks: List[Task], budget: Dict[str, float], name: str = "") -> P
         "name": name,
         "budget": {"cpu": int(budget["cpu"]), "mem_gb": float(budget["mem_gb"])},
         "env": env,
+        "lock_limits": LOCK_LIMITS,
         "tasks": [{k: v for k, v in t.__dict__.items()} for t in tasks],
     }
     path = run_dir / "plan.json"

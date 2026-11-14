@@ -7,7 +7,7 @@ GUI を閉じても止まらず、状態は `<run_dir>/status.json`、各ジョ�
 - ジョブは依存 (`deps`) を持つ。依存が失敗したジョブは skipped になる。
 - CPU 枠・メモリ枠 (GB) に収まる限り、依存の済んだジョブを同時に走らせる。1 つだけで枠を超えるジョブは、
   他に何も走っていないときに走らせる (デッドロックしない)。
-- `lock` が同じジョブは同時に走らせない (adb への転送、標高タイルの取得など)。
+- `lock` が同じジョブは、`lock_limits` の数 (既定 1) までしか同時に走らせない (adb への転送は 1、標高タイルの取得は 3 など)。
 - JVM を使うジョブ (`heap_gb` > 0) は、ログに OutOfMemoryError があれば、ヒープを倍にして自動で再実行する
   (上限 `heap_max_gb`)。最初は小さめのヒープで多数を並列に走らせ、足りない県だけ増やすための仕組み。
 - `<run_dir>/STOP` というファイルができたら、走っているジョブをすべて (子プロセスごと) 止めて終わる。
@@ -92,7 +92,8 @@ def default_spawn(task: Task, log_file, env: Dict[str, str]):
 
 class Scheduler:
     def __init__(self, tasks: List[Task], cpu: int, mem_gb: float, run_dir: Path, poll: float = 0.5,
-                 spawn: Callable = default_spawn, base_env: Optional[Dict[str, str]] = None):
+                 spawn: Callable = default_spawn, base_env: Optional[Dict[str, str]] = None,
+                 lock_limits: Optional[Dict[str, int]] = None):
         ids = [t.id for t in tasks]
         if len(set(ids)) != len(ids):
             raise ValueError("ジョブ ID が重複しています")
@@ -103,6 +104,7 @@ class Scheduler:
                 raise ValueError("%s: 未知の依存 %s" % (t.id, missing))
         self.tasks = tasks
         self.by_id = {t.id: t for t in tasks}
+        self.lock_limits = dict(lock_limits or {})
         self.cpu = max(1, int(cpu))
         self.mem_gb = float(mem_gb)
         self.run_dir = Path(run_dir)
@@ -124,7 +126,10 @@ class Scheduler:
         return sum(self.by_id[i].mem_gb for i in self.procs)
 
     def _locked(self, lock: str) -> bool:
-        return bool(lock) and any(self.by_id[i].lock == lock for i in self.procs)
+        if not lock:
+            return False
+        running = sum(1 for i in self.procs if self.by_id[i].lock == lock)
+        return running >= self.lock_limits.get(lock, 1)
 
     def _fits(self, t: Task) -> bool:
         if not self.procs:
@@ -258,7 +263,8 @@ def load_plan(path: Path) -> Scheduler:
     tasks = [Task(**{k: v for k, v in t.items() if k in fields}) for t in plan["tasks"]]
     budget = plan.get("budget", {})
     return Scheduler(tasks, budget.get("cpu", os.cpu_count() or 4), budget.get("mem_gb", 8.0),
-                     Path(path).parent, base_env={**os.environ, **plan.get("env", {})})
+                     Path(path).parent, base_env={**os.environ, **plan.get("env", {})},
+                     lock_limits=plan.get("lock_limits"))
 
 
 def main() -> int:

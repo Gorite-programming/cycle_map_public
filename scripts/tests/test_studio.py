@@ -148,6 +148,14 @@ def test_stop_flag_kills_running_and_skips_pending(tmp_path):
     assert tasks[0].status == "stopped" and tasks[1].status == "skipped"
 
 
+def test_lock_limit_allows_that_many_at_once(tmp_path):
+    tasks = [Task("t%d" % i, "t", "x", py(SLEEP), lock="dem") for i in range(3)]
+    sch = Scheduler(tasks, cpu=8, mem_gb=8, run_dir=tmp_path, poll=0.05, lock_limits={"dem": 2})
+    sch.run()
+    concurrent = max(sum(1 for o in tasks if o.started <= t.started < o.ended) for t in tasks)
+    assert concurrent == 2
+
+
 def test_unknown_dependency_and_duplicate_ids_are_rejected(tmp_path):
     with pytest.raises(ValueError):
         Scheduler([Task("a", "a", "x", py("pass"), deps=["zzz"])], 2, 4, tmp_path)
@@ -165,7 +173,7 @@ def ids(tasks):
 
 
 def test_plan_dependencies_for_all_steps():
-    tasks = studio_plan.make_tasks(["Kagawa", "Okinawa"], studio_plan.STEP_KEYS, budget=BUDGET)
+    tasks = studio_plan.make_tasks(["Kagawa", "Okinawa"], studio_plan.STEP_KEYS, budget=BUDGET, skip_existing=False)
     by = {t.id: t for t in tasks}
     assert by["graph:Kagawa"].deps == ["dem:Kagawa", "tiles:Kagawa"]   # 勾配のため標高タイルが先、最新のタイルも先
     assert by["tiles:Kagawa"].deps == []
@@ -182,9 +190,9 @@ def test_plan_dependencies_for_all_steps():
 
 
 def test_plan_without_grade_skips_dem_for_graph_only():
-    tasks = studio_plan.make_tasks(["Kagawa"], ["graph"], budget=BUDGET, grade=False)
+    tasks = studio_plan.make_tasks(["Kagawa"], ["graph"], budget=BUDGET, grade=False, skip_existing=False)
     assert ids(tasks) == ["graph:Kagawa"] and tasks[0].deps == []
-    with_grade = studio_plan.make_tasks(["Kagawa"], ["graph"], budget=BUDGET, grade=True)
+    with_grade = studio_plan.make_tasks(["Kagawa"], ["graph"], budget=BUDGET, grade=True, skip_existing=False)
     assert ids(with_grade) == ["dem:Kagawa", "graph:Kagawa"]
     assert with_grade[1].deps == ["dem:Kagawa"]
 
@@ -198,10 +206,19 @@ def test_plan_force_and_heap_placeholders():
     assert by["ch:Kagawa"].heap_gb == 4.0 and by["tiles:Kagawa"].heap_gb == 0
 
 
+def test_plan_orders_small_prefectures_first():
+    order = studio_plan.order_by_size(["Hokkaido", "Kagawa", "Nagano", "Osaka"])
+    assert order[0] == "Kagawa" and order[-1] == "Hokkaido"
+    tasks = studio_plan.make_tasks(["Hokkaido", "Kagawa"], ["tiles"], budget=BUDGET, skip_existing=False)
+    assert ids(tasks) == ["tiles:Kagawa", "tiles:Hokkaido"]
+    given = studio_plan.make_tasks(["Hokkaido", "Kagawa"], ["tiles"], budget=BUDGET, order="given", skip_existing=False)
+    assert ids(given) == ["tiles:Hokkaido", "tiles:Kagawa"]
+
+
 def test_plan_rejects_unknown_prefecture_and_dedupes():
     with pytest.raises(ValueError):
         studio_plan.make_tasks(["Atlantis"], ["graph"], budget=BUDGET)
-    tasks = studio_plan.make_tasks(["Kagawa", "Kagawa"], ["tiles"], budget=BUDGET)
+    tasks = studio_plan.make_tasks(["Kagawa", "Kagawa"], ["tiles"], budget=BUDGET, skip_existing=False)
     assert ids(tasks) == ["tiles:Kagawa"]
 
 
@@ -216,8 +233,41 @@ def test_profiles_scale_with_the_machine():
 
 def test_write_plan_roundtrips_into_a_scheduler(tmp_path, monkeypatch):
     monkeypatch.setattr(studio_plan, "STUDIO_DIR", tmp_path)
-    tasks = studio_plan.make_tasks(["Kagawa"], ["graph", "tiles"], budget=BUDGET)
+    tasks = studio_plan.make_tasks(["Kagawa"], ["graph", "tiles"], budget=BUDGET, skip_existing=False)
     path = studio_plan.write_plan(tasks, BUDGET, "test")
     sch = load_plan(path)
     assert [t.id for t in sch.tasks] == ids(tasks)
     assert sch.cpu == 16 and sch.mem_gb == 12.0
+
+
+def fake_exists(**have):
+    def f(name):
+        base = {"search_db": True, "graph": False, "tiles": False, "terrain": False, "ch": False}
+        base.update(have.get(name, {}))
+        return base
+    return f
+
+
+def test_existing_outputs_are_left_out_of_the_plan():
+    steps = ["graph", "tiles", "terrain", "ch"]
+    done = {"graph": True, "tiles": True, "terrain": True, "ch": True}
+    exists = fake_exists(Kagawa=done, Tokushima={"graph": True, "tiles": True, "ch": True})  # Tokushima は地形だけ未生成
+    tasks = studio_plan.make_tasks(["Kagawa", "Tokushima", "Okinawa"], steps, budget=BUDGET, exists=exists)
+    assert not any(t.pref == "Kagawa" for t in tasks)                        # 何も要らない
+    assert set(ids([t for t in tasks if t.pref == "Tokushima"])) == {"dem:Tokushima", "terrain:Tokushima"}
+    assert {"dem:Okinawa", "tiles:Okinawa", "graph:Okinawa", "terrain:Okinawa", "ch:Okinawa"} <= set(ids(tasks))
+
+
+def test_rebuilding_the_graph_rebuilds_its_ch_even_if_one_exists():
+    exists = fake_exists(Kagawa={"graph": False, "tiles": True, "terrain": True, "ch": True})
+    tasks = studio_plan.make_tasks(["Kagawa"], ["graph", "ch"], budget=BUDGET, exists=exists)
+    assert ids(tasks) == ["dem:Kagawa", "graph:Kagawa", "ch:Kagawa"]
+    # グラフが既にあり、CH だけ無いなら CH だけ
+    exists = fake_exists(Kagawa={"graph": True, "ch": False})
+    assert ids(studio_plan.make_tasks(["Kagawa"], ["graph", "ch"], budget=BUDGET, exists=exists)) == ["ch:Kagawa"]
+
+
+def test_force_ignores_existing_outputs():
+    exists = fake_exists(Kagawa={"graph": True, "tiles": True, "terrain": True, "ch": True})
+    tasks = studio_plan.make_tasks(["Kagawa"], ["graph", "tiles", "ch"], budget=BUDGET, exists=exists, force=True)
+    assert set(ids(tasks)) == {"dem:Kagawa", "tiles:Kagawa", "graph:Kagawa", "ch:Kagawa"}
