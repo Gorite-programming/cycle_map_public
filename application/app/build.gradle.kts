@@ -61,6 +61,13 @@ android {
     }
 
     buildTypes {
+        // 署名鍵の違う端末のアプリを消さずに並べて試す: -Pcyclemap.appIdSuffix=.win (例: Windows の debug 鍵で .test と共存)
+        getByName("debug") {
+            (project.findProperty("cyclemap.appIdSuffix") as String?)?.takeIf { it.isNotBlank() }?.let {
+                applicationIdSuffix = it
+                versionNameSuffix = "-" + it.trimStart('.')
+            }
+        }
         // 検証版: debug と同じ中身を別のアプリ ID で入れる。署名の違う既存のアプリを消さずに並べて試せる
         create("field") {
             initWith(getByName("debug"))

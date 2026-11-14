@@ -85,4 +85,17 @@ class SnapFallbackRoutingTest {
         val outcome = g.routeWithSnapFallback(34.000011, 132.000011, 34.000011, 132.000011, maxStartCandidates = 3, maxGoalCandidates = 2)
         assertTrue(outcome.attempts <= 3 + 1)
     }
+
+    @Test
+    fun wellConnectedSnapSkipsIsolatedNearestNode() {
+        val g = graph(longArrayOf(10, 20, 30, 99), coords, edges)
+        // 最寄りは孤立した 99 (index 3)。3 ノード以上につながる候補 (10-20-30) を選ぶ
+        assertEquals(3, g.nearestNodeIndex(34.000011, 132.000011))
+        val picked = g.nearestWellConnectedNodeIndex(34.000011, 132.000011, minComponentNodes = 3)
+        assertTrue(picked in 0..2)
+        // 孤立していなければ最寄りのまま
+        assertEquals(g.nearestNodeIndex(34.00040, 132.00040), g.nearestWellConnectedNodeIndex(34.00040, 132.00040, minComponentNodes = 3))
+        // 候補がすべて孤立しているときは最寄りを返す (閾値が大きすぎる場合)
+        assertEquals(g.nearestNodeIndex(34.000011, 132.000011), g.nearestWellConnectedNodeIndex(34.000011, 132.000011, minComponentNodes = 100))
+    }
 }

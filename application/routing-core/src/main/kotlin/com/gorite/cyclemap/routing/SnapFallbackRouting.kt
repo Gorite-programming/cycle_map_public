@@ -74,3 +74,51 @@ fun LazyMappedRoadGraph.routeWithSnapFallback(
     }
     return last
 }
+
+/** 県またぎの端点が、これだけのノードにつながっていれば「大きな道路網の一部」とみなす。 */
+const val WELL_CONNECTED_NODES = 5_000
+
+/**
+ * 最寄りのノードから順に、[minComponentNodes] 以上のノードへ広がれる (= 孤立していない) 候補を選ぶ。
+ *
+ * 県またぎの探索は始点・終点のノード番号を先に決めて複数のグラフにまたがって解くため、単独グラフの
+ * [routeWithSnapFallback] のように失敗してから引き直せない。公園・駅前広場などで最寄りが小さな孤立した道だと、
+ * 探索が数ノードで尽きて県またぎ全体が失敗し、県内だけの経路にすり替わっていた (岡山駅付近→姫路で確認)。
+ * 最寄りが孤立していないときは最寄りをそのまま返す (通常の動作・結果は変えない)。
+ * 候補がすべて孤立しているときも最寄りを返す。
+ */
+fun LazyMappedRoadGraph.nearestWellConnectedNodeIndex(
+    latitude: Double,
+    longitude: Double,
+    minComponentNodes: Int = WELL_CONNECTED_NODES,
+    radiusMeters: Double = 400.0,
+    maxCandidates: Int = 24,
+): Int {
+    val candidates = nearestNodeCandidates(latitude, longitude, radiusMeters, maxCandidates)
+    if (candidates.isEmpty()) return -1
+    for (candidate in candidates) {
+        if (reachesAtLeast(candidate, minComponentNodes)) return candidate
+    }
+    return candidates[0]
+}
+
+/** [start] から自転車で通れる辺をたどって、[minNodes] 個以上のノードに届くか (幅優先、届いた時点で打ち切る)。 */
+internal fun LazyMappedRoadGraph.reachesAtLeast(start: Int, minNodes: Int): Boolean {
+    val visited = HashSet<Int>()
+    val queue = ArrayDeque<Int>()
+    visited += start; queue.addLast(start)
+    val cursor = newRoutingEdgeCursor()
+    while (queue.isNotEmpty()) {
+        val current = queue.removeFirst()
+        cursor.reset(current)
+        while (cursor.next()) {
+            val target = cursor.target
+            if (target < 0 || routingEdgeMultiplier(cursor.type, cursor.grade, RoutePreference.RECOMMENDED, RouteCostMode.BICYCLE).isNaN()) continue
+            if (visited.add(target)) {
+                if (visited.size >= minNodes) return true
+                queue.addLast(target)
+            }
+        }
+    }
+    return visited.size >= minNodes
+}

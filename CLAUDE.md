@@ -97,6 +97,7 @@ Build release APKs only from a clean HEAD (a `-dirty` APK is for dev checks only
 Claude が設計・分割・検証を行い、実装とテスト実行を Codex に委譲する。指示文 (背景 / 触ってよいファイル / 守ること / 受け入れ条件 / 実行するテスト) を `work/codex/` に書き、`scripts/delegate_codex.sh <指示文>` で渡す (`--readonly` で読み取り専用、ログは `work/codex/*.log`)。Codex は同じ作業ツリーで動くが commit / push / adb / 履歴を壊す git 操作は禁止。Claude は返ってきた diff を読み、テストを自分でも実行してから commit する。実機検証は Claude が必要と判断したときだけ行う。
 
 ## 検証の道具 (debug ビルドのみ)
+- **Windows の debug 鍵は端末の既存アプリと署名が合わない** (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)。アンインストールすると端末のデータが消えるので、`./gradlew :app:assembleDebug -Pcyclemap.appIdSuffix=.win` で別パッケージ (`com.gorite.cyclemap.test.win`) として入れ、`adb shell cp` で端末内の `.test` のデータ置き場からコピーする。回帰は `CYCLEMAP_PACKAGE_NAME=com.gorite.cyclemap.test.win scripts/device_regression.sh` (検証用ブロードキャストの action 名は `com.gorite.cyclemap.test.*` のまま)。新規インストールでは位置情報の権限が無く SIMLOC が効かないので、`adb shell pm grant <pkg> android.permission.ACCESS_FINE_LOCATION` で付ける。Git Bash で adb のパスを渡すときは `MSYS_NO_PATHCONV=1`、Gradle の JAVA_HOME は Windows 形式 (`C:\Program Files\...`) で渡す (`MSYS_NO_PATHCONV=1` と併用しない)。
 
 - カメラ移動: `adb shell am broadcast -a com.gorite.cyclemap.test.CAMERA -p com.gorite.cyclemap.test --ed lat <緯度> --ed lon <経度> --ed zoom <z>`
 - 模擬位置 (案内・リルート確認。端末設定は変えない): `adb shell am broadcast -a com.gorite.cyclemap.test.SIMLOC -p com.gorite.cyclemap.test --ed lat <緯度> --ed lon <経度> [--ef speed 5] [--ef bearing 90]`

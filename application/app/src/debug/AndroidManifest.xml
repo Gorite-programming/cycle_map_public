@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- debug ビルド専用: 検証ハーネス (VerificationReceiver) を呼べるのは同じ署名のアプリと adb だけ -->
-    <permission android:name="com.gorite.cyclemap.test.permission.VERIFY"
+    <permission android:name="${applicationId}.permission.VERIFY"
         android:protectionLevel="signature" />
 
     <application>
@@ -31,7 +31,7 @@
         <receiver
             android:name=".verify.VerificationReceiver"
             android:exported="true"
-            android:permission="com.gorite.cyclemap.test.permission.VERIFY">
+            android:permission="${applicationId}.permission.VERIFY">
             <intent-filter>
                 <action android:name="com.gorite.cyclemap.test.VERIFY" />
             </intent-filter>

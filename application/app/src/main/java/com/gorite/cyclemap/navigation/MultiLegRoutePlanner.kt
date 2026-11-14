@@ -159,10 +159,10 @@ internal fun calculateMultiLegCrossRoute(
                 try {
                     val firstPref = chain.first(); val lastPref = chain.last()
                     val endpointSnapStarted = SystemClock.elapsedRealtime()
-                    val startIdx = if (namesByPref[firstPref] == jobGraphName) graphLock.read { jobGraph.nearestNodeIndex(from.latitude, from.longitude) }
-                        else sources.first().open().let { g -> try { g.nearestNodeIndex(from.latitude, from.longitude) } finally { sources.first().close(g) } }
-                    val goalIdx = if (namesByPref[lastPref] == jobGraphName) graphLock.read { jobGraph.nearestNodeIndex(to.latitude, to.longitude) }
-                        else sources.last().open().let { g -> try { g.nearestNodeIndex(to.latitude, to.longitude) } finally { sources.last().close(g) } }
+                    val startIdx = if (namesByPref[firstPref] == jobGraphName) graphLock.read { jobGraph.nearestWellConnectedNodeIndex(from.latitude, from.longitude) }
+                        else sources.first().open().let { g -> try { g.nearestWellConnectedNodeIndex(from.latitude, from.longitude) } finally { sources.first().close(g) } }
+                    val goalIdx = if (namesByPref[lastPref] == jobGraphName) graphLock.read { jobGraph.nearestWellConnectedNodeIndex(to.latitude, to.longitude) }
+                        else sources.last().open().let { g -> try { g.nearestWellConnectedNodeIndex(to.latitude, to.longitude) } finally { sources.last().close(g) } }
                     endpointSnapMs += SystemClock.elapsedRealtime() - endpointSnapStarted
                     if (startIdx < 0 || goalIdx < 0) continue
                     chain.forEachIndexed { i, pref ->
