@@ -144,12 +144,17 @@ def main() -> int:
         return 0
 
     failed = False
+    requested = set(resolve(args.only))
     fingerprints = {}
     for name in sorted({p for pair in pairs for p in pair}):
         zip_path = args.source_dir / ("%s.zip" % name)
         if not zip_path.is_file():
-            print("[%s] ZIP がありません: %s (この県を含む組は作れません)" % (name, zip_path), file=sys.stderr)
-            failed = True
+            # 指定した県に ZIP が無いのは失敗。指定していない県 (全国の組の相手側) が未生成なのは、その組を作れないだけ
+            if name in requested:
+                print("[%s] ZIP がありません: %s (この県を含む組は作れません)" % (name, zip_path), file=sys.stderr)
+                failed = True
+            else:
+                print("[%s] ZIP が無いので、この県との組は省きます" % name)
             continue
         fingerprints[name] = zip_graph_fingerprint(zip_path, name)
 

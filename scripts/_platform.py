@@ -23,7 +23,9 @@ def find_tool(name):
             found = found[:-4] + ".exe"
         return found
     pipeline = ROOT / "sandbox" / "vector_test" / "pipeline"
-    candidates = ([pipeline / f"{name}-win" / f"{name}.exe", pipeline / f"{name}.exe"]
+    # Windows: osmium は conda の環境 (work/osmium-env) に入れている (PATH に無くても見つける)
+    candidates = ([pipeline / f"{name}-win" / f"{name}.exe", pipeline / f"{name}.exe",
+                   ROOT / "work" / "osmium-env" / "Library" / "bin" / f"{name}.exe"]
                   if sys.platform == "win32" else [])
     candidates += [pipeline / name, ROOT / "venv" / "bin" / name]
     for path in candidates:

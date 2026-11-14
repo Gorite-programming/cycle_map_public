@@ -482,7 +482,9 @@ def publish_pmtiles_sidecar(name: str) -> Optional[Path]:
             raise ValueError(f"Invalid PMTiles v3 archive: {source}")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     target = OUTPUT_DIR / PMTILES_FILENAMES[name]
-    if source.resolve() != target.resolve():
+    # build_tiles.py が作った新しいタイルを、sandbox/ に残っている古いタイルで上書きしない
+    already_newer = target.is_file() and target.stat().st_size > 0 and target.stat().st_mtime >= source.stat().st_mtime
+    if source.resolve() != target.resolve() and not already_newer:
         partial = target.with_suffix(target.suffix + ".partial")
         shutil.copy2(source, partial)
         os.replace(partial, target)
@@ -677,6 +679,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="Show selected prefectures without writing or running tools")
     ap.add_argument("--force", action="store_true", help="Rebuild even if final ZIP already exists")
     ap.add_argument("--keep-work", action="store_true", help="Keep intermediate files after success")
+    ap.add_argument("--heap", default=None, help="osm-importer の JVM ヒープ (例: 3g)。既定 6g。大きい県で OutOfMemoryError が出たら増やす")
     ap.add_argument("--no-boundary-download", action="store_true", help="Fail instead of downloading missing boundary GeoJSON")
     ap.add_argument("--legacy-osm-search-db", action="store_true", help="Fallback to legacy OSM-only search DB if integrated DB is missing")
     ap.add_argument("--source-pbf", type=Path, help="OSM PBF to extract the prefectures from (default: japan-latest.osm.pbf). A regional file such as Geofabrik's chugoku-latest works too")
@@ -693,7 +696,9 @@ def main() -> int:
     configure_logging()
 
     # 既定値を上書きする (process() はモジュールの設定値を参照する)
-    global SOURCE_PBF, OUTPUT_DIR, WORK_DIR
+    global SOURCE_PBF, OUTPUT_DIR, WORK_DIR, IMPORTER_JAVA_OPTS
+    if args.heap:
+        IMPORTER_JAVA_OPTS = "-Xmx%s" % args.heap
     if args.source_pbf:
         SOURCE_PBF = args.source_pbf
     if args.output_dir:

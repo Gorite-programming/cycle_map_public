@@ -386,6 +386,8 @@ def main():
     ap.add_argument("--only", nargs="+", help="Prefectures, regions, or all (comma/space separated; default: Chugoku five)")
     ap.add_argument("--force", action="store_true", help="出力があっても作り直す")
     ap.add_argument("--dry-run", action="store_true", help="対象タイル数だけ表示する")
+    ap.add_argument("--dem-only", action="store_true",
+                    help="標高タイル (work/terrain/dem14) の取得だけ行う。osm-importer が辺の勾配を書き込むために先に要る")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="生成の並列数")
     ap.add_argument("--max-tiles", type=int, help="動作確認用: 県の中心付近の z14 タイルをこの枚数だけ使う")
     ap.add_argument("--out", type=Path, default=PACKAGES, help="出力先 (既定: packages/)")
@@ -401,6 +403,9 @@ def main():
             tiles = dem_tiles_for(name, args.max_tiles)
             cached = sum(1 for t in tiles if cache_path(*t).exists())
             print("[%s] z14 標高タイル %d 枚 (取得済み %d 枚)" % (name, len(tiles), cached))
+        elif args.dem_only:
+            print("[%s] 標高タイルの取得のみ" % name, flush=True)
+            download_all(dem_tiles_for(name, args.max_tiles))
         else:
             build_prefecture(name, args.workers, args.force, args.max_tiles, args.out)
     return 0

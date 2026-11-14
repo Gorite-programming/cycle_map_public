@@ -42,7 +42,8 @@
 - `build_prefectures.py`: `osmium extract --polygon <県境> --strategy complete_ways` (複数県は `-c` で一括) → 取り込み → ZIP (5 ファイル: `.search.db` / `.graph` / `.graph.idx` / `manifest.json` / `LICENSE.txt`)。
 - `scripts/`: `build_tiles.py` (Protomaps 公開ビルドから `pmtiles extract`)、`build_terrain.py` (地理院 DEM → 等高線・陰影 PMTiles)、`build_ch.py`、`build_portals.py`、`refresh_data.py` (全体更新、約 1.5 時間)、`push_data.sh` (adb 転送 + SHA-256 検証)、`device_regression.sh` (実機の経路回帰)。47 県の定義は `scripts/prefectures.py` に一本化。Windows / Mac の差は `scripts/_platform.py`。
 - 検索 DB ツール `sandbox/data-tool`: `osmium` (PyOsmium)、`duckdb` (Overture Maps)、`streamlit`、`pykakasi` (読み)、`phonenumbers`、`pytest`。検索 DB は SQLite で、FTS5 が無い端末向けに `places.search_text` の LIKE 検索でも動く。
-- 外部ツール: `osmium` CLI、`pmtiles` CLI。
+- **データ工房** (`scripts/data_studio.py`、Streamlit): 県 × 工程を画面で選び、`studio_engine.py` が CPU・メモリの枠に収まる限り依存の順に並列実行する (`docs/data_studio.md`)。
+- 外部ツール: `osmium` CLI (Windows は `work/osmium-env` の conda 版)、`pmtiles` CLI。
 
 ## 5. データ形式と置き場
 
