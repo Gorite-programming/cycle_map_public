@@ -6,10 +6,14 @@
         android:protectionLevel="signature" />
 
     <application>
+        <!-- CAMERA / SIMLOC は android.permission.DUMP を持つ送り手だけが呼べる。adb (shell) は持っているが、
+             端末に入っているふつうのアプリは持てないので、ほかのアプリから偽の現在地を流し込めない。
+             debug ビルドを普段使いの端末に入れているため、検証用でも受け口は閉じておく -->
         <!-- debug ビルド専用: adb から地図カメラを動かす検証フック (リリースには含まれない) -->
         <receiver
             android:name=".verify.CameraDebugReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="com.gorite.cyclemap.test.CAMERA" />
             </intent-filter>
@@ -17,7 +21,8 @@
         <!-- debug ビルド専用: adb から模擬の現在地を流す検証フック (案内・リルートの確認用。リリースには含まれない) -->
         <receiver
             android:name=".verify.LocationDebugReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="com.gorite.cyclemap.test.SIMLOC" />
             </intent-filter>

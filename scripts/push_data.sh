@@ -141,15 +141,29 @@ if [[ "$DRY_RUN" == false ]]; then
     DEVICE_ID=$(echo "$DEVICE_LIST" | head -n1 | awk '{print $1}')
     echo "Connected device: ${DEVICE_ID}"
 
+    # The data directory must be created by the app itself. A directory created by adb is owned by
+    # the shell user (mode 2770) and the app can neither read nor write it (seen on a fresh emulator).
+    # So when it is missing, start the app once and let it create the directory.
+    if ! adb shell "[ -d '${DEST_DIR}' ]"; then
+        echo "Data directory is missing; starting ${PACKAGE_NAME} once so that the app creates it..."
+        adb shell monkey -p "${PACKAGE_NAME}" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            adb shell "[ -d '${DEST_DIR}' ]" && break
+            sleep 1
+        done
+    fi
+
     echo "Stopping ${PACKAGE_NAME} to safely write files..."
     adb shell am force-stop "${PACKAGE_NAME}" || true
 
-    echo "Ensuring remote directory exists: ${DEST_DIR}"
-    adb shell mkdir -p "${DEST_DIR}"
-    # A directory created by adb is owned by the shell user (mode 2770), and the
-    # app cannot read it when the app had not created it first (seen on a fresh
-    # emulator). Open it up so the app can list and read the pushed files.
-    adb shell chmod 777 "${DEST_DIR}" || true
+    if ! adb shell "[ -d '${DEST_DIR}' ]"; then
+        # Last resort (the app is not installed yet, or could not start): create it from adb and open
+        # the mode, because the app is not in the directory's group. Other apps still cannot reach
+        # Android/data/<package> on Android 11+.
+        echo "WARNING: the app did not create ${DEST_DIR}; creating it from adb with mode 777." >&2
+        adb shell mkdir -p "${DEST_DIR}"
+        adb shell chmod 777 "${DEST_DIR}" || true
+    fi
 fi
 
 TMP_STAGE="${ROOT_DIR}/work/_push_stage"

@@ -5,6 +5,10 @@ on:
     branches: [main, 'auto/**']
   pull_request:
 
+# このワークフローはテストを回すだけ。リポジトリへの書き込み権限は渡さない
+permissions:
+  contents: read
+
 jobs:
   kotlin:
     runs-on: ubuntu-latest
