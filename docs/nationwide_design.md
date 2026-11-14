@@ -70,3 +70,8 @@
 - JVM での計測 (`ChainHeapBench.kt`、アプリと同じ構成 = 先頭県は借用ジョブ用グラフ、他は都度 open/close。実機から pull したデータ): 広島>岡山>兵庫は -Xmx512m でピーク約 488MB → 約 230MB に低下し、-Xmx320m でも通る (修正前は 320m で OOM)。山口>広島>岡山>兵庫は -Xmx320m で通る。4 県の 3 OD を A\* のチェーン (-Xmx1500m) と突き合わせ、コスト・距離が一致。
 - 実機 (Galaxy S26、`.win` ビルド、`HYOGO=1 HYOGO4=1 device_regression.sh --timeout 150`): 全 7 ケース OK。広島>岡山>兵庫は `CROSS_ENGINE ch graphs=3`、251.6km (A\* 時と同距離)、約 6.2 秒 (A\* だった 14.5〜17 秒から短縮。1 回目の計測値)。山口>広島>岡山>兵庫は `CROSS_ENGINE ch graphs=4`、425.2km、約 6.9 秒で、OOM せず成功 (修正前は到達不能)。
 - 残り: 端末に `Okayama__Hyogo.portals` が無く、その段は ID 照合 (`CHAIN_PORTALS stage=1 source=match`)。`scripts/build_portals.py` で作って配備すれば、さらに短くなる見込み。
+
+**7-3 (c) 県判定ポリゴンの 47 県化 (2026-11-14)**
+- ポリゴンを Kotlin の定数 (8 県分で 250KB、1 定数 64KB の上限もある) から、`application/app/src/main/resources/prefecture_polygons/<id>.txt` (47 県、計 1.5MB) に移した。`PrefectureBoundaries` は必要な県のファイルだけを遅延で読む。生成は `scripts/build_prefecture_polygons.py` (`--check` で `boundaries/` との一致を確認)。既存 8 県の中身は数値として完全一致。
+- テスト: 47 県の県庁所在地がそれぞれ自県に解決する、外接矩形が重なる県境 (姫路、川崎、生駒、淀川区)、`scripts/tests` に生成物と `boundaries/` の一致確認。実機 (`.win` パッケージ) でも、赤穂 (兵庫)・福山 (広島)・京都・札幌・那覇が正しい県に解決。
+- 判定ロジック (`findPrefectureName`) は変更なし。外接矩形が 1 県だけの点はポリゴンを見ずにその県とする (海上など)。

@@ -37,6 +37,7 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work     # add --fo
 venv/bin/python application/osm-importer/build_search_db.py --bbox none <in.osm.pbf> <out.search.db>
 venv/bin/python scripts/build_terrain.py --only Yamaguchi             # contours + hillshade from GSI DEM -> packages/<name>.{contours,hillshade}.pmtiles (downloads ~2k tiles/prefecture, cached in work/terrain)
 python3 scripts/patch_map_style.py                                    # re-apply CycleMap's own tweaks to the bundled Protomaps styles (idempotent)
+python3 scripts/build_prefecture_polygons.py                          # boundaries/*.geojson -> app/src/main/resources/prefecture_polygons/ (47-prefecture polygons for prefecture detection; --check to verify)
 python3 scripts/build_tiles.py --only Yamaguchi                       # vector tiles -> packages/<name>.pmtiles (needs network; pmtiles CLI in sandbox/vector_test/pipeline/)
 python3 scripts/build_ch.py --only Yamaguchi                          # Contraction Hierarchies sidecar -> packages/<name>.graph.ch (skips when the graph fingerprint matches; --force)
 python3 scripts/build_portals.py                                      # cross-prefecture portals -> packages/<A>__<B>.portals (rerun after any graph rebuild)
