@@ -75,3 +75,10 @@
 - ポリゴンを Kotlin の定数 (8 県分で 250KB、1 定数 64KB の上限もある) から、`application/app/src/main/resources/prefecture_polygons/<id>.txt` (47 県、計 1.5MB) に移した。`PrefectureBoundaries` は必要な県のファイルだけを遅延で読む。生成は `scripts/build_prefecture_polygons.py` (`--check` で `boundaries/` との一致を確認)。既存 8 県の中身は数値として完全一致。
 - テスト: 47 県の県庁所在地がそれぞれ自県に解決する、外接矩形が重なる県境 (姫路、川崎、生駒、淀川区)、`scripts/tests` に生成物と `boundaries/` の一致確認。実機 (`.win` パッケージ) でも、赤穂 (兵庫)・福山 (広島)・京都・札幌・那覇が正しい県に解決。
 - 判定ロジック (`findPrefectureName`) は変更なし。外接矩形が 1 県だけの点はポリゴンを見ずにその県とする (海上など)。
+
+**沖縄の試験生成 (2026-11-14、離島・広域県の 1 県目)**
+- 症状: 沖縄では「沖縄県の地図データが入っていません」と出ていた (端末に検索 DB しか無く、グラフ・タイルが未生成だった)。
+- 生成: `build_prefectures.py --only Okinawa` が 45 秒 (ノード 63 万・辺 134 万、graph 61.8MiB、ZIP 39.5MiB)。`build_tiles.py` は外接矩形が広い (東経 122.9〜131.4、北緯 24.0〜27.9) が、1 回の `pmtiles extract` で 32.6MB・約 8 秒。`build_ch.py` は 28 秒・51MB。離島で外接矩形が広くても、タイル取得の分割は要らなかった。
+- 実機 (`.win`): 那覇の地図・施設・住所表示、那覇→名護 63.9km を CH で表示。広島のグラフから沖縄のグラフへの切替も動いた。
+- 注意: Windows の PATH に `osmium` が無い。`work/osmium-env/Library/bin` (conda) を PATH に足して実行する。`build_prefectures.py` は、古い `sandbox/vector_test/data/` のタイルを ZIP 横に置くことがある (沖縄では `build_tiles.py --force` で最新に置き換えた)。
+- 未実施: 沖縄の地形 (等高線・陰影)。北海道・東京 (離島) の試験生成。
