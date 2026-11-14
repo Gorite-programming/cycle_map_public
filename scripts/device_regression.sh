@@ -28,7 +28,7 @@ if [ "${HYOGO:-}" = "1" ]; then
     "3-pref-hyogo|34.39,132.46|34.8164,134.6855"
   )
 fi
-# 山口→姫路 (山口>広島>岡山>兵庫の 4 県)。2026-11-14 時点でヒープ上限 512MB を超えて OOM になる既知の課題 (docs/nationwide_design.md 7-4)。
+# 山口→姫路 (山口>広島>岡山>兵庫の 4 県)。以前はヒープ上限 512MB を超えて OOM になっていた (2026-11-14 に CH の作業配列を段ごとに手放して解消、docs/nationwide_design.md 7 章)。
 if [ "${HYOGO4:-}" = "1" ]; then CASES+=("4-pref-hyogo|34.05,131.0|34.8164,134.6855"); fi
 
 adb get-state >/dev/null 2>&1 || { echo "adb 端末が見つかりません" >&2; exit 2; }

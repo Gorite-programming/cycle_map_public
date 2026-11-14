@@ -123,6 +123,32 @@ class ChainChRoutingTest {
         }
     }
 
+    /** 作業配列を手放しても (次の問い合わせで確保し直すだけで) route / searchMany の結果は変わらない。 */
+    @Test fun releaseWorkspacesKeepsResults() {
+        val rnd = Random(77)
+        val n = 50
+        val ids = (0 until n).map { it.toLong() }
+        val graph = build(Spec(ids.toLongArray(), randomEdges(rnd, ids, 3)), false)
+        val ch = ch(graph)
+        val sources = intArrayOf(3, 11, 29); val costs = doubleArrayOf(0.0, 12.5, 40.0); val targets = IntArray(15) { rnd.nextInt(n) }
+        val manyBefore = ch.searchMany(sources, costs, targets)
+        val routeBefore = ch.route(2, 41, graph)
+        repeat(2) {
+            ch.releaseWorkspaces()
+            val many = ch.searchMany(sources, costs, targets)
+            assertTrue(many.bestCost.contentEquals(manyBefore.bestCost)); assertTrue(many.bestSource.contentEquals(manyBefore.bestSource))
+            ch.releaseWorkspaces()
+            val route = ch.route(2, 41, graph)
+            assertTrue(route.nodeIndices.contentEquals(routeBefore.nodeIndices)); assertEquals(routeBefore.totalCost, route.totalCost, 0.0)
+        }
+        ch.releaseWorkspaces() // 何も確保していない状態で呼んでも安全
+        ch.releaseWorkspaces()
+        // oracle (後ろ向き配列を遅延確保する旧実装) も解放後に動く
+        ch.searchManyDijkstra(sources, costs, targets).let { old ->
+            for (k in targets.indices) assertTrue(old.bestCost[k] == manyBefore.bestCost[k] || costOk(old.bestCost[k], manyBefore.bestCost[k]))
+        }
+    }
+
     @Test fun searchManyUnreachableAndEmpty() {
         val graph = build(Spec(longArrayOf(1, 2, 3), mapOf(1L to listOf(E(2, 10.0, "residential", 0.0)))), false)
         val ch = ch(graph)

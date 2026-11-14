@@ -36,7 +36,11 @@ fun routeAcrossChainCh(
         try { return graphs[i].open().also { if (graphs[i].borrowed) it.clearWorkspaceCache() } }
         finally { graphOpenNanos[i] += System.nanoTime() - started }
     }
-    fun release(i: Int, graph: LazyMappedRoadGraph) { if (!graphs[i].borrowed) graphs[i].close(graph) }
+    // 段を終えたら、借りたグラフでも CH の作業配列 (県単位で数十 MB) を先に手放す。次の県を開くときに同時に載る量を減らす。
+    fun release(i: Int, graph: LazyMappedRoadGraph) {
+        graph.attachedHierarchy?.releaseWorkspaces()
+        if (!graphs[i].borrowed) graphs[i].close(graph)
+    }
     fun emitStages() {
         val sink = stageTimingSink ?: return
         fun emit(name: String, nanos: Long) { sink("CHAIN_STAGE name=$name ms=${nanos / 1_000_000}") }

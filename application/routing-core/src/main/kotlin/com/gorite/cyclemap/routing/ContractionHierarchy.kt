@@ -223,15 +223,24 @@ class ContractionHierarchy private constructor(
     private val channel: FileChannel? = null,
 ) : AutoCloseable {
     val edgeCount: Int get() = store.upCount
-    private val ws = QueryWorkspace(nodeCount)
+    // 作業用の配列はノード数に比例して大きい (県単位で約 60MB と 70MB)。CH 本体は mmap でヒープを使わないので、
+    // これが「CH のヒープ負担」のほぼ全部。使う直前に確保し、[releaseWorkspaces] で手放せるようにする。
+    private var queryWs: QueryWorkspace? = null
 
     /** mmap 版では参照を捨てるだけ (MappedByteBuffer は明示解放できない)。ヒープ版では何もしない。 */
     override fun close() { channel?.close() }
+
+    /**
+     * 探索用の作業配列を手放す (次の問い合わせで確保し直す)。県またぎの経路で、段ごとに使い終わった CH の分を
+     * 先に返し、ほかの県のグラフと同時にヒープへ載る量を減らすために呼ぶ。結果には影響しない。
+     */
+    @Synchronized fun releaseWorkspaces() { queryWs = null; manyWs = null }
 
     @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
         require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
         if (start == goal) return ChRouteResult(intArrayOf(start), 0.0, 0.0)
         val r0 = System.nanoTime(); var settledR = 0
+        val ws = queryWs ?: QueryWorkspace(nodeCount).also { queryWs = it }
         ws.begin(); ws.setF(start, 0.0, -1); ws.setB(goal, 0.0, -1); ws.pushF(start, 0.0); ws.pushB(goal, 0.0)
         var best = Double.POSITIVE_INFINITY; var meet = -1
         while (true) {
@@ -388,8 +397,11 @@ class ContractionHierarchy private constructor(
     @Volatile internal var lastManyStats: String = ""
 
     private class ManyWorkspace(n: Int) {
-        private val genF = IntArray(n); private val genB = IntArray(n); private var gf = 0; private var gb = 0
-        private val cf = DoubleArray(n); private val cb = DoubleArray(n); private val sd = IntArray(n)
+        private val nodeCount = n
+        private val genF = IntArray(n); private var gf = 0; private var gb = 0
+        private val cf = DoubleArray(n); private val sd = IntArray(n)
+        // 後ろ向きの配列は旧実装 (searchManyDijkstra) だけが使う。本番の searchMany では確保しない (12 バイト/ノードの節約)。
+        private var genB: IntArray? = null; private var cb: DoubleArray? = null
         private val qf = Heap(); private val qb = Heap()
         private val genU = IntArray(n); private var gu = 0
         private val genD = IntArray(n); private val cd = DoubleArray(n); private val sdd = IntArray(n)
@@ -419,12 +431,15 @@ class ContractionHierarchy private constructor(
         val poppedCost get() = lastPopped
         private var lastPopped = 0.0
         fun beginForward() { gf++; if (gf == 0) { genF.fill(0); gf = 1 }; qf.clear() }
-        fun beginBackward() { gb++; if (gb == 0) { genB.fill(0); gb = 1 }; qb.clear() }
+        fun beginBackward() {
+            if (genB == null) { genB = IntArray(nodeCount); cb = DoubleArray(nodeCount) }
+            gb++; if (gb == 0) { genB!!.fill(0); gb = 1 }; qb.clear()
+        }
         fun f(v: Int) = if (genF[v] == gf) cf[v] else Double.POSITIVE_INFINITY
-        fun b(v: Int) = if (genB[v] == gb) cb[v] else Double.POSITIVE_INFINITY
+        fun b(v: Int) = if (genB!![v] == gb) cb!![v] else Double.POSITIVE_INFINITY
         fun seed(v: Int) = sd[v]
         fun setF(v: Int, c: Double, seed: Int) { genF[v] = gf; cf[v] = c; sd[v] = seed }
-        fun setB(v: Int, c: Double) { genB[v] = gb; cb[v] = c }
+        fun setB(v: Int, c: Double) { genB!![v] = gb; cb!![v] = c }
         fun pushF(v: Int, c: Double) = qf.add(v, c); fun pushB(v: Int, c: Double) = qb.add(v, c)
         fun emptyF() = qf.size == 0; fun emptyB() = qb.size == 0
         fun popF(): Int { val v = qf.remove(); lastPopped = qf.removed; return v }

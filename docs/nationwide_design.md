@@ -59,7 +59,14 @@
 - 岡山駅付近→姫路 (岡山>兵庫): 90.0km、CH、約 3.9 秒 (初回、グラフ読み込み 0.5 秒を含む)。
 - 広島駅付近→姫路 (広島>岡山>兵庫): 251.6km、約 14.5〜17 秒。**CH ではなく A\* で解いている**。兵庫グラフの CH (約 150MB) を取り付ける際に `OutOfMemoryError` (ヒープ上限 512MB) が出て CH が使えなくなるため。
 - 山口→姫路 (4 県): **OOM で失敗** (`CROSS_PREFECTURE fallback reason=OutOfMemoryError`)。県内だけの探索に落ちて「到達不能」になる。`device_regression.sh` では `HYOGO4=1` のときだけ走らせる (既知の課題)。
-- 兵庫・岡山などグラフが大きい県が増えると、3 県以上のチェーンは同時に開くグラフと CH のヒープで頭打ちになる。次の課題は、チェーンの段ごとにグラフ・CH を開閉して同時に抱える量を減らすこと (または CH の配列をヒープ外 / mmap にすること)。
+- 兵庫・岡山などグラフが大きい県が増えると、3 県以上のチェーンは同時に開くグラフと CH のヒープで頭打ちになった。→ 下の「3 県以上チェーンのヒープ超過 (修正)」で解消。
 
 **見つけて直したバグ**
 - 県またぎの始点・終点を「最寄りのノード」で固定していたため、駅前広場・公園など孤立した小さな道に当たると探索が数ノードで尽き、県またぎ全体が失敗して県内だけの経路 (49km で途切れる) にすり替わっていた。`nearestWellConnectedNodeIndex` (最寄りから順に 5000 ノード以上につながる候補を選ぶ) を `routing-core` に足し、`MultiLegRoutePlanner` の始点・終点に使った。最寄りが孤立していないときの結果は変わらない。
+
+**3 県以上チェーンのヒープ超過 (修正、2026-11-14)**
+- 原因: CH 本体 (`.graph.ch`) は mmap でヒープを使わないが、`ContractionHierarchy` がノード数に比例する作業配列を持っていた。`QueryWorkspace` (32 バイト/ノード) はコンストラクタで即確保、`ManyWorkspace` (48 バイト/ノード) は最初の `searchMany` で確保して CH が生きている間ずっと保持。兵庫 (183 万ノード) で約 59MB + 88MB、「CH 約 150MB」はこれ。常駐する借用ジョブ用グラフの分と重なり、ヒープ上限 512MB に届いていた。
+- 直し (`ContractionHierarchy.kt` / `CrossChainChRouting.kt`): `QueryWorkspace` を `route()` の初回まで確保しない。`ManyWorkspace` の後ろ向き配列 (12 バイト/ノード、旧実装 `searchManyDijkstra` 専用) を必要になるまで確保しない。`releaseWorkspaces()` を足し、チェーンの各段を終えるたびに (借用グラフも含めて) 手放す。コスト定義・CH の結果は変えていない。
+- JVM での計測 (`ChainHeapBench.kt`、アプリと同じ構成 = 先頭県は借用ジョブ用グラフ、他は都度 open/close。実機から pull したデータ): 広島>岡山>兵庫は -Xmx512m でピーク約 488MB → 約 230MB に低下し、-Xmx320m でも通る (修正前は 320m で OOM)。山口>広島>岡山>兵庫は -Xmx320m で通る。4 県の 3 OD を A\* のチェーン (-Xmx1500m) と突き合わせ、コスト・距離が一致。
+- 実機 (Galaxy S26、`.win` ビルド、`HYOGO=1 HYOGO4=1 device_regression.sh --timeout 150`): 全 7 ケース OK。広島>岡山>兵庫は `CROSS_ENGINE ch graphs=3`、251.6km (A\* 時と同距離)、約 6.2 秒 (A\* だった 14.5〜17 秒から短縮。1 回目の計測値)。山口>広島>岡山>兵庫は `CROSS_ENGINE ch graphs=4`、425.2km、約 6.9 秒で、OOM せず成功 (修正前は到達不能)。
+- 残り: 端末に `Okayama__Hyogo.portals` が無く、その段は ID 照合 (`CHAIN_PORTALS stage=1 source=match`)。`scripts/build_portals.py` で作って配備すれば、さらに短くなる見込み。
