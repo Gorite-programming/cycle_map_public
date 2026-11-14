@@ -271,3 +271,50 @@ def test_force_ignores_existing_outputs():
     exists = fake_exists(Kagawa={"graph": True, "tiles": True, "terrain": True, "ch": True})
     tasks = studio_plan.make_tasks(["Kagawa"], ["graph", "tiles", "ch"], budget=BUDGET, exists=exists, force=True)
     assert set(ids(tasks)) == {"dem:Kagawa", "tiles:Kagawa", "graph:Kagawa", "ch:Kagawa"}
+
+
+def test_status_write_survives_a_reader_holding_the_file(tmp_path, monkeypatch):
+    """画面が status.json を開いている間の置き換え失敗 (Windows の PermissionError) でエンジンが落ちない。"""
+    import scripts.studio_engine as eng
+    real = eng.os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] <= 4:
+            raise PermissionError("in use")
+        return real(src, dst)
+
+    monkeypatch.setattr(eng.os, "replace", flaky)
+    _, ok = run([Task("a", "a", "x", py("pass"))], tmp_path)
+    assert ok and calls["n"] > 4
+    assert json.loads((tmp_path / "status.json").read_text(encoding="utf-8"))["finished"] is not None
+
+
+def test_status_write_gives_up_quietly_when_replace_always_fails(tmp_path, monkeypatch):
+    import scripts.studio_engine as eng
+
+    def always(src, dst):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(eng.os, "replace", always)
+    _, ok = run([Task("a", "a", "x", py("pass"))], tmp_path)
+    assert ok        # 状態ファイルが書けなくても、ジョブは完走する
+
+
+def test_unexpected_exception_stops_children(tmp_path):
+    long = Task("long", "long", "x", py("import time; time.sleep(30)"))
+    sch = Scheduler([long], cpu=2, mem_gb=4, run_dir=tmp_path, poll=0.05)
+    calls = {"n": 0}
+    original = sch._reap
+
+    def boom():
+        calls["n"] += 1
+        if calls["n"] > 8:
+            raise RuntimeError("boom")
+        original()
+
+    sch._reap = boom
+    with pytest.raises(RuntimeError):
+        sch.run()
+    assert long.status == "stopped" and not sch.procs

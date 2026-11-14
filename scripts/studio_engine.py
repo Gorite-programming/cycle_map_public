@@ -154,9 +154,20 @@ class Scheduler:
             "used": {"cpu": self.used_cpu(), "mem_gb": round(self.used_mem(), 2)},
             "tasks": [dict(asdict(t), mem_gb=t.mem_gb, log=str(self.log_path(t))) for t in self.tasks],
         }
+        # 画面が status.json を読んでいる最中は、Windows では置き換えが PermissionError になる。少し待って再試行し、
+        # それでもだめなら次の周期に回す (状態の表示は最善努力。これでエンジンを落とさない)
         tmp = self.run_dir / "status.json.tmp"
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, self.run_dir / "status.json")
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            for _ in range(10):
+                try:
+                    os.replace(tmp, self.run_dir / "status.json")
+                    return
+                except PermissionError:
+                    time.sleep(0.05)
+            self._last_write = 0.0
+        except OSError:
+            self._last_write = 0.0
 
     # ---- 実行 ----
     def _start(self, t: Task) -> None:
@@ -242,16 +253,23 @@ class Scheduler:
     def run(self) -> bool:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         stop_flag = self.run_dir / "STOP"
-        while True:
-            if stop_flag.exists():
-                self.stop_all()
-                break
-            self._reap()
-            self._start_ready()
-            self.write_status()
-            if not self.procs and not any(t.status == "pending" for t in self.tasks):
-                break
-            time.sleep(self.poll)
+        try:
+            while True:
+                if stop_flag.exists():
+                    self.stop_all()
+                    break
+                self._reap()
+                self._start_ready()
+                self.write_status()
+                if not self.procs and not any(t.status == "pending" for t in self.tasks):
+                    break
+                time.sleep(self.poll)
+        except BaseException:
+            # 想定外の例外でも、走っているジョブを孤児にしない
+            self.stop_all()
+            self.finished_at = time.time()
+            self.write_status(force=True)
+            raise
         self.finished_at = time.time()
         self.write_status(force=True)
         return all(t.status == "done" for t in self.tasks)
