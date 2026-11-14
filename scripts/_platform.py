@@ -17,6 +17,10 @@ def find_tool(name):
         raise ValueError(f"Unsupported tool: {name}")
     found = shutil.which(name)
     if found:
+        # Windows の shutil.which は PATHEXT 由来の大文字拡張子 (osmium.EXE) を返す。
+        # osmium は argv[0] を小文字の .exe でしか外せず、"osmium.EXE" をサブコマンドと誤認するため、小文字にそろえる。
+        if sys.platform == "win32" and found.endswith(".EXE"):
+            found = found[:-4] + ".exe"
         return found
     pipeline = ROOT / "sandbox" / "vector_test" / "pipeline"
     candidates = ([pipeline / f"{name}-win" / f"{name}.exe", pipeline / f"{name}.exe"]
