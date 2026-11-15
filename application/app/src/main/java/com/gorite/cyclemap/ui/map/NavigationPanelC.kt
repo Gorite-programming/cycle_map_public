@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,8 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -187,72 +186,78 @@ internal fun NavTopBarC(
         shape = RoundedCornerShape(18.dp),
         shadowElevation = 8.dp,
     ) {
-        Row(
-            modifier = Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (isRerouting) p.onReroute.copy(alpha = 0.2f) else p.go),
-                contentAlignment = Alignment.Center,
+        Column {
+            Row(
+                modifier = Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    painter = painterResource(if (isRerouting) R.drawable.ic_lucide_route else turnTypeToDrawableRes(turnType)),
-                    contentDescription = null,
-                    tint = if (isRerouting) p.onReroute else p.goFg,
-                    modifier = Modifier.size(36.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            if (isRerouting) {
-                Text(
-                    text = "ルートを再計算中",
-                    style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = p.onReroute),
-                )
-            } else {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(text = num, style = numStyle(38, p.text, p))
-                        Spacer(Modifier.width(3.dp))
-                        Text(text = unit, style = numStyle(18, p.sub, p), modifier = Modifier.padding(bottom = 3.dp))
-                    }
-                    Text(
-                        text = instructionText,
-                        style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.text),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                Box(
+                    modifier = Modifier
+                        .size(if (isRerouting) 52.dp else 64.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isRerouting) p.onReroute.copy(alpha = 0.2f) else p.go),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(if (isRerouting) R.drawable.ic_lucide_route else turnTypeToDrawableRes(turnType)),
+                        contentDescription = null,
+                        tint = if (isRerouting) p.onReroute else p.goFg,
+                        modifier = Modifier.size(if (isRerouting) 36.dp else 44.dp),
                     )
-                    if (!roadLabel.isNullOrEmpty()) {
+                }
+                Spacer(Modifier.width(12.dp))
+                if (isRerouting) {
+                    Text(
+                        text = "ルートを再計算中",
+                        style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = p.onReroute),
+                    )
+                } else {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(text = num, style = numStyle(46, p.text, p))
+                            Spacer(Modifier.width(3.dp))
+                            Text(text = unit, style = numStyle(20, p.sub, p), modifier = Modifier.padding(bottom = 3.dp))
+                        }
                         Text(
-                            text = roadLabel,
-                            style = TextStyle(fontSize = 12.sp, color = p.sub),
-                            maxLines = 1,
+                            text = instructionText,
+                            style = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = p.text),
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    if (shouldShowLaneGuidance(laneHints, isRerouting)) {
-                        Spacer(Modifier.height(6.dp))
-                        LaneGuidanceChips(laneHints)
-                    }
-                }
-                if (next != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(text = "そのあと", style = TextStyle(fontSize = 11.sp, color = p.sub))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painter = painterResource(turnTypeToDrawableRes(next.turnType)),
-                                contentDescription = null,
-                                tint = p.text,
-                                modifier = Modifier.size(18.dp),
+                        if (!roadLabel.isNullOrEmpty()) {
+                            Text(
+                                text = roadLabel,
+                                style = TextStyle(fontSize = 14.sp, color = p.sub),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.width(2.dp))
-                            val (nn, nu) = splitDistance(next.distanceMeters)
-                            Text(text = nn + nu, style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = p.text))
+                        }
+                        if (shouldShowLaneGuidance(laneHints, isRerouting)) {
+                            Spacer(Modifier.height(6.dp))
+                            LaneGuidanceChips(laneHints)
                         }
                     }
+                }
+            }
+            if (next != null && !isRerouting) {
+                HorizontalDivider(thickness = 1.dp, color = p.sub.copy(alpha = 0.2f))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (p.card.luminance() < 0.5f) p.goFg else p.chip)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(text = "そのあと", style = TextStyle(fontSize = 14.sp, color = p.sub))
+                    Icon(
+                        painter = painterResource(turnTypeToDrawableRes(next.turnType)),
+                        contentDescription = null,
+                        tint = p.text,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    val (nn, nu) = splitDistance(next.distanceMeters)
+                    Text(text = nn + nu, style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, color = p.text))
                 }
             }
         }
@@ -354,53 +359,50 @@ internal fun NavBottomPanelC(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 MetricCard(
-                    label = "速度", modifier = Modifier.weight(1.35f).fillMaxHeight(), palette = p,
+                    label = "速度", modifier = Modifier.weight(1.3f).fillMaxHeight(), palette = p,
                 ) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = data.speedKmh.coerceAtLeast(0.0).roundToInt().toString(),
-                            style = numStyle(76, p.warn, p),
+                            style = numStyle(56, p.warn, p),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(text = "km/h", style = numStyle(18, p.sub, p), modifier = Modifier.padding(bottom = 8.dp))
                     }
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val (rn, ru) = splitRemaining(data.remainingMeters)
-                    MetricCard(label = "残り", modifier = Modifier.fillMaxWidth(), palette = p) {
-                        ValueWithUnit(rn, ru, p)
-                    }
-                    MetricCard(label = "勾配", modifier = Modifier.fillMaxWidth(), palette = p) {
-                        val g = data.gradePct
-                        ValueWithUnit(if (g == null) "--" else String.format("%+.0f", g), "%", p)
-                    }
+                val (rn, ru) = splitRemaining(data.remainingMeters)
+                MetricCard(label = "残り", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
+                    ValueWithUnit(rn, ru, p)
+                }
+                MetricCard(label = "勾配", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
+                    val g = data.gradePct
+                    ValueWithUnit(if (g == null) "--" else String.format("%+.0f", g), "%", p)
                 }
             }
 
             ElevationAheadCard(data = data, palette = p)
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
-                        style = numStyle(20, p.warn, p),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
-                        style = TextStyle(fontSize = 11.sp, color = p.sub),
-                        modifier = Modifier.padding(bottom = 2.dp),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip,
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
+                            style = numStyle(20, p.warn, p),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                            style = TextStyle(fontSize = 11.sp, color = p.sub),
+                            modifier = Modifier.padding(bottom = 2.dp),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
+                    if (batteryPercent != null) BatteryBadge(percent = batteryPercent, color = p.sub)
                 }
-                if (batteryPercent != null) BatteryBadge(percent = batteryPercent, color = p.sub)
                 IconButton(onClick = onToggleMute, modifier = Modifier.size(48.dp)) {
                     Icon(
                         painter = painterResource(if (isMuted) R.drawable.ic_lucide_volume_x else R.drawable.ic_lucide_volume_2),
@@ -409,19 +411,26 @@ internal fun NavBottomPanelC(
                         modifier = Modifier.size(22.dp),
                     )
                 }
-                Box(
+                Surface(
+                    onClick = onStopNavigation,
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(p.stop),
-                    contentAlignment = Alignment.Center,
+                        .height(44.dp)
+                        .widthIn(min = 84.dp)
+                        .semantics { contentDescription = "ナビを終了" },
+                    shape = RoundedCornerShape(22.dp),
+                    color = p.stop,
                 ) {
-                    IconButton(onClick = onStopNavigation, modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    ) {
+                        Text(text = "終了", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.text))
                         Icon(
                             painter = painterResource(R.drawable.ic_lucide_x),
-                            contentDescription = "ナビを終了",
+                            contentDescription = null,
                             tint = p.text,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }

@@ -2,14 +2,14 @@
 # Claude (親) が Antigravity (子, agy CLI / Gemini 4 Hydrogen) に作業を委譲するためのラッパー。
 # 使い方: scripts/delegate_agy.sh [--readonly] [--model <id>] <指示文ファイル | ->
 #   指示文は Markdown。目的 / 触ってよいファイル / 受け入れ条件 / 実行するテスト を書く。
-#   --readonly は plan モード (ファイルを書き換えない)。既定は auto モード。
+#   --readonly は plan モード (ファイルを書き換えない)。既定は accept-edits モード (auto はアカウントによって使えない)。
 # 出力: Antigravity の最終報告を stdout に出し、全文は work/agy/<時刻>.log に残す。
 # 注意: 無人で動かすため --dangerously-skip-permissions で全コマンドを許可している
 #   (2026-11-15 Gorite 承認)。禁止事項は下の前置きでのみ伝わるので、Claude は返ってきた
 #   diff と git status を必ず確かめる。
 set -euo pipefail
 
-MODE="auto"
+MODE="accept-edits"
 MODEL="${AGY_MODEL:-gemini-4-hydrogen-high}"
 while [[ $# -gt 0 ]]; do
   case "$1" in

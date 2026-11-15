@@ -3,11 +3,11 @@ package com.gorite.cyclemap.ui.layout
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -19,16 +19,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun MapDrawerContent(
     selectedMenu: String,
     onClose: () -> Unit,
     onSearchClick: () -> Unit,
+    onSavedClick: () -> Unit,
+    onRecordHistoryClick: () -> Unit,
     onDownloadClick: () -> Unit,
     on3dSimulationClick: () -> Unit = {},
     onLicenseClick: () -> Unit,
@@ -41,14 +45,21 @@ internal fun MapDrawerContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 24.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                "CycleMap",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
+            Column {
+                Text(
+                    "CycleMap",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    BuildConfig.VERSION_NAME,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             IconButton(onClick = onClose) {
                 Icon(
                     painter = painterResource(R.drawable.ic_lucide_x),
@@ -59,93 +70,108 @@ internal fun MapDrawerContent(
         }
         HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-            NavigationDrawerItem(
-                label = { Text("目的地検索") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_search),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
+            DrawerSectionHeader("走る")
+            DrawerMenuItem(
+                label = "目的地検索",
+                iconRes = R.drawable.ic_lucide_search,
                 selected = selectedMenu == "検索",
                 onClick = onSearchClick,
             )
-            NavigationDrawerItem(
-                label = { Text("オフラインデータ") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_download),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
+            DrawerMenuItem(
+                label = "保存済み",
+                // ic_lucide_* に星/ブックマークが存在しないため既存の ic_google_bookmark を使用
+                iconRes = R.drawable.ic_google_bookmark,
+                selected = selectedMenu == "保存済み",
+                onClick = onSavedClick,
+            )
+            DrawerMenuItem(
+                label = "走行記録",
+                iconRes = R.drawable.ic_lucide_history,
+                selected = selectedMenu == "記録",
+                onClick = onRecordHistoryClick,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            DrawerSectionHeader("地図とデータ")
+            DrawerMenuItem(
+                label = "オフラインデータ",
+                iconRes = R.drawable.ic_lucide_download,
                 selected = selectedMenu == "ダウンロード",
                 onClick = onDownloadClick,
             )
-            NavigationDrawerItem(
-                label = { Text("3D地形ビュー") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_mountain),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
+            DrawerMenuItem(
+                label = "3D地形ビュー",
+                iconRes = R.drawable.ic_lucide_mountain,
                 selected = selectedMenu == "3D",
                 onClick = on3dSimulationClick,
             )
-            NavigationDrawerItem(
-                label = { Text("ライセンス") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_scale),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                selected = selectedMenu == "ライセンス",
-                onClick = onLicenseClick,
-            )
-            NavigationDrawerItem(
-                label = { Text("設定") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_settings),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            DrawerSectionHeader("アプリ")
+            DrawerMenuItem(
+                label = "設定",
+                iconRes = R.drawable.ic_lucide_settings,
                 selected = selectedMenu == "設定",
                 onClick = onSettingsClick,
             )
+            DrawerMenuItem(
+                label = "ライセンス",
+                iconRes = R.drawable.ic_lucide_scale,
+                selected = selectedMenu == "ライセンス",
+                onClick = onLicenseClick,
+            )
             if (BuildConfig.DEBUG) {
-                NavigationDrawerItem(
-                    label = { Text("開発者オプション") },
-                    icon = {
-                        Icon(
-                            painterResource(R.drawable.ic_lucide_wrench),
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    },
+                DrawerMenuItem(
+                    label = "開発者オプション",
+                    iconRes = R.drawable.ic_lucide_wrench,
                     selected = selectedMenu == "開発者",
                     onClick = onDeveloperOptionsClick,
                 )
             }
-            NavigationDrawerItem(
-                label = { Text("バージョン情報") },
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_info),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
+            DrawerMenuItem(
+                label = "バージョン情報",
+                iconRes = R.drawable.ic_lucide_info,
                 selected = selectedMenu == "バージョン情報",
                 onClick = onVersionClick,
             )
-            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "地図データ © OpenStreetMap contributors ・ 国土地理院",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp),
+            )
         }
     }
+}
+
+@Composable
+private fun DrawerSectionHeader(title: String) {
+    Text(
+        text = title,
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 28.dp, top = 12.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun DrawerMenuItem(
+    label: String,
+    @DrawableRes iconRes: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    NavigationDrawerItem(
+        label = { Text(label) },
+        icon = {
+            Icon(
+                painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+        selected = selected,
+        onClick = onClick,
+    )
 }

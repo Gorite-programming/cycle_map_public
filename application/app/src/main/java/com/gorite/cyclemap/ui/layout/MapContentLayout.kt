@@ -468,6 +468,8 @@ internal fun MapContentLayout(
                 selectedMenu = selectedMenu,
                 onClose = { isDrawerOpenState.value = false },
                 onSearchClick = { isDrawerOpenState.value = false; onMenuSelect("検索"); onOpenSearch() },
+                onSavedClick = { isDrawerOpenState.value = false; onMenuSelect("保存済み"); onSavedClick() },
+                onRecordHistoryClick = { isDrawerOpenState.value = false; onMenuSelect("記録"); onRecordHistoryClick() },
                 onDownloadClick = { isDrawerOpenState.value = false; onMenuSelect("ダウンロード"); onOpenDownload() },
                 on3dSimulationClick = { isDrawerOpenState.value = false; onMenuSelect("3D"); show3dSimulationState.value = true },
                 onLicenseClick = { isDrawerOpenState.value = false; onMenuSelect("ライセンス"); onOpenLicense() },
