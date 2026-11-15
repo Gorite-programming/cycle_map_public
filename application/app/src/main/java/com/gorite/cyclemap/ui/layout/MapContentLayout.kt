@@ -256,12 +256,19 @@ internal fun MapContentLayout(
                 }
 
                 if (homeVisible) {
+                    StatusBarScrim(
+                        topInset = effectiveTopPadding,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .zIndex(1f),
+                    )
                     // 上: メニューと通知だけ (地図を見る場所なので押すものは置かない)
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .fillMaxWidth()
-                            .padding(top = effectiveTopPadding + 8.dp, start = 12.dp, end = 12.dp),
+                            .padding(top = effectiveTopPadding + 8.dp, start = 12.dp, end = 12.dp)
+                            .zIndex(2f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         com.gorite.cyclemap.ui.map.FloatingCircleButton(

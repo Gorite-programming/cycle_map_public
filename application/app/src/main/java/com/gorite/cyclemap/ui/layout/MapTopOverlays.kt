@@ -88,20 +88,10 @@ internal fun BoxScope.MapTopOverlays(
 
     // 案内中: 地図の地名ラベルがステータスバーの時計・アイコンと重ならないよう、上端に薄い影を敷く
     if (isNavigationActive) {
-        val scrimBase = androidx.compose.material3.MaterialTheme.colorScheme.background
-        androidx.compose.foundation.layout.Box(
+        StatusBarScrim(
+            topInset = systemInsets.calculateTopPadding(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(systemInsets.calculateTopPadding() + 20.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        // ステータスバーの高さまではほぼ不透明に保ち、その下で薄く消す
-                        0f to scrimBase.copy(alpha = 0.92f),
-                        0.6f to scrimBase.copy(alpha = 0.85f),
-                        1f to androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                )
                 .zIndex(1f),
         )
     }
@@ -190,7 +180,9 @@ internal fun BoxScope.MapTopOverlays(
                 eta = null,
                 remainingSeconds = (remaining ?: 0.0) / 4.2,
                 onStopNavigation = onStopNavigation,
-                animationEnabled = effectiveAnimationEnabled
+                animationEnabled = effectiveAnimationEnabled,
+                laneHints = activeLaneHints,
+                isRerouting = isRerouting,
             )
         } else {
             com.gorite.cyclemap.ui.map.NavTopBarC(
@@ -206,6 +198,7 @@ internal fun BoxScope.MapTopOverlays(
                     )
                 } else null,
                 isRerouting = isRerouting,
+                laneHints = activeLaneHints,
             )
         }
     }

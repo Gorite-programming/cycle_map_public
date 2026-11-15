@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -61,7 +62,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.gorite.cyclemap.R
+import com.gorite.cyclemap.contract.LaneInfo
 import com.gorite.cyclemap.contract.TurnType
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import com.gorite.cyclemap.ui.cycling.ElevationSample
 import com.gorite.cyclemap.ui.cycling.GradeAhead
 import com.gorite.cyclemap.ui.cycling.GradeKind
@@ -170,6 +173,7 @@ internal fun NavTopBarC(
     next: NavNextHint?,
     isRerouting: Boolean,
     modifier: Modifier = Modifier,
+    laneHints: List<LaneInfo> = emptyList(),
 ) {
     val p = rememberNavPalette()
     val container = if (isRerouting) p.reroute else p.card
@@ -228,6 +232,10 @@ internal fun NavTopBarC(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    if (shouldShowLaneGuidance(laneHints, isRerouting)) {
+                        Spacer(Modifier.height(6.dp))
+                        LaneGuidanceChips(laneHints)
+                    }
                 }
                 if (next != null) {
                     Spacer(Modifier.width(8.dp))
@@ -245,6 +253,39 @@ internal fun NavTopBarC(
                             Text(text = nn + nu, style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = p.text))
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+internal fun shouldShowLaneGuidance(laneHints: List<LaneInfo>, isRerouting: Boolean): Boolean =
+    laneHints.isNotEmpty() && !isRerouting
+
+@Composable
+internal fun LaneGuidanceChips(laneHints: List<LaneInfo>) {
+    val palette = CycleMapTheme.palette
+    // The light lane palette uses translucent white over the navigation banner.
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(palette.navBanner)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        laneHints.forEach { lane ->
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = if (lane.isRecommended) palette.laneActive else palette.laneInactive,
+                modifier = Modifier.size(26.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(turnTypeToDrawableRes(lane.direction)),
+                        contentDescription = stringResource(R.string.lane_guidance),
+                        tint = if (lane.isRecommended) palette.laneActiveIcon else palette.onNavBanner,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }

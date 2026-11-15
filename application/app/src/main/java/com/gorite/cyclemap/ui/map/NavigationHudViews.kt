@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.contract.EtaInfo
@@ -289,7 +290,9 @@ fun LandscapeNavHudBar(
     remainingSeconds: Double,
     onStopNavigation: () -> Unit,
     animationEnabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    laneHints: List<LaneInfo> = emptyList(),
+    isRerouting: Boolean = false,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -303,7 +306,10 @@ fun LandscapeNavHudBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (currentStep != null) {
                     NextFlowAnimation(
                         animationEnabled = animationEnabled,
@@ -316,12 +322,20 @@ fun LandscapeNavHudBar(
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "${formatDistance(currentStep.distanceToTurnMeters)} ${currentStep.instructionText}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = CycleMapTheme.palette.onNavBanner
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${formatDistance(currentStep.distanceToTurnMeters)} ${currentStep.instructionText}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CycleMapTheme.palette.onNavBanner,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (shouldShowLaneGuidance(laneHints, isRerouting)) {
+                            Spacer(Modifier.height(6.dp))
+                            LaneGuidanceChips(laneHints)
+                        }
+                    }
                 }
             }
 
