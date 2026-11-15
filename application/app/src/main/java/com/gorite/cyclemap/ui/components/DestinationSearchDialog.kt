@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,14 +62,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.FavoriteSpot
@@ -78,6 +82,8 @@ import com.gorite.cyclemap.data.SearchDbSelection
 import com.gorite.cyclemap.data.SearchDbSelector
 import com.gorite.cyclemap.search.GenreDictionary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -230,6 +236,7 @@ internal fun DestinationSearchDialog(
     }
 
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var contentVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -238,11 +245,29 @@ internal fun DestinationSearchDialog(
 
     BackHandler(onBack = onDismiss)
 
-    // 親指で使う検索 (UI 総合版の「肆」)。押すところと読むところを下に寄せる:
-    //   上: 種類の札 / 中: 候補 (いちばん近い・合うものを下に、親指の近くに積む) / 下: 検索窓 (キーボードのすぐ上)
+    // 親指で使う検索。押すところと読むところをすべて下に寄せる:
+    //   上〜中: 候補 (いちばん近い・合うものを下に、親指の近くに積む) / 下: 種類の札 → 並び順 → 検索窓 (キーボードのすぐ上)
     val sortedByDistance = query.trim().length < 2 || isGenericQuery
     val listState = rememberLazyListState()
-    LaunchedEffect(results) { if (results.isNotEmpty()) listState.scrollToItem(0) }
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(results) {
+        if (results.isNotEmpty()) {
+            isProgrammaticScroll = true
+            try {
+                listState.scrollToItem(0)
+            } finally {
+                isProgrammaticScroll = false
+            }
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress && !isProgrammaticScroll }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { keyboardController?.hide() }
+    }
+
+    val quickCategories = remember { SearchCategory.entries.filter { it != SearchCategory.ALL } }
 
     Surface(
         modifier = Modifier
@@ -257,35 +282,6 @@ internal fun DestinationSearchDialog(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // 上: 種類の札 (横に流せる)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SearchCategory.entries.forEach { cat ->
-                    val isSelected = selectedCategory == cat
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (isSelected) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surfaceVariant,
-                        border = if (isSelected) BorderStroke(1.dp, CycleMapTheme.palette.accent) else null,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .clickable { selectedCategory = cat },
-                    ) {
-                        Text(
-                            cat.label,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) CycleMapTheme.palette.onAccentContainer else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-            }
-
             // FTS5非対応時の案内バナー（セッション中1回のみ）
             if (showFts5Notice) {
                 Card(
@@ -339,7 +335,7 @@ internal fun DestinationSearchDialog(
             ) {
                 Box(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                     when {
-                        query.isEmpty() && results.isEmpty() && favorites.isNotEmpty() -> {
+                        query.isEmpty() && selectedCategory == SearchCategory.ALL && results.isEmpty() && favorites.isNotEmpty() -> {
                             LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = true) {
                                 items(favorites, key = { it.id }) { fav ->
                                     FavoriteSpotItemCard(
@@ -356,6 +352,7 @@ internal fun DestinationSearchDialog(
                                             )
                                         },
                                         onRemoveFavorite = { favoritesManager.removeFavorite(fav.id) },
+                                        origin = effectiveLocation,
                                     )
                                 }
                                 item {
@@ -369,21 +366,81 @@ internal fun DestinationSearchDialog(
                                 }
                             }
                         }
-                        query.isEmpty() && results.isEmpty() -> {
+                        query.isEmpty() && selectedCategory == SearchCategory.ALL && results.isEmpty() -> {
                             Column(
-                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(bottom = 12.dp),
                             ) {
-                                Icon(
-                                    painterResource(R.drawable.ic_lucide_search),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(40.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Text(
+                                    text = "近くを探す",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                quickCategories.chunked(4).forEachIndexed { rowIndex, rowCategories ->
+                                    if (rowIndex > 0) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        for (colIndex in 0 until 4) {
+                                            if (colIndex < rowCategories.size) {
+                                                val cat = rowCategories[colIndex]
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(56.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .clickable {
+                                                            selectedCategory = cat
+                                                            keyboardController?.hide()
+                                                        },
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center,
+                                                    ) {
+                                                        cat.iconRes()?.let { iconId ->
+                                                            Icon(
+                                                                painter = painterResource(iconId),
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                                modifier = Modifier.size(20.dp),
+                                                            )
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                        }
+                                                        Text(
+                                                            text = cat.label,
+                                                            fontSize = 12.sp,
+                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    "下の欄に行き先を入れてください",
+                                    text = "例: 広島駅 セブン トイレ",
+                                    fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
                                 )
                             }
                         }
@@ -410,6 +467,8 @@ internal fun DestinationSearchDialog(
                                         } else {
                                             null
                                         },
+                                        // 距離の横に方角 (北東など) を出すための現在地
+                                        origin = effectiveLocation,
                                     )
                                 }
                                 if (results.size > 1) {
@@ -425,6 +484,39 @@ internal fun DestinationSearchDialog(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // 種類の札 (横に流せる・親指の届く下側へ配置)
+            // 文字を入れている間 (種類を選んでいないとき) は隠し、キーボードの上に見える候補を 1 件でも多くする
+            if (query.isEmpty() || selectedCategory != SearchCategory.ALL) Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SearchCategory.entries.forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (isSelected) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (isSelected) BorderStroke(1.dp, CycleMapTheme.palette.accent) else null,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable {
+                                selectedCategory = cat
+                                keyboardController?.hide()
+                            },
+                    ) {
+                        Text(
+                            cat.label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) CycleMapTheme.palette.onAccentContainer else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
                     }
                 }
             }
@@ -537,4 +629,15 @@ internal fun DestinationSearchDialog(
             }
         }
     }
+}
+
+private fun SearchCategory.iconRes(): Int? = when (this) {
+    SearchCategory.ALL -> null
+    SearchCategory.CONVENIENCE -> R.drawable.ic_lucide_store
+    SearchCategory.BICYCLE -> R.drawable.ic_poi_bike
+    SearchCategory.STATION -> R.drawable.ic_poi_train
+    SearchCategory.TOILET -> R.drawable.ic_lucide_toilet
+    SearchCategory.FOOD -> R.drawable.ic_lucide_utensils
+    SearchCategory.TOURISM -> R.drawable.ic_lucide_camera
+    SearchCategory.BATH -> R.drawable.ic_poi_onsen
 }

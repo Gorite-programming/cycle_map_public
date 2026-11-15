@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -19,12 +21,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.search.*
+import com.gorite.cyclemap.utils.compassLabel8
+import com.gorite.cyclemap.utils.haversineMeters
+import com.gorite.cyclemap.utils.initialBearingDeg
 import java.util.Locale
 
 @Composable
@@ -35,20 +42,65 @@ internal fun SearchResultItemCard(
     onToggleFavorite: () -> Unit,
     /** 一覧のいちばん下 (親指の近く) に置く最有力の候補なら、その理由 (「いちばん近い」など)。強調して出す。 */
     highlightLabel: String? = null,
+    origin: Pair<Double, Double>? = null,
 ) {
-    val highlighted = highlightLabel != null
+    val distance = result.distanceMeters ?: origin?.let {
+        haversineMeters(it.first, it.second, result.latitude, result.longitude)
+    }
+    val bearing = origin?.let {
+        initialBearingDeg(it.first, it.second, result.latitude, result.longitude)
+    }
+    val details = listOfNotNull(
+        formatCategoryLabel(result.category),
+        result.address?.let { shortAddress(it) }?.takeIf { it.isNotBlank() },
+    ).joinToString(" ・ ")
+
+    if (highlightLabel == null) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onResultSelected(result) }
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(vertical = 7.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            result.name,
+                            modifier = Modifier.weight(1f),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        DistanceAndDirection(distance, bearing)
+                    }
+                    Text(
+                        details,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                FavoriteButton(isFavorite, onToggleFavorite)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        return
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { onResultSelected(result) },
         shape = RoundedCornerShape(12.dp),
-        color = if (highlighted) CycleMapTheme.palette.accentContainer else MaterialTheme.colorScheme.surfaceVariant,
-        border = if (highlighted) {
-            BorderStroke(1.5.dp, CycleMapTheme.palette.accent)
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        },
+        color = CycleMapTheme.palette.accentContainer,
+        border = BorderStroke(1.5.dp, CycleMapTheme.palette.accent),
     ) {
         Row(
             modifier = Modifier
@@ -58,13 +110,11 @@ internal fun SearchResultItemCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                highlightLabel?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = CycleMapTheme.palette.accent)
-                }
+                Text(highlightLabel, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = CycleMapTheme.palette.accent)
                 Text(
                     result.name,
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (highlighted) 16.sp else 15.sp,
+                    fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Row(
@@ -72,42 +122,18 @@ internal fun SearchResultItemCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // カテゴリ + 住所 (同じ名前の支店を見分けられるように)
                     Text(
-                        listOfNotNull(formatCategoryLabel(result.category), result.address?.let { shortAddress(it) })
-                            .joinToString(" ・ "),
+                        details,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    result.distanceMeters?.let { dist ->
-                        val distStr = if (dist >= 1000.0) {
-                            String.format(Locale.US, "%.1f km", dist / 1000.0)
-                        } else {
-                            String.format(Locale.US, "%.0f m", dist)
-                        }
-                        Text(
-                            distStr,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                    DistanceAndDirection(distance, bearing)
                 }
             }
-            IconButton(
-                onClick = onToggleFavorite,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
-                    contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
-                    tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            FavoriteButton(isFavorite, onToggleFavorite)
         }
     }
 }
@@ -117,7 +143,14 @@ internal fun FavoriteSpotItemCard(
     spot: FavoriteSpot,
     onSpotSelected: (FavoriteSpot) -> Unit,
     onRemoveFavorite: () -> Unit,
+    origin: Pair<Double, Double>? = null,
 ) {
+    val distance = origin?.let {
+        haversineMeters(it.first, it.second, spot.latitude, spot.longitude)
+    }
+    val bearing = origin?.let {
+        initialBearingDeg(it.first, it.second, spot.latitude, spot.longitude)
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -135,25 +168,75 @@ internal fun FavoriteSpotItemCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(spot.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        spot.name,
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    DistanceAndDirection(distance, bearing)
+                }
                 Text(
                     spot.address ?: formatCategoryLabel(spot.category),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(
-                onClick = onRemoveFavorite,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    painterResource(R.drawable.ic_star_filled),
-                    contentDescription = "お気に入り解除",
-                    tint = CycleMapTheme.palette.favorite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            FavoriteButton(true, onRemoveFavorite)
         }
+    }
+}
+
+@Composable
+private fun FavoriteButton(isFavorite: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Icon(
+            painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
+            contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
+            tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun DistanceAndDirection(distanceMeters: Double?, bearingDeg: Double?) {
+    if (distanceMeters == null) return
+    Row(
+        modifier = Modifier.padding(start = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (bearingDeg != null && distanceMeters >= 30.0) {
+            Icon(
+                painterResource(R.drawable.ic_lucide_arrow_up),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp).rotate(bearingDeg.toFloat()),
+            )
+            Text(
+                compassLabel8(bearingDeg),
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+        }
+        val distanceText = if (distanceMeters >= 1000.0) {
+            String.format(Locale.US, "%.1f km", distanceMeters / 1000.0)
+        } else {
+            String.format(Locale.US, "%.0f m", distanceMeters)
+        }
+        Text(
+            distanceText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
     }
 }
 
