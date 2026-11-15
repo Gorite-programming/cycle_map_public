@@ -28,10 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -107,7 +107,6 @@ internal fun HomeDashboard(
             sumRideTotals(rides, LocalDate.now())
         }
     }
-    val battery = com.gorite.cyclemap.ui.map.rememberBatteryPercent()
     val weather = when (weatherUiState) {
         is WeatherUiState.Fresh -> weatherUiState.data
         is WeatherUiState.Stale -> weatherUiState.data
@@ -122,74 +121,54 @@ internal fun HomeDashboard(
         shadowElevation = 12.dp,
     ) {
         Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 12.dp + bottomInset)) {
-            // 地名 (明朝)
-            Text(
-                // 地名がまだ無いとき (「現在地を取得中…」) は短くせずそのまま出す
-                text = if (locationName.isEmpty() || locationName.startsWith("現在地")) {
-                    locationName.ifEmpty { "現在地" }
-                } else {
-                    com.gorite.cyclemap.ui.cycling.extractShortLocalityName(locationName)
-                },
-                fontFamily = pal.displayFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
-            )
-
-            // 計器のタイル (2 × 2)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatTile("今日", formatKm(totals.todayMeters), "km", Modifier.weight(1f), onClick = onOpenRecords)
-                val category = weather?.let { WeatherCategory.fromCode(it.weatherCode) }
-                StatTile(
-                    label = "天気",
-                    value = weather?.currentTemp?.let { "%.0f°".format(Locale.US, it) } ?: "--",
-                    unit = weather?.currentPop?.let { "雨$it%" } ?: "",
-                    modifier = Modifier.weight(1f),
-                    valueColor = if (category != null) weatherTint(category, sunny = pal.warning) else MaterialTheme.colorScheme.onSurface,
-                    onClick = onRefreshWeather,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatTile("今週", formatKm(totals.weekMeters), "km", Modifier.weight(1f), onClick = onOpenRecords)
-                StatTile(
-                    label = "電池",
-                    value = battery?.toString() ?: "--",
-                    unit = "%",
-                    modifier = Modifier.weight(1f),
-                    valueColor = when {
-                        battery == null -> MaterialTheme.colorScheme.onSurface
-                        battery <= 20 -> pal.danger
-                        else -> pal.success
+            // 地名 (明朝) と天気を一段にまとめる
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    // 地名がまだ無いとき (「現在地を取得中…」) は短くせずそのまま出す
+                    text = if (locationName.isEmpty() || locationName.startsWith("現在地")) {
+                        locationName.ifEmpty { "現在地" }
+                    } else {
+                        com.gorite.cyclemap.ui.cycling.extractShortLocalityName(locationName)
                     },
+                    fontFamily = pal.displayFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 22.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(onClick = onRefreshWeather),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val category = weather?.let { WeatherCategory.fromCode(it.weatherCode) }
+                        Text(
+                            text = weather?.currentTemp?.let { "%.0f°".format(Locale.US, it) } ?: "天気 --",
+                            fontSize = 13.sp,
+                            color = if (category != null) weatherTint(category, sunny = pal.warning) else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        weather?.currentPop?.let { pop ->
+                            Text("雨$pop%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
-
-            // よく行く場所・近くの店 (近道)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                favorites.take(2).forEach { fav ->
-                    Shortcut(
-                        title = fav.name,
-                        sub = currentLocation?.let { formatDistance(distanceMeters(it, fav)) } ?: "保存",
-                        modifier = Modifier.weight(1f),
-                        onClick = { onOpenFavorite(fav) },
-                    )
-                }
-                if (favorites.isEmpty()) {
-                    Shortcut("保存済み", "一覧", Modifier.weight(1f), onClick = onOpenSaved)
-                }
-                Shortcut("コンビニ", "近い順", Modifier.weight(1f), onClick = { onQuickSpot(QuickSpotType.CONVENIENCE) })
-                if (favorites.size < 2) {
-                    Shortcut("トイレ", "近い順", Modifier.weight(1f), onClick = { onQuickSpot(QuickSpotType.RESTROOM) })
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
 
             // 探す (親指の位置)
             Surface(
@@ -210,6 +189,27 @@ internal fun HomeDashboard(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text("どこへ行く？", fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // お気に入りがあるときは従来どおり先頭の二件までを表示する
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                favorites.take(2).forEach { fav ->
+                    Shortcut(
+                        title = fav.name,
+                        icon = R.drawable.ic_google_bookmark,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onOpenFavorite(fav) },
+                    )
+                }
+                if (favorites.isEmpty()) {
+                    Shortcut("保存済み", R.drawable.ic_google_bookmark, Modifier.weight(1f), onClick = onOpenSaved)
+                }
+                Shortcut("コンビニ", R.drawable.ic_lucide_store, Modifier.weight(1f), onClick = { onQuickSpot(QuickSpotType.CONVENIENCE) })
+                if (favorites.size < 2) {
+                    Shortcut("トイレ", R.drawable.ic_lucide_toilet, Modifier.weight(1f), onClick = { onQuickSpot(QuickSpotType.RESTROOM) })
                 }
             }
 
@@ -244,77 +244,40 @@ internal fun HomeDashboard(
                     }
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "今日 ${formatKm(totals.todayMeters)} km ・ 今週 ${formatKm(totals.weekMeters)} km　記録を見る ›",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenRecords),
+            )
         }
     }
 }
 
 @Composable
-private fun StatTile(
-    label: String,
-    value: String,
-    unit: String,
-    modifier: Modifier = Modifier,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: (() -> Unit)? = null,
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    value,
-                    fontFamily = CycleMapTheme.palette.displayFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 28.sp,
-                    lineHeight = 30.sp,
-                    color = valueColor,
-                )
-                if (unit.isNotEmpty()) {
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        unit,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Shortcut(title: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun Shortcut(title: String, icon: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier
+            .height(48.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(title, modifier = Modifier.weight(1f, fill = false), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 internal fun formatKm(meters: Double): String = "%.1f".format(Locale.US, meters / 1000.0)
-
-private fun formatDistance(meters: Double): String =
-    if (meters >= 1000) "%.1fkm".format(Locale.US, meters / 1000.0) else "%.0fm".format(Locale.US, meters)
-
-private fun distanceMeters(from: Location, to: FavoriteSpot): Double {
-    val out = FloatArray(1)
-    Location.distanceBetween(from.latitude, from.longitude, to.latitude, to.longitude, out)
-    return out[0].toDouble()
-}

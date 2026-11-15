@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -164,6 +165,7 @@ internal fun MapContentLayout(
     onToggleMute: () -> Unit = {},
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
+    loadedGraphName: String? = null,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -266,7 +268,7 @@ internal fun MapContentLayout(
                             .align(Alignment.TopCenter)
                             .zIndex(1f),
                     )
-                    // 上: メニューと通知だけ (地図を見る場所なので押すものは置かない)
+                    // 上: メニュー、現在地の県データ状態ピル、通知バナー
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -275,15 +277,27 @@ internal fun MapContentLayout(
                             .zIndex(2f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        com.gorite.cyclemap.ui.map.FloatingCircleButton(
-                            onClick = { isDrawerOpenState.value = true },
-                            contentDescription = "メニュー",
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(
-                                painterResource(R.drawable.ic_lucide_menu),
-                                contentDescription = null,
-                                tint = CycleMapTheme.palette.mapControlIcon,
-                                modifier = Modifier.size(22.dp),
+                            com.gorite.cyclemap.ui.map.FloatingCircleButton(
+                                onClick = { isDrawerOpenState.value = true },
+                                contentDescription = "メニュー",
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_lucide_menu),
+                                    contentDescription = null,
+                                    tint = CycleMapTheme.palette.mapControlIcon,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            com.gorite.cyclemap.ui.home.HomeOfflineStatusPill(
+                                currentLocation = currentLocation,
+                                loadedGraphName = loadedGraphName,
+                                onClick = onOpenDownload,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                         }
                         notificationBanners(Modifier.fillMaxWidth())

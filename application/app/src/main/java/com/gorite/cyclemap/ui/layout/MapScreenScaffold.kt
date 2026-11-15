@@ -301,6 +301,7 @@ internal fun MapScreenScaffold(
             },
             weatherUiState = weatherUiState,
             onRefreshWeather = onRefreshWeather,
+            loadedGraphName = state.loadedGraphNameState.value,
         )
 
         MapModalsHost(
