@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.ui.cycling
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,18 +19,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
@@ -123,27 +124,25 @@ fun RouteInfoCardContent(
             )
         }
 
-        // ルート選好切替チップ (推奨 / 平坦 / 最短)
+        // 条件はつながったピルにまとめ、下の経路候補と区別する。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(bottom = 12.dp)
+                .height(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(2.dp),
         ) {
             RoutePreference.entries.forEach { pref ->
                 val isSelected = pref == selectedPreference
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    border = if (isSelected) {
-                        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                    } else {
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                    },
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier
                         .weight(1f)
                         .height(36.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .clickable { onPreferenceChange(pref) },
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -151,7 +150,7 @@ fun RouteInfoCardContent(
                             pref.label,
                             fontSize = 13.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -172,7 +171,7 @@ fun RouteInfoCardContent(
                         shape = RoundedCornerShape(12.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         border = if (isSelected) {
-                            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                         } else {
                             BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                         },
@@ -186,9 +185,15 @@ fun RouteInfoCardContent(
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
-                                choice.label,
+                                if (isSelected) "${choice.label} ✓" else choice.label,
                                 fontSize = 13.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                formatRemainingTime(choice.estimatedDurationSeconds(metrics.averageKmh)),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
@@ -228,14 +233,72 @@ fun RouteInfoCardContent(
             )
         }
 
-        // アクションボタン列 (ナビ開始 + 回廊タイル保存)
+        if (profile.size >= 2) {
+            ElevationProfileChart(
+                profile = profile,
+                totalDistanceM = totalDistanceM,
+                progressDistanceM = progressDistanceM,
+                lineColor = MaterialTheme.colorScheme.primary,
+                passedColor = MaterialTheme.colorScheme.secondary,
+                gridColor = MaterialTheme.colorScheme.outlineVariant,
+                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "標高プロファイル（${elevationSourceLabel(profile)}）",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+            )
+        }
+        if (tileDownloadStatus != null) {
+            Text(
+                tileDownloadStatus,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 10.dp),
+                .height(52.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (onDownloadCorridorTiles != null) {
+                OutlinedIconButton(
+                    onClick = onDownloadCorridorTiles,
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_lucide_download),
+                        contentDescription = "この経路の地図を保存",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            if (onExportGpx != null) {
+                OutlinedIconButton(
+                    onClick = onExportGpx,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics { contentDescription = "GPXで保存" },
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text(
+                        "GPX",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Button(
                 onClick = onStart,
                 modifier = Modifier
@@ -252,91 +315,6 @@ fun RouteInfoCardContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimary)
-            }
-        }
-        // 標高グラフと保存系のボタンは普段は畳んでおく (プレビューが画面の大半を占めないように)
-        var detailsOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-        val hasDetails = profile.size >= 2 || onDownloadCorridorTiles != null || onExportGpx != null
-        if (hasDetails) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { detailsOpen = !detailsOpen }
-                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    if (detailsOpen) "標高グラフ・保存を閉じる" else "標高グラフ・保存",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                )
-                Icon(
-                    painterResource(R.drawable.ic_lucide_arrow_up),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .rotate(if (detailsOpen) 0f else 180f),
-                )
-            }
-        }
-        if (detailsOpen) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onDownloadCorridorTiles != null) {
-                    OutlinedButton(
-                        onClick = onDownloadCorridorTiles,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_lucide_download),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(tileDownloadStatus ?: "地図を保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                if (onExportGpx != null) {
-                    OutlinedButton(
-                        onClick = onExportGpx,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    ) {
-                        Text("GPXで保存", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            if (profile.size >= 2) {
-                ElevationProfileChart(
-                    profile = profile,
-                    totalDistanceM = totalDistanceM,
-                    progressDistanceM = progressDistanceM,
-                    lineColor = MaterialTheme.colorScheme.primary,
-                    passedColor = MaterialTheme.colorScheme.secondary,
-                    gridColor = MaterialTheme.colorScheme.outlineVariant,
-                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "標高プロファイル（${elevationSourceLabel(profile)}）",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
             }
         }
     }

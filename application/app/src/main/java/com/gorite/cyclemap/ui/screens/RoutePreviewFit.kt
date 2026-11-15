@@ -56,7 +56,8 @@ internal fun previewPaddingPx(screenHeightPx: Int, density: Float, waypointCount
     val top = max((screenHeightPx * 0.10).toInt(), (88f * density).toInt())
     // The (collapsed) route-preview sheet is about 330dp tall; keep the whole route above it.
     // Each waypoint row in the sheet adds about 60dp.
-    val preferredBottom = ((330f + 60f * waypointCount.coerceAtLeast(0)) * density).toInt()
+    // 2026-11-15: 標高グラフを常に出すようにしてシートが約 510dp になったので 330 → 520。
+    val preferredBottom = ((520f + 60f * waypointCount.coerceAtLeast(0)) * density).toInt()
     // Preserve a usable camera viewport on compact windows, even when the 280dp
     // preferred minimum would otherwise consume more than 80% of its height.
     val maxBottomForViewport = (screenHeightPx * 0.80).toInt() - top

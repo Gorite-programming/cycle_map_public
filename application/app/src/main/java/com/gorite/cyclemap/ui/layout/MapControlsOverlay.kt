@@ -76,6 +76,8 @@ internal fun BoxScope.MapControlsOverlay(
     isRoutePreviewActive: Boolean = false,
     /** 案内中の上部カードの高さ。0 なら未計測で、従来の固定位置 (104dp) を使う。 */
     navHeaderHeight: Dp = 0.dp,
+    /** ルート確認シートの高さ (画面下端からシート上端まで)。0 なら未計測。 */
+    routePreviewSheetHeight: Dp = 0.dp,
 ) {
     val canZoomIn = if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
         (vectorMap?.cameraPosition?.zoom ?: 14.0) < 22.0
@@ -242,17 +244,25 @@ internal fun BoxScope.MapControlsOverlay(
                     )
                 }
             }
-            GoogleZoomPill(
-                onZoomIn = onZoomInAction,
-                onZoomOut = onZoomOutAction,
-                canZoomIn = canZoomIn,
-                canZoomOut = canZoomOut,
-            )
+            // ルート確認中はシートが高く、右下の現在地ボタンと重なるので出さない (2 本指で拡大縮小できる)
+            if (!isRoutePreviewActive) {
+                GoogleZoomPill(
+                    onZoomIn = onZoomInAction,
+                    onZoomOut = onZoomOutAction,
+                    canZoomIn = canZoomIn,
+                    canZoomOut = canZoomOut,
+                )
+            }
         }
 
         // 右下 (ボトムシートの直上): 現在地ボタン (白丸) + 経路検索FAB (ティール角丸四角)
-        // 下部の速度・GPX 記録の行が出ている間は、その分だけ持ち上げて重ならないようにする
-        val bottomSheetOffset = systemInsets.calculateBottomPadding() + 176.dp + (if (bottomHudVisible) 68.dp else 0.dp)
+        // ルート確認中はシートの上端から 12dp 上に現在地ボタンだけを置く (未計測時は隠す)
+        // 通常時は下部の速度・GPX 記録の行が出ている間、その分だけ持ち上げて重ならないようにする
+        val bottomSheetOffset = if (isRoutePreviewActive && routePreviewSheetHeight > 0.dp) {
+            routePreviewSheetHeight + 12.dp
+        } else {
+            systemInsets.calculateBottomPadding() + 176.dp + (if (bottomHudVisible) 68.dp else 0.dp)
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -261,7 +271,6 @@ internal fun BoxScope.MapControlsOverlay(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // ルートプレビュー中は下のシートがこの位置を覆うので出さない
             if (!isRoutePreviewActive) {
                 GoogleGpsButton(
                     following = followLocation,
@@ -269,6 +278,11 @@ internal fun BoxScope.MapControlsOverlay(
                 )
                 NavStartFAB(
                     onClick = onNavStartClick,
+                )
+            } else if (routePreviewSheetHeight > 0.dp) {
+                GoogleGpsButton(
+                    following = followLocation,
+                    onClick = onTargetClick,
                 )
             }
         }

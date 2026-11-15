@@ -179,6 +179,8 @@ internal fun MapContentLayout(
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
         var navHeaderHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
+        var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val routePreviewSheetHeight = with(density) { routePreviewSheetHeightPx.toDp() }
         androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle) { mapExpanded = false }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
@@ -399,6 +401,7 @@ internal fun MapContentLayout(
                         bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
                         isRoutePreviewActive = !isNavigationActive && routeSummary != null,
                         navHeaderHeight = navHeaderHeight,
+                        routePreviewSheetHeight = routePreviewSheetHeight,
                     )
 
                     // Bottom Area: Active Navigation Footer or Dashboard
@@ -452,6 +455,7 @@ internal fun MapContentLayout(
                         } else {
                             null
                         },
+                        onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx = it },
                     )
                 }
             }

@@ -28,13 +28,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.clip
@@ -114,7 +116,15 @@ internal fun BoxScope.MapBottomOverlays(
     onRefreshWeather: () -> Unit = {},
     /** 待ち受けの盤面から「地図を広げる」で来たとき、盤面へ戻す。null なら従来の地名シートとタブを出す。 */
     onBackToDashboard: (() -> Unit)? = null,
+    /** ルート確認シートの高さ (px、画面下端からシート上端まで)。シートが無いときは 0。 */
+    onRoutePreviewSheetHeightChanged: (Int) -> Unit = {},
 ) {
+    val isRoutePreviewActive = !isNavigationActive && routeSummary != null
+    LaunchedEffect(isRoutePreviewActive) {
+        if (!isRoutePreviewActive) {
+            onRoutePreviewSheetHeightChanged(0)
+        }
+    }
     if (isNavigationActive && routeSummary != null && !isLandscape) {
         // 縦画面: 数値パネル (速度・残り・勾配・先の標高・到着・電池)
         val navProfile = if (realElevProfile.isNotEmpty()) realElevProfile else remember(routeSummary, navigationRoute) {
@@ -169,11 +179,16 @@ internal fun BoxScope.MapBottomOverlays(
         )
     } else if (routeSummary != null) {
         // ルート案内前プレビューモード (テーマ追従 SCR-10)
+        DisposableEffect(Unit) {
+            onDispose { onRoutePreviewSheetHeightChanged(0) }
+        }
         Card(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = systemInsets.calculateBottomPadding())
+                .padding(top = 12.dp)
+                .onSizeChanged { onRoutePreviewSheetHeightChanged(it.height) }
+                .padding(bottom = systemInsets.calculateBottomPadding())
                 .zIndex(2f),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -296,10 +311,6 @@ internal fun BoxScope.MapBottomOverlays(
                             isCalculatingRoute = isCalculatingRoute || isSwitchingGraph,
                             onMoveWaypoint = onMoveWaypoint,
                             onRemoveWaypoint = onRemoveWaypoint,
-                        )
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.padding(bottom = 12.dp),
                         )
                     }
                 }

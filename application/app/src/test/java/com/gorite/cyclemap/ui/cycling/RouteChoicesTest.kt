@@ -18,6 +18,41 @@ class RouteChoicesTest {
         assertEquals("ルート1", c[0].label)
         assertEquals("9.7km ・ +175m", c[0].detail)
         assertEquals("10.0km", c[1].detail) // 獲得標高が 0 のときは出さない
+        assertEquals(9680.0, c[0].distanceMeters, 1e-9)
+        assertEquals(175.4, c[0].elevationGainMeters, 1e-9)
+        assertEquals(10040.0, c[1].distanceMeters, 1e-9)
+        assertEquals(0.0, c[1].elevationGainMeters, 1e-9)
+    }
+
+    @Test
+    fun candidateDurationUsesEachDistanceAndAverageSpeed() {
+        val choices = routeChoicesOf(listOf(option("a", 30.0, 0.0, 3), option("b", 45.0, 0.0, 3)))
+        assertEquals(5400.0, choices[0].estimatedDurationSeconds(20.0), 1e-9)
+        assertEquals(8100.0, choices[1].estimatedDurationSeconds(20.0), 1e-9)
+        assertEquals("約1時間30分", formatRemainingTime(choices[0].estimatedDurationSeconds(20.0)))
+        assertEquals("約2時間15分", formatRemainingTime(choices[1].estimatedDurationSeconds(20.0)))
+    }
+
+    @Test
+    fun candidateDurationDefaultsToFifteenKmhWithoutAverageSpeed() {
+        val choice = routeChoicesOf(listOf(option("a", 10.0, 0.0, 3))).single()
+        assertEquals(2400.0, choice.estimatedDurationSeconds(null), 1e-9)
+        assertEquals("約40分", formatRemainingTime(choice.estimatedDurationSeconds(null)))
+    }
+
+    @Test
+    fun candidateDurationDefaultsToFifteenKmhForInvalidAverageSpeed() {
+        val choice = routeChoicesOf(listOf(option("a", 15.0, 0.0, 3))).single()
+        listOf(0.0, -5.0, Double.NaN, Double.POSITIVE_INFINITY).forEach { speed ->
+            assertEquals(3600.0, choice.estimatedDurationSeconds(speed), 1e-9)
+        }
+    }
+
+    @Test
+    fun candidateDurationUsesExistingMinuteRounding() {
+        val choices = routeChoicesOf(listOf(option("a", 0.1, 0.0, 3), option("b", 0.375, 0.0, 3)))
+        assertEquals("約1分", formatRemainingTime(choices[0].estimatedDurationSeconds(null)))
+        assertEquals("約2分", formatRemainingTime(choices[1].estimatedDurationSeconds(null)))
     }
 
     @Test
