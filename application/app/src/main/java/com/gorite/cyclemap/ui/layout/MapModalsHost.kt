@@ -107,6 +107,8 @@ internal fun MapModalsHost(
     onPoiVisibleChange: (Boolean) -> Unit,
     poiSelected: Set<PoiCategory>,
     onPoiToggleCategory: (PoiCategory) -> Unit,
+    /** 施設カテゴリの選択をまとめて置き換える (標準に戻す・すべて選択・すべて解除)。 */
+    onPoiSetSelection: (Set<PoiCategory>) -> Unit = {},
     voiceGuidanceMode: VoiceGuidanceMode,
     onVoiceGuidanceModeChange: (VoiceGuidanceMode) -> Unit,
     voiceNavigator: VoiceGuidanceNavigator,
@@ -239,6 +241,7 @@ internal fun MapModalsHost(
         onPoiVisibleChange = onPoiVisibleChange,
         poiSelected = poiSelected,
         onPoiToggleCategory = onPoiToggleCategory,
+        onPoiSetSelection = onPoiSetSelection,
         voiceGuidanceMode = voiceGuidanceMode,
         onVoiceGuidanceModeChange = onVoiceGuidanceModeChange,
         voiceNavigator = voiceNavigator,

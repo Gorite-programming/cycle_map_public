@@ -208,7 +208,8 @@ internal fun rememberMapScreenState(
         } else {
             PoiCategory.defaults()
         }
-        mutableStateOf(if (initial.isEmpty()) PoiCategory.defaults() else initial)
+        // 空の集合が保存されていた場合もそのまま復元する (初回保存なし saved == null のときのみ defaults())
+        mutableStateOf(initial)
     }
     LaunchedEffect(poiSelectedState.value) {
         prefs.edit()

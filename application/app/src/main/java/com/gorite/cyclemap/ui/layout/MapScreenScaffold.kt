@@ -384,6 +384,7 @@ internal fun MapScreenScaffold(
             val cur = state.poiSelectedState.value
             state.poiSelectedState.value = if (cat in cur) cur - cat else cur + cat
         },
+        onPoiSetSelection = { state.poiSelectedState.value = it },
         voiceGuidanceMode = state.voiceGuidanceModeState.value,
         onVoiceGuidanceModeChange = { state.voiceGuidanceModeState.value = it },
         voiceNavigator = state.voiceNavigator,

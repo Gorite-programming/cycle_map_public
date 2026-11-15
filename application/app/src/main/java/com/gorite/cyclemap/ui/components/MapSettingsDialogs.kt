@@ -21,6 +21,7 @@ import com.gorite.cyclemap.ui.RoutingBenchmarkRequest
 import com.gorite.cyclemap.ui.cycling.PoiCategory
 import com.gorite.cyclemap.ui.cycling.RideHistorySheet
 import com.gorite.cyclemap.ui.cycling.SettingsPanelSheet
+import com.gorite.cyclemap.ui.layout.LocalLayerSelector
 import com.gorite.cyclemap.ui.theme.ThemeMode
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -72,6 +73,7 @@ internal fun MapSettingsDialogs(
     onPoiVisibleChange: (Boolean) -> Unit,
     poiSelected: Set<PoiCategory>,
     onPoiToggleCategory: (PoiCategory) -> Unit,
+    onPoiSetSelection: (Set<PoiCategory>) -> Unit = {},
     voiceGuidanceMode: VoiceGuidanceMode,
     onVoiceGuidanceModeChange: (VoiceGuidanceMode) -> Unit,
     voiceNavigator: VoiceGuidanceNavigator,
@@ -177,6 +179,7 @@ internal fun MapSettingsDialogs(
     }
 
     if (showCyclingSettings) {
+        val layerSelector = LocalLayerSelector.current
         SettingsPanelSheet(
             animationEnabled = animationEnabled,
             onAnimationEnabledChange = { enabled ->
@@ -198,11 +201,15 @@ internal fun MapSettingsDialogs(
             },
             layerIndex = MapLayer.entries.indexOf(selectedLayer),
             layerLabels = MapLayer.entries.map { it.label },
-            onLayerSelect = { onSelectedLayerChange(MapLayer.entries[it]) },
+            onLayerSelect = {
+                val layer = MapLayer.entries[it]
+                (layerSelector ?: onSelectedLayerChange)(layer)
+            },
             poiVisible = poiVisible,
             onPoiVisible = onPoiVisibleChange,
             poiSelected = poiSelected,
             onPoiToggle = onPoiToggleCategory,
+            onPoiSetSelection = onPoiSetSelection,
             voiceGuidanceMode = voiceGuidanceMode,
             onVoiceGuidanceModeChange = { mode ->
                 onVoiceGuidanceModeChange(mode)
