@@ -1,6 +1,6 @@
 package com.gorite.cyclemap.ui.components
 
-import com.gorite.cyclemap.R
+import com.gorite.cyclemap.data.formatOfflineDataSize
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.TabRow
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.OutlinedButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +65,8 @@ internal fun PrefectureListDialog(
     onDismiss: () -> Unit,
     onPrefectureSelected: (Prefecture) -> Unit,
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var dataLoaded by remember { mutableStateOf(false) }
     var selectedRegionIndex by remember { mutableIntStateOf(5) } // デフォルト中国地方
     var downloadStatus by remember { mutableStateOf<Map<String, Pair<Boolean, Boolean>>>(emptyMap()) }
 
@@ -97,6 +104,7 @@ internal fun PrefectureListDialog(
 
     LaunchedEffect(context) {
         dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
+        dataLoaded = true
         downloadStatus = withContext(Dispatchers.IO) {
             PrefectureData.ALL.associate { pref ->
                 pref.id to (
@@ -107,117 +115,146 @@ internal fun PrefectureListDialog(
         }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("オフラインデータ") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().height(520.dp)) {
-                OfflineDataStatusSection(dataStatus)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(enabled = !importing, onClick = { importLauncher.launch(arrayOf("*/*")) }) {
-                        Text("ファイルから取り込む")
-                    }
-                    if (importedAny && !importing) {
-                        OutlinedButton(onClick = { restartApp(context) }) { Text("再起動", maxLines = 1, softWrap = false) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(16.dp)) {
+                Text("オフラインデータ", style = MaterialTheme.typography.titleLarge)
+                TabRow(selectedTabIndex = selectedTab) {
+                    listOf("端末のデータ", "地図タイルの保存").forEachIndexed { index, label ->
+                        Tab(selected = selectedTab == index, onClick = { selectedTab = index },
+                            text = { Text(label, style = MaterialTheme.typography.labelLarge) })
                     }
                 }
-                importMessage?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text("地図タイルの保存 (地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(4.dp))
-                // Region Tab
-                ScrollableTabRow(
-                    selectedTabIndex = selectedRegionIndex,
-                    edgePadding = 0.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    PrefectureData.REGIONS.forEachIndexed { index, regionName ->
-                        Tab(
-                            selected = selectedRegionIndex == index,
-                            onClick = { selectedRegionIndex = index },
-                            text = { Text(regionName, fontSize = 12.sp) },
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別途配置する。
-                Text(
-                    "県をタップすると、その県の地図タイルを保存できます (ルート探索・検索データは含みません)。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Prefecture List in selected region
-                val currentRegion = PrefectureData.REGIONS[selectedRegionIndex]
-                val prefectures = remember(currentRegion) {
-                    PrefectureData.ALL.filter { it.region == currentRegion }
-                }
-
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(prefectures) { pref ->
-                        val status = downloadStatus[pref.id]
-                        val isGsi = status?.first == true
-                        val isOsm = status?.second == true
-                        val tileCount = PrefectureData.calculateTileCount(pref.bounds)
-                        val sizeMb = PrefectureData.estimateSizeMb(tileCount)
-
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { onPrefectureSelected(pref) },
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column {
-                                    Text(pref.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                    Text("約 ${tileCount}枚 (%.1f MB)".format(Locale.US, sizeMb), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    if (isGsi) {
-                                        Text(
-                                            "地理院済",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                                        )
+                if (selectedTab == 0) {
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            Text(
+                                if (dataLoaded) "${dataStatus.size} 県 ・ 合計 ${formatOfflineDataSize(dataStatus.sumOf { it.totalBytes })}"
+                                else "端末のデータを確認中…",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                        }
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedButton(enabled = !importing, onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+                                        Text("ファイルから取り込む")
                                     }
-                                    if (isOsm) {
-                                        Text(
-                                            "OSM済",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                                        )
+                                    if (importedAny && !importing) {
+                                        OutlinedButton(onClick = { restartApp(context) }) { Text("再起動", maxLines = 1, softWrap = false) }
+                                    }
+                                }
+                                importMessage?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text("県の ZIP またはデータファイルを取り込めます。PC からの転送にも対応しています。",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        items(dataStatus, key = { it.id }) { OfflineDataStatusRow(it) }
+                        if (dataLoaded) {
+                            if (dataStatus.isEmpty()) {
+                                item { Text("端末にデータが入っている県はまだありません", style = MaterialTheme.typography.bodySmall) }
+                            }
+                            item { EmptyPrefecturesSection(dataStatus) }
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("地図タイルの保存 (地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // Region Tab
+                        ScrollableTabRow(
+                            selectedTabIndex = selectedRegionIndex,
+                            edgePadding = 0.dp,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            PrefectureData.REGIONS.forEachIndexed { index, regionName ->
+                                Tab(
+                                    selected = selectedRegionIndex == index,
+                                    onClick = { selectedRegionIndex = index },
+                                    text = { Text(regionName, fontSize = 12.sp) },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別途配置する。
+                        Text(
+                            "県をタップすると、その県の地図タイルを保存できます (ルート探索・検索データは含みません)。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Prefecture List in selected region
+                        val currentRegion = PrefectureData.REGIONS[selectedRegionIndex]
+                        val prefectures = remember(currentRegion) {
+                            PrefectureData.ALL.filter { it.region == currentRegion }
+                        }
+
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(prefectures) { pref ->
+                                val status = downloadStatus[pref.id]
+                                val isGsi = status?.first == true
+                                val isOsm = status?.second == true
+                                val tileCount = PrefectureData.calculateTileCount(pref.bounds)
+                                val sizeMb = PrefectureData.estimateSizeMb(tileCount)
+
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { onPrefectureSelected(pref) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(pref.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                            Text("${tileCount}枚 ・ 約 %.1f MB (概算)".format(Locale.US, sizeMb), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (isGsi) {
+                                                Text(
+                                                    "地理院済",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier
+                                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                )
+                                            }
+                                            if (isOsm) {
+                                                Text(
+                                                    "OSM済",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    modifier = Modifier
+                                                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("閉じる") }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("閉じる") }
-        },
-    )
+        }
+    }
 }
 
 internal fun startPrefectureDownload(
@@ -237,43 +274,59 @@ internal fun startPrefectureDownload(
     }.start()
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun OfflineDataStatusSection(status: List<PrefectureDataStatus>) {
+private fun OfflineDataStatusRow(status: PrefectureDataStatus) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("ルート探索・施設検索・地図データ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text(
-                "ルート探索・施設検索・ベクター地図のデータは、PCから転送するか、端末に保存した県の ZIP を「ファイルから取り込む」で入れます。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (status.isEmpty()) {
-                Text("端末にデータが入っている県はまだありません", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(status.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(formatOfflineDataSize(status.totalBytes), style = MaterialTheme.typography.bodySmall)
             }
-            status.forEach { st ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(st.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("ルート" to status.hasRouting, "検索" to status.hasSearch,
+                    "地図" to status.hasVectorMap, "地形" to status.hasTerrain,
+                    "高速探索" to status.hasFastRouting).forEach { (label, present) ->
                     Text(
-                        when {
-                            st.isComplete -> "✓ そろっています"
-                            st.isEmpty -> "未導入"
-                            else -> buildList {
-                                if (!st.hasRouting) add("ルート")
-                                if (!st.hasSearch) add("検索")
-                                if (!st.hasVectorMap) add("地図")
-                            }.joinToString("・") + "が不足"
-                        },
-                        fontSize = 13.sp,
-                        color = if (st.isComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (present) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        modifier = Modifier.background(
+                            if (present) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)
+                        ).padding(horizontal = 6.dp, vertical = 3.dp),
                     )
+                }
+            }
+            if (status.isComplete) {
+                Text("ルート・検索・地図が入っています", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPrefecturesSection(status: List<PrefectureDataStatus>) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val installedIds = status.map { it.id }.toSet()
+    val empty = PrefectureData.ALL.filterNot { it.id in installedIds }
+    if (empty.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
+            Text("データの無い県 (${empty.size})  " + if (expanded) "▴" else "▾")
+        }
+        if (expanded) {
+            PrefectureData.REGIONS.forEach { region ->
+                val names = empty.filter { it.region == region }.map { it.name }
+                if (names.isNotEmpty()) {
+                    Text(region, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(names.joinToString(" ・ "), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

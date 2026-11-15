@@ -2,29 +2,21 @@ package com.gorite.cyclemap.data
 
 import java.io.File
 
-/** 1 県分の端末内データの有無。アプリからは取得できず、PC で作ったデータを端末へ転送して使う。 */
+/** 1 県分の端末内データの有無と、探索で見つかったファイルの実容量。 */
 data class PrefectureDataStatus(
     val id: String,
     val name: String,
     val hasRouting: Boolean,
     val hasSearch: Boolean,
     val hasVectorMap: Boolean,
+    val hasTerrain: Boolean = false,
+    val hasFastRouting: Boolean = false,
+    val totalBytes: Long = 0L,
 ) {
     val isComplete: Boolean get() = hasRouting && hasSearch && hasVectorMap
-    val isEmpty: Boolean get() = !hasRouting && !hasSearch && !hasVectorMap
+    val isEmpty: Boolean get() = !hasRouting && !hasSearch && !hasVectorMap && !hasTerrain && !hasFastRouting
 }
 
-/** ルート探索・施設検索・ベクター地図の 3 種が、端末にある県ごとにそろっているかを調べる (ファイル確認のみで軽い)。何も入っていない県は載せない。 */
-internal fun offlineDataStatus(dataDir: File): List<PrefectureDataStatus> {
-    val order = RoutingGraphSelector.SUPPORTED_FILES.keys
-    return order.mapNotNull { id ->
-        val pref = PrefectureData.ALL.firstOrNull { it.id == id } ?: return@mapNotNull null
-        val graph = RoutingGraphSelector.SUPPORTED_FILES[id]
-            ?.let { RoutingGraphSelector.resolveGraphFiles(dataDir, it) } != null
-        val search = SearchDbSelector.SUPPORTED_FILES[id]
-            ?.let { SearchDbSelector.resolveDbFile(dataDir, it) } != null
-        val tiles = TileSourceSelector.SUPPORTED_PMTILES[id]
-            ?.let { TileSourceSelector.resolveTileFile(dataDir, it) } != null
-        PrefectureDataStatus(id, pref.name, graph, search, tiles)
-    }.filterNot { it.isEmpty }
-}
+/** 配置済み県を定義順で返す。呼び出し側で IO dispatcher に切り替える。 */
+internal fun offlineDataStatus(dataDir: File): List<PrefectureDataStatus> =
+    PrefectureData.ALL.map { prefectureDataStatus(dataDir, it.id, it.name) }.filterNot { it.isEmpty }
