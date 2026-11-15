@@ -94,7 +94,16 @@ Build release APKs only from a clean HEAD (a `-dirty` APK is for dev checks only
 - Windows/Mac の差 (gradlew.bat、pmtiles/osmium・JDK の探索) は `scripts/_platform.py` に集約済み。
 - Windows のサンドボックスでは `pmtiles.exe` (`sandbox/vector_test/pipeline/`) は`.gitignore` 済みのバイナリ。
 
-## Codex への委譲 (Claude が親、Codex が子)
+## 三者の合同作業 (Claude が親、Codex と Antigravity が子)
+
+2026-11-15 から Claude (Opus 5.5)・Codex (GPT-6.1 Sol)・Antigravity (Gemini 4 Hydrogen) の三者で作業する。Claude が親で、子には CLI で指示を出す。
+
+- **Claude**: 設計・分割・検証・commit/push・実機検証。子の diff を読み、テストを自分でも実行してから commit する。
+- **Codex**: 実装とテスト実行 (主担当)。`scripts/delegate_codex.sh`。
+- **Antigravity**: 別の目でのレビュー・調査、触るファイルが Codex と重ならない作業の並行実装。`scripts/delegate_agy.sh [--readonly] [--model <id>] <指示文>` (既定モデル `gemini-4-hydrogen-high`、`--readonly` は plan モード、ログは `work/agy/*.log`)。無人で動かすため `--dangerously-skip-permissions` で全コマンドを許可している (2026-11-15 Gorite 承認)。禁止事項は前置きの文でしか伝わらないので、終わったら `git status` と diff を必ず確かめる。
+- 二者に同時に書かせるときは、触ってよいファイルを指示文で分け、重ならないようにする。
+
+### Codex への委譲
 
 Claude が設計・分割・検証を行い、実装とテスト実行を Codex に委譲する。指示文 (背景 / 触ってよいファイル / 守ること / 受け入れ条件 / 実行するテスト) を `work/codex/` に書き、`scripts/delegate_codex.sh <指示文>` で渡す (`--readonly` で読み取り専用、ログは `work/codex/*.log`)。Codex は同じ作業ツリーで動くが commit / push / adb / 履歴を壊す git 操作は禁止。Claude は返ってきた diff を読み、テストを自分でも実行してから commit する。実機検証は Claude が必要と判断したときだけ行う。
 

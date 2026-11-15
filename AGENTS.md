@@ -50,7 +50,9 @@ venv/bin/python build_prefectures.py --only Yamaguchi --keep-work             # 
 ## 開発体制・Git運用ポリシー（全エージェント共通）
 
 - **開発体制**:
-  - 本プロジェクトは Claude の指揮のもと、複数のAIエージェント（Antigravity、OpenCode、Kiro等）が連携・交代しながら進めています（※Codexはトークン上限による一時休止履歴あり、現在の稼働状態を適宜確認）。
+  - 2026-11-15 から、Claude (Opus 5.5) を親、Codex (GPT-6.1 Sol) と Antigravity (Gemini 4 Hydrogen) を子とする三者で作業する。Claude が設計・分割・検証・commit を担い、子には CLI (`scripts/delegate_codex.sh` / `scripts/delegate_agy.sh`) で指示を出す。Codex は実装とテストの主担当、Antigravity はレビュー・調査と、Codex と触るファイルが重ならない作業の並行実装を受け持つ。詳細は CLAUDE.md の「三者の合同作業」。
+  - 子として呼ばれたエージェントは、指示文の「触ってよいファイル」以外を編集せず、commit / push / adb / 履歴を壊す git 操作をしない。最後に「変更したファイル」「実行したテストと結果」「未解決の点」を報告する。
+  - 以前は OpenCode・Kiro なども交代で参加していた。
 - **クロス環境（Windows / MacBook）と同期**:
   - Windows 環境と MacBook 環境の双方で作業を進めるため、GitHub（`Gorite-programming/cycle_map`）を経由して同期を行っています。
   - 作業着手前や時間が空いた場合は、必ず `git pull` を実行して最新のコード・状況を取り込んでください。
