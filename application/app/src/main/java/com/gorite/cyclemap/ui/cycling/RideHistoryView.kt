@@ -24,8 +24,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -51,16 +52,43 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.tracking.GpxParser
 import com.gorite.cyclemap.tracking.RideHistorySummary
+import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.Locale
 
 val CyclingCyan = Color(0xFF00E5FF)
+
+private sealed interface RideHistoryLoadState {
+    data object Loading : RideHistoryLoadState
+    data class Loaded(val rides: List<RideHistorySummary>) : RideHistoryLoadState
+}
+
+internal data class EmptyRideHistoryGuide(
+    val title: String,
+    val steps: String,
+    val caption: String,
+)
+
+internal data class RideHistoryTotals(
+    val monthCount: Int,
+    val monthDistanceMeters: Double,
+    val totalCount: Int,
+    val totalDistanceMeters: Double,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,13 +105,16 @@ fun RideHistorySheet(
     onDismiss: () -> Unit,
 ) {
     var refreshTrigger by remember { mutableIntStateOf(0) }
-    val histories by androidx.compose.runtime.produceState<List<RideHistorySummary>>(
-        initialValue = emptyList(),
+    val loadState by androidx.compose.runtime.produceState<RideHistoryLoadState>(
+        initialValue = RideHistoryLoadState.Loading,
         isRecording,
         refreshTrigger,
         gpxDir,
     ) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (value !is RideHistoryLoadState.Loaded) {
+            value = RideHistoryLoadState.Loading
+        }
+        val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             if (!gpxDir.exists()) emptyList()
             else {
                 gpxDir.listFiles { file -> file.extension.lowercase() == "gpx" }
@@ -92,6 +123,7 @@ fun RideHistorySheet(
                     ?: emptyList()
             }
         }
+        value = RideHistoryLoadState.Loaded(parsed)
     }
 
     var selectedRide by remember { mutableStateOf<RideHistorySummary?>(null) }
@@ -181,78 +213,81 @@ fun RideHistorySheet(
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
             // 過去のライド履歴セクション
-            Text("過去のライド履歴 (${histories.size}件)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            val loadedRides = (loadState as? RideHistoryLoadState.Loaded)?.rides
+            Text(
+                historySectionTitle(loadedRides?.size),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
 
-            if (histories.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("保存された走行ログがありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when (val state = loadState) {
+                is RideHistoryLoadState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = CycleMapTheme.palette.accent,
+                        )
+                    }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 340.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(histories) { ride ->
-                        Surface(
+
+                is RideHistoryLoadState.Loaded -> {
+                    val histories = state.rides
+                    if (histories.isEmpty()) {
+                        val guide = buildEmptyRideHistoryGuide(isRecording)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { selectedRide = ride },
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                .padding(vertical = 20.dp, horizontal = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        dateFormat.format(ride.startTime),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Text(
-                                            "%.2f km".format(Locale.US, ride.totalDistanceMeters / 1000.0),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                        Text(
-                                            formatDuration(ride.totalDurationSeconds),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Text(
-                                            "平均 %.1f km/h".format(Locale.US, ride.averageSpeedKmh),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                                IconButton(onClick = { rideToDelete = ride }) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_lucide_trash_2),
-                                        contentDescription = "削除",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                                Icon(
-                                    painterResource(R.drawable.ic_lucide_arrow_right),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(20.dp),
+                            Text(
+                                text = guide.title,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = guide.steps,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = guide.caption,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        val totals = remember(histories) { summarizeRideHistory(histories) }
+                        Text(
+                            text = formatRideHistoryTotalsSummary(totals),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 340.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(histories) { ride ->
+                                RideHistoryRow(
+                                    ride = ride,
+                                    dateText = dateFormat.format(ride.startTime),
+                                    onSelect = { selectedRide = ride },
+                                    onDelete = { rideToDelete = ride },
                                 )
                             }
                         }
@@ -317,6 +352,118 @@ fun RideHistorySheet(
 }
 
 @Composable
+private fun RideHistoryRow(
+    ride: RideHistorySummary,
+    dateText: String,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = dateText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RideHistoryMetricCell(
+                        label = "距離",
+                        value = formatRideDistance(ride.totalDistanceMeters),
+                        valueColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    RideHistoryMetricCell(
+                        label = "経過時間",
+                        value = formatDuration(ride.totalDurationSeconds),
+                        valueColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RideHistoryMetricCell(
+                        label = "平均速度",
+                        value = formatRideSpeed(ride.averageSpeedKmh),
+                        valueColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    RideHistoryMetricCell(
+                        label = "獲得標高",
+                        value = formatElevationGain(ride),
+                        valueColor = if (hasElevationData(ride)) {
+                            CycleMapTheme.palette.success
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    painterResource(R.drawable.ic_lucide_trash_2),
+                    contentDescription = "削除",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Icon(
+                painterResource(R.drawable.ic_lucide_arrow_right),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RideHistoryMetricCell(
+    label: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 fun RideDetailDialog(
     ride: RideHistorySummary,
     onShowOnMap: () -> Unit,
@@ -324,6 +471,11 @@ fun RideDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.JAPAN) }
+    val elevationColor = if (hasElevationData(ride)) {
+        CycleMapTheme.palette.success
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -342,18 +494,70 @@ fun RideDetailDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 統計グリッド
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatPill("総距離", "%.2f km".format(Locale.US, ride.totalDistanceMeters / 1000.0), cyclingAccent)
-                    StatPill("走行時間", formatDuration(ride.totalDurationSeconds), MaterialTheme.colorScheme.primary)
-                    StatPill("獲得標高", "+%.0f m".format(Locale.US, ride.elevationGainMeters), cyclingAccent2)
+                // 主要 4 指標を 2 列 × 2 段で均等幅表示
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatTile(
+                        label = "総距離",
+                        value = formatRideDistance(ride.totalDistanceMeters),
+                        accentColor = CycleMapTheme.palette.accent,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatTile(
+                        label = "経過時間",
+                        value = formatDuration(ride.totalDurationSeconds),
+                        accentColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatPill("平均速度", "%.1f km/h".format(Locale.US, ride.averageSpeedKmh), MaterialTheme.colorScheme.onSurface)
-                    StatPill("最高速度", "%.1f km/h".format(Locale.US, ride.maxSpeedKmh), MaterialTheme.colorScheme.onSurface)
-                    StatPill("地点数", "${ride.points.size} 点", MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatTile(
+                        label = "平均速度",
+                        value = formatRideSpeed(ride.averageSpeedKmh),
+                        accentColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatTile(
+                        label = "獲得標高",
+                        value = formatElevationGain(ride),
+                        accentColor = elevationColor,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Text(
+                    text = "平均速度は止まっていた時間を含みます",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatTile(
+                        label = "最高速度",
+                        value = formatRideSpeed(ride.maxSpeedKmh),
+                        accentColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        valueFontSize = 14.sp,
+                        verticalPadding = 8.dp,
+                    )
+                    StatTile(
+                        label = "地点数",
+                        value = "${ride.points.size} 点",
+                        accentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                        valueFontSize = 14.sp,
+                        verticalPadding = 8.dp,
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -397,15 +601,38 @@ fun RideDetailDialog(
 }
 
 @Composable
-private fun StatPill(label: String, value: String, accentColor: Color) {
+private fun StatTile(
+    label: String,
+    value: String,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    valueFontSize: TextUnit = 17.sp,
+    verticalPadding: Dp = 10.dp,
+) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        modifier = Modifier.width(88.dp),
+        modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = accentColor)
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = verticalPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                fontSize = valueFontSize,
+                fontWeight = FontWeight.Bold,
+                color = accentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -417,7 +644,7 @@ private fun SpeedProfileChart(
     modifier: Modifier = Modifier,
 ) {
     val lineColor = cyclingAccent2
-    val chartBackground = if (com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Sumi2 else Color(0xFF1E2430)
+    val chartBackground = if (CycleMapTheme.palette.isDark) com.gorite.cyclemap.ui.theme.SumiShu.Sumi2 else Color(0xFF1E2430)
     Canvas(modifier = modifier.background(chartBackground, RoundedCornerShape(8.dp))) {
         val w = size.width
         val h = size.height
@@ -440,9 +667,83 @@ private fun SpeedProfileChart(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+internal fun historySectionTitle(rideCount: Int?): String =
+    if (rideCount == null) "過去のライド履歴" else "過去のライド履歴 (${rideCount}件)"
+
+internal fun buildEmptyRideHistoryGuide(isRecording: Boolean): EmptyRideHistoryGuide =
+    EmptyRideHistoryGuide(
+        title = "最初のライドを記録しましょう",
+        steps = if (isRecording) {
+            "止めると履歴に追加されます"
+        } else {
+            "記録開始 → 走る → 記録を止めると保存されます"
+        },
+        caption = "保存すると距離・時間・平均速度・獲得標高が見られます",
+    )
+
+internal fun summarizeRideHistory(
+    rides: List<RideHistorySummary>,
+    today: LocalDate = LocalDate.now(),
+    zone: ZoneId = ZoneId.systemDefault(),
+): RideHistoryTotals {
+    val currentMonth = YearMonth.from(today)
+    var monthCount = 0
+    var monthDistance = 0.0
+    var totalDistance = 0.0
+    for (ride in rides) {
+        val dist = ride.totalDistanceMeters.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        totalDistance += dist
+        val rideDate = Instant.ofEpochMilli(ride.startTime.time).atZone(zone).toLocalDate()
+        if (YearMonth.from(rideDate) == currentMonth) {
+            monthCount++
+            monthDistance += dist
+        }
+    }
+    return RideHistoryTotals(
+        monthCount = monthCount,
+        monthDistanceMeters = monthDistance,
+        totalCount = rides.size,
+        totalDistanceMeters = totalDistance,
+    )
+}
+
+internal fun formatRideHistoryTotalsSummary(totals: RideHistoryTotals): String {
+    val monthKm = "%.1f".format(Locale.US, totals.monthDistanceMeters.coerceAtLeast(0.0) / 1000.0)
+    val monthText = "今月 ${totals.monthCount} 回 ・ $monthKm km"
+    if (totals.totalCount <= totals.monthCount) {
+        return monthText
+    }
+    val totalKm = "%.1f".format(Locale.US, totals.totalDistanceMeters.coerceAtLeast(0.0) / 1000.0)
+    return "$monthText（通算 ${totals.totalCount} 回 ・ $totalKm km）"
+}
+
+internal fun formatRideDistance(distanceMeters: Double): String {
+    val safe = distanceMeters.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+    return "%.2f km".format(Locale.US, safe / 1000.0)
+}
+
+internal fun formatRideSpeed(speedKmh: Double): String {
+    val safe = speedKmh.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+    return "%.1f km/h".format(Locale.US, safe)
+}
+
+internal fun hasElevationData(ride: RideHistorySummary): Boolean {
+    if (ride.elevationGainMeters.isFinite() && ride.elevationGainMeters > 0.0) return true
+    return ride.points.zipWithNext().any { (prev, curr) ->
+        prev.elevationMeters != null && curr.elevationMeters != null
+    }
+}
+
+internal fun formatElevationGain(ride: RideHistorySummary): String {
+    if (!hasElevationData(ride)) return "—"
+    val safe = ride.elevationGainMeters.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+    return "+%.0f m".format(Locale.US, safe)
+}
+
+internal fun formatDuration(seconds: Long): String {
+    val safe = seconds.coerceAtLeast(0L)
+    val h = safe / 3600
+    val m = (safe % 3600) / 60
+    val s = safe % 60
+    return if (h > 0) "%d:%02d:%02d".format(Locale.US, h, m, s) else "%02d:%02d".format(Locale.US, m, s)
 }
