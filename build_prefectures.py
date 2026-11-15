@@ -68,7 +68,6 @@ WORK_DIR = Path("work")
 OUTPUT_DIR = Path("packages")
 LOG_DIR = Path("logs")
 DATA_TOOL_OUT_DIR = Path("sandbox/data-tool/out")
-VECTOR_TILE_DIR = Path("sandbox/vector_test/data")
 
 PACKAGE_LICENSE_TEXT = """\
 CycleMap Data Package License & Attribution
@@ -458,37 +457,22 @@ def parse_importer_counts(text: str) -> Dict[str, int]:
 
 
 def expected_pmtiles_path(name: str) -> Optional[Path]:
+    """Find an existing sidecar published by scripts/build_tiles.py only.
+
+    Sandbox archives have no reliable freshness information and must never be
+    copied into packages here. Tiles are optional, including invalid archives.
+    """
     file_name = PMTILES_FILENAMES.get(name)
     if not file_name:
         return None
-    for directory in (DATA_TOOL_OUT_DIR, VECTOR_TILE_DIR):
-        if not directory.is_dir():
-            continue
-        candidate = next(
-            (p for p in directory.iterdir() if p.is_file() and p.name.lower() == file_name.lower() and p.stat().st_size > 0),
-            None,
-        )
-        if candidate is not None:
-            return candidate
-    return None
-
-
-def publish_pmtiles_sidecar(name: str) -> Optional[Path]:
-    source = expected_pmtiles_path(name)
-    if source is None:
+    candidate = OUTPUT_DIR / file_name
+    if not candidate.is_file():
         return None
-    with source.open("rb") as f:
+    with candidate.open("rb") as f:
         if f.read(8) != b"PMTiles\x03":
-            raise ValueError(f"Invalid PMTiles v3 archive: {source}")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    target = OUTPUT_DIR / PMTILES_FILENAMES[name]
-    # build_tiles.py が作った新しいタイルを、sandbox/ に残っている古いタイルで上書きしない
-    already_newer = target.is_file() and target.stat().st_size > 0 and target.stat().st_mtime >= source.stat().st_mtime
-    if source.resolve() != target.resolve() and not already_newer:
-        partial = target.with_suffix(target.suffix + ".partial")
-        shutil.copy2(source, partial)
-        os.replace(partial, target)
-    return target
+            LOG.warning("[%s] Ignoring invalid PMTiles v3 archive: %s", name, candidate)
+            return None
+    return candidate
 
 
 def valid_zip(path: Path, name: str) -> bool:
@@ -543,7 +527,7 @@ def process(
 
     if not force and valid_zip(final_zip, name):
         LOG.info("[%s] SKIP: valid package exists: %s", name, final_zip)
-        pmtiles_path = publish_pmtiles_sidecar(name)
+        pmtiles_path = expected_pmtiles_path(name)
         if pmtiles_path is not None:
             LOG.info("[%s] offline vector tiles sidecar: %s (%s)", name, pmtiles_path, psize(pmtiles_path))
         return True, time.monotonic() - start
@@ -630,12 +614,12 @@ def process(
         else:
             LOG.info("[%s] importer counts: not parseable from stdout/stderr", name)
 
-        # 4) Optional PMTiles sidecar. The prefecture ZIP remains the five-file contract.
-        pmtiles_path = publish_pmtiles_sidecar(name)
+        # 4) Read-only lookup of build_tiles.py's optional sidecar; ZIP still has five files.
+        pmtiles_path = expected_pmtiles_path(name)
         if pmtiles_path is not None:
             LOG.info("[%s] offline vector tiles sidecar: %s (%s)", name, pmtiles_path, psize(pmtiles_path))
         else:
-            LOG.warning("[%s] No compatible offline PMTiles found (expected %s)", name, PMTILES_FILENAMES.get(name))
+            LOG.warning("[%s] No compatible offline PMTiles in %s (expected %s); run scripts/build_tiles.py to generate tiles", name, OUTPUT_DIR, PMTILES_FILENAMES.get(name))
 
         # 5) Atomic ZIP package with manifest & license.
         manifest_text = generate_manifest(name, db_stats)
