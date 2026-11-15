@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +79,8 @@ import com.gorite.cyclemap.data.FavoritesManager
 import com.gorite.cyclemap.data.Fts5SupportDetector
 import com.gorite.cyclemap.data.SearchDbSelection
 import com.gorite.cyclemap.data.SearchDbSelector
+import com.gorite.cyclemap.data.SearchHistoryEntry
+import com.gorite.cyclemap.data.SearchHistoryManager
 import com.gorite.cyclemap.search.GenreDictionary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -105,6 +106,12 @@ internal fun DestinationSearchDialog(
 
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
     val favorites by favoritesManager.favorites.collectAsState()
+    val historyManager = remember(context) { SearchHistoryManager.getInstance(context) }
+    val history by historyManager.history.collectAsState()
+    val selectResult: (SearchResult) -> Unit = { result ->
+        historyManager.add(SearchHistoryEntry(result.name, result.category, result.latitude, result.longitude, result.address))
+        onResultSelected(result)
+    }
 
     // 現在地を取得（位置情報許可済みの場合）
     val userLocation = remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -335,113 +342,149 @@ internal fun DestinationSearchDialog(
             ) {
                 Box(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                     when {
-                        query.isEmpty() && selectedCategory == SearchCategory.ALL && results.isEmpty() && favorites.isNotEmpty() -> {
+                        query.isEmpty() && selectedCategory == SearchCategory.ALL -> {
                             LazyColumn(modifier = Modifier.fillMaxSize(), reverseLayout = true) {
-                                items(favorites, key = { it.id }) { fav ->
-                                    FavoriteSpotItemCard(
-                                        spot = fav,
-                                        onSpotSelected = { spot ->
-                                            onResultSelected(
-                                                SearchResult(
-                                                    name = spot.name,
-                                                    category = spot.category,
-                                                    latitude = spot.latitude,
-                                                    longitude = spot.longitude,
-                                                    distanceMeters = null,
-                                                ),
-                                            )
-                                        },
-                                        onRemoveFavorite = { favoritesManager.removeFavorite(fav.id) },
+                                // reverseLayout: newest entry is closest to the search field.
+                                items(history.take(5)) { entry ->
+                                    SearchHistoryItemCard(
+                                        entry = entry,
                                         origin = effectiveLocation,
+                                        onSelected = { selectResult(entry.toSearchResult()) },
+                                        onRemove = { historyManager.remove(entry) },
                                     )
                                 }
-                                item {
-                                    Text(
-                                        "★ お気に入り (${favorites.size}件)",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = CycleMapTheme.palette.favorite,
-                                        modifier = Modifier.padding(vertical = 6.dp),
-                                    )
-                                }
-                            }
-                        }
-                        query.isEmpty() && selectedCategory == SearchCategory.ALL && results.isEmpty() -> {
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(bottom = 12.dp),
-                            ) {
-                                Text(
-                                    text = "近くを探す",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                quickCategories.chunked(4).forEachIndexed { rowIndex, rowCategories ->
-                                    if (rowIndex > 0) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        for (colIndex in 0 until 4) {
-                                            if (colIndex < rowCategories.size) {
-                                                val cat = rowCategories[colIndex]
-                                                Surface(
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(56.dp)
-                                                        .clip(RoundedCornerShape(12.dp))
-                                                        .clickable {
-                                                            selectedCategory = cat
-                                                            keyboardController?.hide()
-                                                        },
-                                                ) {
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .padding(horizontal = 4.dp, vertical = 6.dp),
-                                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                                        verticalArrangement = Arrangement.Center,
-                                                    ) {
-                                                        cat.iconRes()?.let { iconId ->
-                                                            Icon(
-                                                                painter = painterResource(iconId),
-                                                                contentDescription = null,
-                                                                tint = MaterialTheme.colorScheme.onSurface,
-                                                                modifier = Modifier.size(20.dp),
-                                                            )
-                                                            Spacer(modifier = Modifier.height(4.dp))
-                                                        }
-                                                        Text(
-                                                            text = cat.label,
-                                                            fontSize = 12.sp,
-                                                            color = MaterialTheme.colorScheme.onSurface,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                        )
-                                                    }
-                                                }
-                                            } else {
-                                                Spacer(modifier = Modifier.weight(1f))
+                                if (history.isNotEmpty()) {
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Icon(
+                                                painterResource(R.drawable.ic_lucide_history),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                "最近の行き先",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            androidx.compose.material3.TextButton(onClick = { historyManager.clear() }) {
+                                                Text("すべて消す")
                                             }
                                         }
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "例: 広島駅 セブン トイレ",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                )
+                                if (favorites.isNotEmpty()) {
+                                    items(favorites, key = { it.id }) { fav ->
+                                        FavoriteSpotItemCard(
+                                            spot = fav,
+                                            onSpotSelected = { spot ->
+                                                selectResult(
+                                                    SearchResult(
+                                                        name = spot.name,
+                                                        category = spot.category,
+                                                        latitude = spot.latitude,
+                                                        longitude = spot.longitude,
+                                                        distanceMeters = null,
+                                                        address = spot.address,
+                                                    ),
+                                                )
+                                            },
+                                            onRemoveFavorite = { favoritesManager.removeFavorite(fav.id) },
+                                            origin = effectiveLocation,
+                                        )
+                                    }
+                                    item {
+                                        Text(
+                                            "★ お気に入り (${favorites.size}件)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CycleMapTheme.palette.favorite,
+                                            modifier = Modifier.padding(vertical = 6.dp),
+                                        )
+                                    }
+                                } else {
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 12.dp),
+                                        ) {
+                                            Text(
+                                                text = "近くを探す",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 4.dp),
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            quickCategories.chunked(4).forEachIndexed { rowIndex, rowCategories ->
+                                                if (rowIndex > 0) {
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                }
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    for (colIndex in 0 until 4) {
+                                                        if (colIndex < rowCategories.size) {
+                                                            val cat = rowCategories[colIndex]
+                                                            Surface(
+                                                                shape = RoundedCornerShape(12.dp),
+                                                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .height(56.dp)
+                                                                    .clip(RoundedCornerShape(12.dp))
+                                                                    .clickable {
+                                                                        selectedCategory = cat
+                                                                        keyboardController?.hide()
+                                                                    },
+                                                            ) {
+                                                                Column(
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                                    verticalArrangement = Arrangement.Center,
+                                                                ) {
+                                                                    cat.iconRes()?.let { iconId ->
+                                                                        Icon(
+                                                                            painter = painterResource(iconId),
+                                                                            contentDescription = null,
+                                                                            tint = MaterialTheme.colorScheme.onSurface,
+                                                                            modifier = Modifier.size(20.dp),
+                                                                        )
+                                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                                    }
+                                                                    Text(
+                                                                        text = cat.label,
+                                                                        fontSize = 12.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                                        maxLines = 1,
+                                                                        overflow = TextOverflow.Ellipsis,
+                                                                    )
+                                                                }
+                                                            }
+                                                        } else {
+                                                            Spacer(modifier = Modifier.weight(1f))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = "例: 広島駅 セブン トイレ",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 4.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                         else -> {
@@ -450,7 +493,7 @@ internal fun DestinationSearchDialog(
                                     SearchResultItemCard(
                                         result = result,
                                         isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),
-                                        onResultSelected = onResultSelected,
+                                        onResultSelected = selectResult,
                                         onToggleFavorite = {
                                             favoritesManager.toggleFavorite(
                                                 FavoriteSpot(
@@ -628,6 +671,66 @@ internal fun DestinationSearchDialog(
                 }
             }
         }
+    }
+}
+
+private fun SearchHistoryEntry.toSearchResult() = SearchResult(
+    name = name,
+    category = category,
+    latitude = latitude,
+    longitude = longitude,
+    address = address,
+)
+
+@Composable
+private fun SearchHistoryItemCard(
+    entry: SearchHistoryEntry,
+    origin: Pair<Double, Double>?,
+    onSelected: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val distance = origin?.let { haversineMeters(it.first, it.second, entry.latitude, entry.longitude) }
+    val bearing = origin?.let { initialBearingDeg(it.first, it.second, entry.latitude, entry.longitude) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onSelected)
+                .heightIn(min = 56.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.name,
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    DistanceAndDirection(distance, bearing)
+                }
+                Text(
+                    listOfNotNull(
+                        formatCategoryLabel(entry.category),
+                        entry.address?.let { shortAddress(it) }?.takeIf { it.isNotBlank() },
+                    ).joinToString(" ・ "),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_lucide_x),
+                    contentDescription = "「${entry.name}」を履歴から削除",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
