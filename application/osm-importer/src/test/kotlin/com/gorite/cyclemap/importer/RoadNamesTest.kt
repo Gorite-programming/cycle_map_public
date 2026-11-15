@@ -62,6 +62,27 @@ class RoadNamesTest {
     }
 
     @Test
+    fun `末尾が切れた索引は、読めた区間だけ使う`() {
+        val dir = Files.createTempDirectory("roadnames-cut").toFile()
+        val g = graph()
+        val file = java.io.File(dir, "t.graph")
+        val index = java.io.File(dir, "t.graph.idx")
+        val elevations = mapOf(1L to 10f, 2L to 12f, 3L to 20f)
+        val writer = GraphBinaryWriter(elevations)
+        writer.write(g, file)
+        writeGraphIndex(file, index, elevations, writer.edgeRoadNames)
+        // 道路名区間の辺ごとの番号 (4 辺 x 4 バイト) の途中で切る。標高区間は残る。
+        val bytes = index.readBytes()
+        index.writeBytes(bytes.copyOf(bytes.size - 6))
+        LazyMappedRoadGraph.load(file).use { lg ->
+            assertTrue(lg.hasElevations)
+            assertEquals(12.0, lg.elevationMetersAt(lg.nodeIndexOf(2))!!, 0.01)
+            assertFalse(lg.hasRoadNames)
+            assertNull(lg.outgoingBranches(lg.nodeIndexOf(2)).first().roadName)
+        }
+    }
+
+    @Test
     fun `道路名区間の無い旧索引も読める`() {
         val dir = Files.createTempDirectory("roadnames-old").toFile()
         val file = java.io.File(dir, "t.graph")

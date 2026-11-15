@@ -42,6 +42,20 @@ internal class MappedIntColumn private constructor(private val buffer: ByteBuffe
     constructor(buffer: ByteBuffer, base: Int, size: Int, stride: Int) : this(buffer, base, size, stride, null)
     constructor(values: IntArray) : this(null, 0, values.size, 0, values)
     operator fun get(index: Int): Int = values?.get(index) ?: buffer!!.getInt(base + index * stride)
+    fun getOrNull(index: Int): Int? = if (index in 0 until size) get(index) else null
+}
+/** mmap 上の Short の列 (ノードごとの標高)。ヒープに写しを持たない。 */
+internal class MappedShortColumn(private val buffer: ByteBuffer, private val base: Int, val size: Int) {
+    fun getOrNull(index: Int): Short? = if (index in 0 until size) buffer.getShort(base + index * 2) else null
+}
+/** 読んだバイト数を数える (索引の末尾の区間が mmap のどこにあるかを知るため)。 */
+private class CountingInputStream(input: java.io.InputStream) : java.io.FilterInputStream(input) {
+    var count = 0L
+        private set
+    override fun read(): Int = super.read().also { if (it >= 0) count++ }
+    override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) count += it }
+    override fun skip(n: Long): Long = super.skip(n).also { if (it > 0) count += it }
+    override fun markSupported(): Boolean = false
 }
 
 /** Sorted node IDs packed with their original indices in one Long per node. */
@@ -99,14 +113,14 @@ class LazyMappedRoadGraph private constructor(
     val nodeCount: Int get() = nodeIds.size
 
     /** ノードごとの絶対標高 (0.1m 単位、不明は [UNKNOWN_ELEVATION])。索引の末尾に標高区間がある graph だけ持つ。 */
-    internal var elevationsDecimeters: ShortArray? = null
+    internal var elevationsDecimeters: MappedShortColumn? = null
 
     /** 辺ごとの道路名の番号 (辺の通し番号順、無ければ -1) と、その名前の表。索引の末尾に道路名区間がある graph だけ持つ。 */
-    internal var edgeRoadNameIds: IntArray? = null
+    internal var edgeRoadNameIds: MappedIntColumn? = null
     internal var roadNames: Array<String> = emptyArray()
 
     /** 辺ごとの車線 (turn:lanes) の番号と、その文字列の表。索引の末尾に車線区間がある graph だけ持つ。 */
-    internal var edgeTurnLaneIds: IntArray? = null
+    internal var edgeTurnLaneIds: MappedIntColumn? = null
     internal var turnLaneTable: Array<String> = emptyArray()
 
     /** 辺 (通し番号 [ordinal]) の進行方向の車線 (OSM の turn:lanes)。無ければ null。 */
@@ -920,7 +934,8 @@ class LazyMappedRoadGraph private constructor(
                     val startsOffset = indexHeader.position()
                     val rawIndexInput = FileInputStream(indexFile)
                     rawIndexInput.channel.position(startsOffset.toLong())
-                    DataInputStream(BufferedInputStream(rawIndexInput, 1 shl 20)).use { input ->
+                    val counting = CountingInputStream(BufferedInputStream(rawIndexInput, 1 shl 20))
+                    DataInputStream(counting).use { input ->
                     val firstOffset = Math.addExact(startsOffset, Math.multiplyExact(nodeCount, 8))
                     val countsOffset = Math.addExact(firstOffset, Math.multiplyExact(nodeCount, 4))
                     val edgeCountOffset = Math.addExact(countsOffset, Math.multiplyExact(nodeCount, 4))
@@ -955,7 +970,7 @@ class LazyMappedRoadGraph private constructor(
                         firstOrdinals,
                         counts,
                         targets, edgeCount)
-                    if (readRichSections) readTrailingSections(input, graph, nodeCount, edgeCount)
+                    if (readRichSections) readTrailingSections(input, graph, nodeCount, edgeCount, indexMapped) { startsOffset + counting.count }
                     reportLoadStage("trailing_sections", stageStartedAt)
                     reportLoadStage("total", totalStartedAt)
                     return graph
@@ -1020,33 +1035,46 @@ class LazyMappedRoadGraph private constructor(
         private const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
 
         /** 文字列の表 + 辺ごとの番号 (-1 は無し) の区間を読む。件数が合わなければ null。 */
-        private fun readStringTableSection(input: DataInputStream, edgeCount: Int): Pair<Array<String>, IntArray>? {
+        private fun readStringTableSection(
+            input: DataInputStream, edgeCount: Int, indexMapped: ByteBuffer, position: () -> Long,
+        ): Pair<Array<String>, MappedIntColumn>? {
             val count = input.readInt()
             if (count < 0) return null
             val table = Array(count) { input.readUTF() }
             if (input.readInt() != edgeCount) return null
-            return table to IntArray(edgeCount) { input.readInt() }
+            val ids = mappedSection(indexMapped, position(), edgeCount.toLong() * 4L) ?: return null
+            skipFully(input, edgeCount.toLong() * 4L)
+            return table to MappedIntColumn(indexMapped, ids, edgeCount, 4)
         }
+
+        /** 区間 ([offset] から [byteCount] バイト) が mmap に収まっていれば、その開始位置を返す。切れていれば null。 */
+        private fun mappedSection(indexMapped: ByteBuffer, offset: Long, byteCount: Long): Int? =
+            if (offset >= 0 && offset + byteCount <= indexMapped.limit().toLong()) offset.toInt() else null
 
         /**
          * 索引の末尾の追加区間 (標高・道路名) を、目印 (UTF 文字列) ごとに順に読む。旧 graph は区間が無く、
          * 知らない目印・壊れた区間・件数の不一致はそこで読むのをやめる (読めた区間だけ使う)。
          */
-        private fun readTrailingSections(input: DataInputStream, graph: LazyMappedRoadGraph, nodeCount: Int, edgeCount: Int) {
+        private fun readTrailingSections(
+            input: DataInputStream, graph: LazyMappedRoadGraph, nodeCount: Int, edgeCount: Int,
+            indexMapped: ByteBuffer, position: () -> Long,
+        ) {
             try {
                 while (true) {
                     when (input.readUTF()) {
                         ELEVATION_SECTION_MAGIC -> {
                             if (input.readInt() != nodeCount) return
-                            graph.elevationsDecimeters = ShortArray(nodeCount) { input.readShort() }
+                            val base = mappedSection(indexMapped, position(), nodeCount.toLong() * 2L) ?: return
+                            skipFully(input, nodeCount.toLong() * 2L)
+                            graph.elevationsDecimeters = MappedShortColumn(indexMapped, base, nodeCount)
                         }
                         ROAD_NAME_SECTION_MAGIC -> {
-                            val (table, ids) = readStringTableSection(input, edgeCount) ?: return
+                            val (table, ids) = readStringTableSection(input, edgeCount, indexMapped, position) ?: return
                             graph.roadNames = table
                             graph.edgeRoadNameIds = ids
                         }
                         TURN_LANES_SECTION_MAGIC -> {
-                            val (table, ids) = readStringTableSection(input, edgeCount) ?: return
+                            val (table, ids) = readStringTableSection(input, edgeCount, indexMapped, position) ?: return
                             graph.turnLaneTable = table
                             graph.edgeTurnLaneIds = ids
                         }
