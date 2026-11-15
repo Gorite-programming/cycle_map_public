@@ -6,6 +6,24 @@ import com.gorite.cyclemap.contract.NearbySpot
 import com.gorite.cyclemap.utils.*
 import java.io.File
 
+/** `places` テーブルの列構成に応じた NearbySpot 用 SELECT 列句を返す (旧DB互換)。 */
+internal fun nearbySpotSelectColumns(columns: Set<String>): String =
+    if ("address" in columns) "name, category, lat, lon, address" else "name, category, lat, lon, NULL"
+
+private fun readNearbySpotIfWithinRadius(
+    cursor: android.database.Cursor,
+    centerLat: Double,
+    centerLon: Double,
+    radiusMeters: Double,
+): NearbySpot? {
+    val lat = cursor.getDouble(2)
+    val lon = cursor.getDouble(3)
+    val dist = haversineMeters(centerLat, centerLon, lat, lon)
+    if (dist > radiusMeters) return null
+    val address = if (cursor.isNull(4)) null else cursor.getString(4)?.takeIf { it.isNotBlank() }
+    return NearbySpot(cursor.getString(0), cursor.getString(1), lat, lon, dist, address = address)
+}
+
 /**
  * 周辺POIをオフライン検索DBから取得する (ブロッキング・IOスレッドで呼ぶこと)。
  * ズームに応じた表示数制限は呼び出し側で行う。
@@ -25,9 +43,10 @@ internal fun searchNearbyPlaces(
     // LIMIT前にSQL側で近似距離順に並べ、真の最近傍の切り捨てを防ぐ (厳密な半径・ソートはKotlin側)。
     val orderNearby = NEARBY_ORDER_BY
     SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+        val selectCols = nearbySpotSelectColumns(placesColumns(db))
         db.rawQuery(
             """
-            SELECT name, category, lat, lon
+            SELECT $selectCols
             FROM places
             WHERE lat BETWEEN ? AND ?
               AND lon BETWEEN ? AND ?
@@ -59,12 +78,7 @@ internal fun searchNearbyPlaces(
             ),
         ).use { cursor ->
             while (cursor.moveToNext()) {
-                val lat = cursor.getDouble(2)
-                val lon = cursor.getDouble(3)
-                val dist = haversineMeters(centerLat, centerLon, lat, lon)
-                if (dist <= radiusMeters) {
-                    found += NearbySpot(cursor.getString(0), cursor.getString(1), lat, lon, dist)
-                }
+                readNearbySpotIfWithinRadius(cursor, centerLat, centerLon, radiusMeters)?.let { found += it }
             }
         }
     }
@@ -91,17 +105,6 @@ internal fun searchNearbyQuickSpots(
 
     val categoryClauses = categoryKeys.joinToString(" OR ") { "category LIKE ?" }
     val nameClause = if (!nameFilter.isNullOrBlank()) " AND name LIKE ? ESCAPE '\\'" else ""
-    val sql = """
-        SELECT name, category, lat, lon
-        FROM places
-        WHERE lat BETWEEN ? AND ?
-          AND lon BETWEEN ? AND ?
-          AND ($categoryClauses)
-          $nameClause
-          AND category NOT LIKE 'amenity:place_of_worship%'
-        $orderNearby
-        LIMIT ?
-    """.trimIndent()
 
     val args = ArrayList<String>()
     args.add((centerLat - latDelta).toString())
@@ -116,14 +119,21 @@ internal fun searchNearbyQuickSpots(
     args.add((limit * 3).toString())
 
     SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+        val selectCols = nearbySpotSelectColumns(placesColumns(db))
+        val sql = """
+            SELECT $selectCols
+            FROM places
+            WHERE lat BETWEEN ? AND ?
+              AND lon BETWEEN ? AND ?
+              AND ($categoryClauses)
+              $nameClause
+              AND category NOT LIKE 'amenity:place_of_worship%'
+            $orderNearby
+            LIMIT ?
+        """.trimIndent()
         db.rawQuery(sql, args.toTypedArray()).use { cursor ->
             while (cursor.moveToNext()) {
-                val lat = cursor.getDouble(2)
-                val lon = cursor.getDouble(3)
-                val dist = haversineMeters(centerLat, centerLon, lat, lon)
-                if (dist <= radiusMeters) {
-                    found += NearbySpot(cursor.getString(0), cursor.getString(1), lat, lon, dist)
-                }
+                readNearbySpotIfWithinRadius(cursor, centerLat, centerLon, radiusMeters)?.let { found += it }
             }
         }
     }

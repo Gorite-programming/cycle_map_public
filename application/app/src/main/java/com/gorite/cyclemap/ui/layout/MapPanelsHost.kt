@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.zIndex
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.data.FavoritesManager
@@ -51,8 +52,11 @@ internal fun MapPanelsHost(
     mapView: MapView?,
     vectorMap: org.maplibre.android.maps.MapLibreMap? = null,
     selectedPoiSpot: NearbySpot? = null,
+    /** 現在地 (緯度, 経度)。一覧と詳細で距離の横に方角を出すのに使う。 */
+    origin: Pair<Double, Double>? = null,
 ) {
     // 契約 PlaceDetail 3段階アンカーボトムシート (Peek120 / Half320 / Full560)
+    val placeDetailHeightPx = LocalPlaceDetailHeightPx.current
     var sheetAnchor by androidx.compose.runtime.remember(selectedPoiSpot) {
         androidx.compose.runtime.mutableStateOf(com.gorite.cyclemap.ui.map.BottomSheetAnchor.Half)
     }
@@ -118,6 +122,7 @@ internal fun MapPanelsHost(
             },
             onDismiss = onCloseSpotPanel,
             initialShowFavoritesOnly = showFavoritesOnlyInSheet,
+            origin = origin,
         )
     }
 
@@ -130,12 +135,7 @@ internal fun MapPanelsHost(
             errorMessage = quickSpotMessage,
             onSpotClick = { spot ->
                 onCloseQuickSpotSheet()
-                mapView?.controller?.animateTo(GeoPoint(spot.latitude, spot.longitude))
-                vectorMap?.animateCamera(
-                    org.maplibre.android.camera.CameraUpdateFactory.newLatLng(
-                        org.maplibre.android.geometry.LatLng(spot.latitude, spot.longitude)
-                    )
-                )
+                // カメラは施設選択の共通の処理 (余白を反映してから 1 回だけ寄せる) に任せる。ここで直接動かすと競合してピンが隠れる
                 onSelectPoiSpot(spot)
             },
             onRouteClick = { spot ->
@@ -143,6 +143,7 @@ internal fun MapPanelsHost(
                 onRouteToSpot(GeoPoint(spot.latitude, spot.longitude))
             },
             onDismiss = onCloseQuickSpotSheet,
+            origin = origin,
         )
     }
 
@@ -164,45 +165,49 @@ internal fun MapPanelsHost(
                 .zIndex(12f),
             contentAlignment = Alignment.BottomCenter
         ) {
-            com.gorite.cyclemap.ui.map.ThreeStageBottomSheet(
-                anchor = sheetAnchor,
-                onAnchorChange = { sheetAnchor = it }
-            ) {
-                com.gorite.cyclemap.ui.map.PlaceDetailContent(
-                    detail = currentDetail,
-                    isFavorite = isFav,
-                    onToggleFavorite = {
-                        val existing = favoritesList.firstOrNull {
-                            kotlin.math.abs(it.latitude - currentDetail.lat) < 0.0001 &&
-                                kotlin.math.abs(it.longitude - currentDetail.lon) < 0.0001
-                        }
-                        if (existing != null) {
-                            favoritesManager.removeFavorite(existing.id)
-                        } else {
-                            favoritesManager.addFavorite(
-                                FavoriteSpot(
-                                    id = currentDetail.id,
-                                    name = currentDetail.name,
-                                    category = selectedPoiSpot?.category ?: currentDetail.category,
-                                    latitude = currentDetail.lat,
-                                    longitude = currentDetail.lon,
-                                    address = currentDetail.address.takeIf { it.isNotBlank() },
+            androidx.compose.runtime.key(selectedPoiSpot) {
+                com.gorite.cyclemap.ui.map.ThreeStageBottomSheet(
+                    modifier = Modifier.onSizeChanged { placeDetailHeightPx?.intValue = it.height },
+                    anchor = sheetAnchor,
+                    onAnchorChange = { sheetAnchor = it }
+                ) {
+                    com.gorite.cyclemap.ui.map.PlaceDetailContent(
+                        detail = currentDetail,
+                        origin = origin,
+                        isFavorite = isFav,
+                        onToggleFavorite = {
+                            val existing = favoritesList.firstOrNull {
+                                kotlin.math.abs(it.latitude - currentDetail.lat) < 0.0001 &&
+                                    kotlin.math.abs(it.longitude - currentDetail.lon) < 0.0001
+                            }
+                            if (existing != null) {
+                                favoritesManager.removeFavorite(existing.id)
+                            } else {
+                                favoritesManager.addFavorite(
+                                    FavoriteSpot(
+                                        id = currentDetail.id,
+                                        name = currentDetail.name,
+                                        category = selectedPoiSpot?.category ?: currentDetail.category,
+                                        latitude = currentDetail.lat,
+                                        longitude = currentDetail.lon,
+                                        address = currentDetail.address.takeIf { it.isNotBlank() },
+                                    )
                                 )
-                            )
+                            }
+                        },
+                        onStartRoute = {
+                            placeDetail = null
+                            onSelectPoiSpot(null)
+                            onCloseSpotPanel()
+                            onRouteToSpot(GeoPoint(currentDetail.lat, currentDetail.lon))
+                        },
+                        onClose = {
+                            placeDetail = null
+                            onSelectPoiSpot(null)
+                            onCloseSpotPanel()
                         }
-                    },
-                    onStartRoute = {
-                        placeDetail = null
-                        onSelectPoiSpot(null)
-                        onCloseSpotPanel()
-                        onRouteToSpot(GeoPoint(currentDetail.lat, currentDetail.lon))
-                    },
-                    onClose = {
-                        placeDetail = null
-                        onSelectPoiSpot(null)
-                        onCloseSpotPanel()
-                    }
-                )
+                    )
+                }
             }
         }
     }

@@ -38,6 +38,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 
+// Shared only within this screen; a new selection must receive a fresh sheet measurement.
+internal val LocalPlaceDetailHeightPx = androidx.compose.runtime.compositionLocalOf<androidx.compose.runtime.MutableIntState?> { null }
+
 @Composable
 internal fun MapScreenScaffold(
     state: MapScreenState,
@@ -106,7 +109,11 @@ internal fun MapScreenScaffold(
 
     var showStopNavigationConfirm by remember { mutableStateOf(false) }
 
+    val placeDetailHeightPx = remember(state.selectedPoiSpotState.value) {
+        androidx.compose.runtime.mutableIntStateOf(0)
+    }
     CompositionLocalProvider(
+        LocalPlaceDetailHeightPx provides placeDetailHeightPx,
         LocalAnimationEnabled provides effectiveAnimationEnabled,
         LocalNavTabSwitcher provides switchNavTab,
         LocalLayerSelector provides selectLayer,
@@ -458,9 +465,6 @@ internal fun MapScreenScaffold(
             // Google マップと同じく、検索結果はまず場所の詳細を開く (経路はシートの「ここへ行く」から)
             state.showDestinationSearchState.value = false
             state.followLocationState.value = false
-            com.gorite.cyclemap.verify.VerificationCameraBus.post(
-                com.gorite.cyclemap.verify.VerificationCameraRequest(spot.latitude, spot.longitude, zoom = 16.5),
-            )
             state.selectedPoiSpotState.value = spot
             state.showSpotPanelState.value = true
         },
@@ -543,7 +547,7 @@ internal fun MapScreenScaffold(
             )
         },
         onDismissDownloadConfirm = { state.showDownloadConfirmDialogState.value = false },
-        followLocation = state.followLocationState.value,
+        followLocation = state.followLocationState.value && state.selectedPoiSpotState.value == null,
         locationMarker = state.locationMarkerState.value,
         accuracyCircle = state.accuracyCircleState.value,
         appLifecycleState = state.appLifecycleStateState.value,

@@ -179,6 +179,10 @@ internal fun MapContentLayout(
         var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
+        var placeTopHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val placeTopHeight = with(density) { placeTopHeightPx.toDp() }
+        val measuredDetailHeightPx = LocalPlaceDetailHeightPx.current?.intValue ?: 0
+        val placeDetailHeight = with(density) { measuredDetailHeightPx.toDp() }
         var navHeaderHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
         var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -228,6 +232,8 @@ internal fun MapContentLayout(
                     onPoiClick = onSelectPoiSpot,
                     onVectorMapReady = onVectorMapReady,
                     homePanelBottomPadding = if (homeVisible) homePanelHeight else 0.dp,
+                    placeTopPadding = placeTopHeight,
+                    placeBottomPadding = placeDetailHeight,
                 )
 
                 // DEF-01: 通知バナー群（通常時・案内時の共通表示）
@@ -362,30 +368,39 @@ internal fun MapContentLayout(
                             .zIndex(2f),
                     )
                 } else {
-                    MapTopOverlays(
-                        isNavigationActive = isNavigationActive,
-                        effectiveAnimationEnabled = effectiveAnimationEnabled,
-                        effectiveTopPadding = effectiveTopPadding,
-                        isLandscape = isLandscape,
-                        systemInsets = systemInsets,
-                onMenuClick = { isDrawerOpenState.value = true },
-                        onSearchClick = onOpenSearch,
-                        onAvatarClick = onOpenDeveloperOptions,
-                        onHomeClick = onHomeClick,
-                        onSelectQuickSpot = onSelectQuickSpot,
-                        onSelectCategory = onSelectCategory,
-                        notificationBannerGroup = notificationBanners,
-                        navigationProgress = navigationProgress,
-                        navigationInstructions = navigationInstructions,
-                        gpsStatus = gpsStatus,
-                        isRerouting = isRerouting,
-                        offRouteDetector = offRouteDetector,
-                        autoRerouteEnabled = autoRerouteEnabled,
-                        networkLink = networkLink,
-                        onStopNavigation = onStopNavigation,
-                        isRoutePreviewActive = !isNavigationActive && routeSummary != null,
-                        onNavHeaderHeightChanged = { navHeaderHeightPx = it },
-                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .then(if (selectedPoiSpot == null) Modifier.fillMaxSize() else Modifier)
+                            .onSizeChanged { placeTopHeightPx = it.height }
+                            .zIndex(2f),
+                    ) {
+                        MapTopOverlays(
+                            isNavigationActive = isNavigationActive,
+                            effectiveAnimationEnabled = effectiveAnimationEnabled,
+                            effectiveTopPadding = effectiveTopPadding,
+                            isLandscape = isLandscape,
+                            systemInsets = systemInsets,
+                            onMenuClick = { isDrawerOpenState.value = true },
+                            onSearchClick = onOpenSearch,
+                            onAvatarClick = onOpenDeveloperOptions,
+                            onHomeClick = onHomeClick,
+                            onSelectQuickSpot = onSelectQuickSpot,
+                            onSelectCategory = onSelectCategory,
+                            notificationBannerGroup = notificationBanners,
+                            navigationProgress = navigationProgress,
+                            navigationInstructions = navigationInstructions,
+                            gpsStatus = gpsStatus,
+                            isRerouting = isRerouting,
+                            offRouteDetector = offRouteDetector,
+                            autoRerouteEnabled = autoRerouteEnabled,
+                            networkLink = networkLink,
+                            onStopNavigation = onStopNavigation,
+                            isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                            onNavHeaderHeightChanged = { navHeaderHeightPx = it },
+                        )
+                    }
 
                     // Right-Side Controls: Google Maps Style
                     MapControlsOverlay(

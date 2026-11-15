@@ -38,6 +38,8 @@ import com.gorite.cyclemap.contract.BusinessStatus
 import com.gorite.cyclemap.contract.PlaceDetail
 import com.gorite.cyclemap.contract.RouteOption
 import com.gorite.cyclemap.contract.TravelModeType
+import com.gorite.cyclemap.ui.components.DistanceAndDirection
+import com.gorite.cyclemap.ui.components.directionBearingDeg
 import com.gorite.cyclemap.utils.normalizePlaceAddress
 
 /**
@@ -50,7 +52,8 @@ fun PlaceDetailContent(
     onToggleFavorite: () -> Unit,
     onStartRoute: () -> Unit,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    origin: Pair<Double, Double>? = null,
 ) {
     val poiCat = com.gorite.cyclemap.ui.cycling.PoiCategory.forCategory(detail.category)
         ?: com.gorite.cyclemap.ui.cycling.PoiCategory.entries.firstOrNull { it.label == detail.category }
@@ -99,13 +102,32 @@ fun PlaceDetailContent(
                             )
                         }
                         if (detail.distanceMeters != null && detail.distanceMeters > 0.0) {
+                            val bearingDeg = directionBearingDeg(
+                                origin = origin,
+                                targetLat = detail.lat,
+                                targetLon = detail.lon,
+                                distanceMeters = detail.distanceMeters,
+                            )
                             Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)) {
-                                Text(
-                                    text = "現在地から " + formatDistance(detail.distanceMeters),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
+                                if (bearingDeg != null) {
+                                    DistanceAndDirection(
+                                        distanceMeters = detail.distanceMeters,
+                                        bearingDeg = bearingDeg,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = MaterialTheme.typography.labelMedium.fontSize,
+                                        iconSize = 13.dp,
+                                        boldDistance = false,
+                                    )
+                                } else {
+                                    Text(
+                                        text = "現在地から " + formatDistance(detail.distanceMeters),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
                             }
                         }
                     }

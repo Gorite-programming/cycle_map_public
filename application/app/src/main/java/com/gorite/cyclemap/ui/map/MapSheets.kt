@@ -2,6 +2,8 @@ package com.gorite.cyclemap.ui.map
 
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -96,32 +98,7 @@ fun ThreeStageBottomSheet(
 
     Surface(
         modifier = modifier
-            .then(sizeModifier)
-            .draggable(
-                orientation = Orientation.Vertical,
-                state = rememberDraggableState { delta ->
-                    dragAccumulated += delta
-                },
-                onDragStopped = {
-                    when {
-                        dragAccumulated < -dragThresholdPx -> {
-                            when (anchor) {
-                                BottomSheetAnchor.Peek -> onAnchorChange(BottomSheetAnchor.Half)
-                                BottomSheetAnchor.Half -> onAnchorChange(BottomSheetAnchor.Full)
-                                BottomSheetAnchor.Full -> Unit
-                            }
-                        }
-                        dragAccumulated > dragThresholdPx -> {
-                            when (anchor) {
-                                BottomSheetAnchor.Full -> onAnchorChange(BottomSheetAnchor.Half)
-                                BottomSheetAnchor.Half -> onAnchorChange(BottomSheetAnchor.Peek)
-                                BottomSheetAnchor.Peek -> Unit
-                            }
-                        }
-                    }
-                    dragAccumulated = 0f
-                },
-            ),
+            .then(sizeModifier),
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
@@ -141,7 +118,32 @@ fun ThreeStageBottomSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 6.dp),
+                    .padding(top = 4.dp, bottom = 6.dp)
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            dragAccumulated += delta
+                        },
+                        onDragStopped = {
+                            when {
+                                dragAccumulated < -dragThresholdPx -> {
+                                    when (anchor) {
+                                        BottomSheetAnchor.Peek -> onAnchorChange(BottomSheetAnchor.Half)
+                                        BottomSheetAnchor.Half -> onAnchorChange(BottomSheetAnchor.Full)
+                                        BottomSheetAnchor.Full -> Unit
+                                    }
+                                }
+                                dragAccumulated > dragThresholdPx -> {
+                                    when (anchor) {
+                                        BottomSheetAnchor.Full -> onAnchorChange(BottomSheetAnchor.Half)
+                                        BottomSheetAnchor.Half -> onAnchorChange(BottomSheetAnchor.Peek)
+                                        BottomSheetAnchor.Peek -> Unit
+                                    }
+                                }
+                            }
+                            dragAccumulated = 0f
+                        },
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -152,7 +154,13 @@ fun ThreeStageBottomSheet(
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 )
             }
-            content()
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                content()
+            }
         }
     }
 }

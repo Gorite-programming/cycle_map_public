@@ -54,7 +54,9 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.data.FavoritesManager
-import com.gorite.cyclemap.search.formatCategoryLabel
+import com.gorite.cyclemap.ui.components.DistanceAndDirection
+import com.gorite.cyclemap.ui.components.directionBearingDeg
+import com.gorite.cyclemap.ui.components.formatSpotSubtitle
 
 /**
  * MapScreen上部等に配置するクイックスポットフィルタの水平ピルボタン列。
@@ -144,6 +146,7 @@ fun QuickSpotBottomSheet(
     onRouteClick: (NearbySpot) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    origin: Pair<Double, Double>? = null,
 ) {
     val context = LocalContext.current
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
@@ -331,11 +334,13 @@ fun QuickSpotBottomSheet(
                                             category = spot.category,
                                             latitude = spot.latitude,
                                             longitude = spot.longitude,
+                                            address = spot.address,
                                         ),
                                     )
                                 },
                                 onSpotClick = { onSpotClick(spot) },
                                 onRouteClick = { onRouteClick(spot) },
+                                origin = origin,
                             )
                         }
                     }
@@ -346,14 +351,22 @@ fun QuickSpotBottomSheet(
 }
 
 @Composable
-private fun QuickSpotCard(
+internal fun QuickSpotCard(
     spot: NearbySpot,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onSpotClick: () -> Unit,
-    onRouteClick: () -> Unit,
+    onRouteClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    origin: Pair<Double, Double>? = null,
+    distanceMeters: Double? = spot.distanceM,
 ) {
+    val bearingDeg = directionBearingDeg(
+        origin = origin,
+        targetLat = spot.latitude,
+        targetLon = spot.longitude,
+        distanceMeters = distanceMeters,
+    )
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -365,91 +378,91 @@ private fun QuickSpotCard(
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // スポット情報 (名前・カテゴリ・距離)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            // 上段: 施設名 (最大2行) + 右端に方角と距離
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
             ) {
                 Text(
                     text = spot.name,
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                DistanceAndDirection(
+                    distanceMeters = distanceMeters,
+                    bearingDeg = bearingDeg,
+                    modifier = Modifier.padding(start = 8.dp, top = 2.dp),
+                )
+            }
+
+            // 下段: 左に短い住所 (あれば) または カテゴリ、右に ☆ (48dp) と「ここへ行く」(40dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = formatSpotSubtitle(spot.address, spot.category),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = formatKm(spot.distanceM),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = "•",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = formatCategoryLabel(spot.category),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
+                            contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
+                            tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // アクションボタン列 (お気に入り + 「ここへ行く」ボタン)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
-                        contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",
-                        tint = if (isFavorite) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
-                Button(
-                    onClick = onRouteClick,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = CycleMapTheme.palette.accent,
-                        contentColor = CycleMapTheme.palette.onAccent,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.height(36.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_lucide_navigation),
-                        contentDescription = null,
-                        tint = CycleMapTheme.palette.onAccent,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "ここへ行く",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = CycleMapTheme.palette.onAccent,
-                    )
+                    if (onRouteClick != null) {
+                        Button(
+                            onClick = onRouteClick,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CycleMapTheme.palette.accent,
+                                contentColor = CycleMapTheme.palette.onAccent,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(40.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_lucide_navigation),
+                                contentDescription = null,
+                                tint = CycleMapTheme.palette.onAccent,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "ここへ行く",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CycleMapTheme.palette.onAccent,
+                            )
+                        }
+                    }
                 }
             }
         }

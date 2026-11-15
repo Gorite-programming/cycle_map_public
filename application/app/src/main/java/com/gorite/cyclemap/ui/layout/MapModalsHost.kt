@@ -183,6 +183,7 @@ internal fun MapModalsHost(
     )
 
     MapPanelsHost(
+        origin = currentLocation?.let { it.latitude to it.longitude },
         showSpotPanel = showSpotPanel,
         onCloseSpotPanel = onCloseSpotPanel,
         spotCategory = spotCategory,

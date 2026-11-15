@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.data.FavoritesManager
-import com.gorite.cyclemap.search.formatCategoryLabel
+import com.gorite.cyclemap.utils.haversineMeters
 
 // ---------------------------------------------------------------------------
 // スポットパネル (サイクリスト向けPOIクイック検索・オフラインDB)
@@ -67,6 +67,7 @@ fun SpotPanelSheet(
     onQuickSpotTypeSelect: ((QuickSpotType) -> Unit)? = null,
     onRouteToSpot: ((NearbySpot) -> Unit)? = null,
     initialShowFavoritesOnly: Boolean = false,
+    origin: Pair<Double, Double>? = null,
 ) {
     val context = LocalContext.current
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
@@ -156,57 +157,31 @@ fun SpotPanelSheet(
                         )
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 340.dp)) {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 340.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         items(favorites, key = { it.id }) { fav ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        onSpotClick(
-                                            NearbySpot(
-                                                name = fav.name,
-                                                category = fav.category,
-                                                latitude = fav.latitude,
-                                                longitude = fav.longitude,
-                                                distanceM = 0.0,
-                                            ),
-                                        )
-                                    }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    painterResource(
-                                        PoiCategory.forCategory(fav.category)?.iconRes
-                                            ?: R.drawable.ic_lucide_map_pin,
-                                    ),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(fav.name, fontWeight = FontWeight.Medium)
-                                    Text(
-                                        fav.address ?: formatCategoryLabel(fav.category),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { favoritesManager.removeFavorite(fav.id) },
-                                    modifier = Modifier.size(36.dp),
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_star_filled),
-                                        contentDescription = "お気に入り解除",
-                                        tint = CycleMapTheme.palette.favorite,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
+                            val favDistance = origin?.let {
+                                haversineMeters(it.first, it.second, fav.latitude, fav.longitude)
                             }
+                            val favAsSpot = NearbySpot(
+                                name = fav.name,
+                                category = fav.category,
+                                latitude = fav.latitude,
+                                longitude = fav.longitude,
+                                distanceM = favDistance ?: 0.0,
+                                address = fav.address,
+                            )
+                            QuickSpotCard(
+                                spot = favAsSpot,
+                                isFavorite = true,
+                                onToggleFavorite = { favoritesManager.removeFavorite(fav.id) },
+                                onSpotClick = { onSpotClick(favAsSpot) },
+                                onRouteClick = onRouteToSpot?.let { handler -> { handler(favAsSpot) } },
+                                origin = origin,
+                                distanceMeters = favDistance,
+                            )
                         }
                     }
                 }
@@ -214,77 +189,31 @@ fun SpotPanelSheet(
                 when {
                     isLoading -> Text("検索中…", style = MaterialTheme.typography.bodyMedium)
                     message != null -> Text(message, style = MaterialTheme.typography.bodyMedium)
-                    else -> LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    else -> LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         items(spots, key = { "${it.name}:${it.latitude}:${it.longitude}" }) { spot ->
                             val isFav = favoritesManager.isFavorite(spot.latitude, spot.longitude)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onSpotClick(spot) }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    painterResource(
-                                        PoiCategory.forCategory(spot.category)?.iconRes
-                                            ?: R.drawable.ic_lucide_map_pin,
-                                    ),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(spot.name, fontWeight = FontWeight.Medium)
-                                    Text(
-                                        formatCategoryLabel(spot.category),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            QuickSpotCard(
+                                spot = spot,
+                                isFavorite = isFav,
+                                onToggleFavorite = {
+                                    favoritesManager.toggleFavorite(
+                                        FavoriteSpot(
+                                            id = "${spot.name}_${spot.latitude}_${spot.longitude}",
+                                            name = spot.name,
+                                            category = spot.category,
+                                            latitude = spot.latitude,
+                                            longitude = spot.longitude,
+                                            address = spot.address,
+                                        ),
                                     )
-                                }
-                                Text(
-                                    formatKm(spot.distanceM),
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(end = 4.dp),
-                                )
-                                if (onRouteToSpot != null) {
-                                    IconButton(
-                                        onClick = { onRouteToSpot(spot) },
-                                        modifier = Modifier.size(36.dp),
-                                    ) {
-                                        Icon(
-                                            painterResource(R.drawable.ic_lucide_navigation),
-                                            contentDescription = "ここへ行く",
-                                            tint = cyclingAccent,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        favoritesManager.toggleFavorite(
-                                            FavoriteSpot(
-                                                id = "${spot.name}_${spot.latitude}_${spot.longitude}",
-                                                name = spot.name,
-                                                category = spot.category,
-                                                latitude = spot.latitude,
-                                                longitude = spot.longitude,
-                                            ),
-                                        )
-                                    },
-                                    modifier = Modifier.size(36.dp),
-                                ) {
-                                    Icon(
-                                        painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
-                                        contentDescription = if (isFav) "お気に入り解除" else "お気に入り追加",
-                                        tint = if (isFav) CycleMapTheme.palette.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
+                                },
+                                onSpotClick = { onSpotClick(spot) },
+                                onRouteClick = onRouteToSpot?.let { handler -> { handler(spot) } },
+                                origin = origin,
+                            )
                         }
                     }
                 }

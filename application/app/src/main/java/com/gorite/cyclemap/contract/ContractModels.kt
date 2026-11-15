@@ -79,5 +79,6 @@ data class NearbySpot(
     val category: String,
     val latitude: Double,
     val longitude: Double,
-    val distanceM: Double
+    val distanceM: Double,
+    val address: String? = null,
 )

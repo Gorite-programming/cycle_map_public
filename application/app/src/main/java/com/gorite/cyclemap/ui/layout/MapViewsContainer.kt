@@ -68,6 +68,8 @@ internal fun MapViewsContainer(
     isDarkTheme: Boolean,
     /** 待ち受けの盤面の高さ。地図の中心 (現在地) が盤面に隠れないよう、カメラの下側の余白にする。 */
     homePanelBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    placeTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    placeBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     isLowPowerMode: Boolean,
     selectedPoiSpot: NearbySpot?,
     followLocation: Boolean,
@@ -93,6 +95,33 @@ internal fun MapViewsContainer(
     val areaSelectColor = CycleMapTheme.palette.accent
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var focusedRasterSpot by remember(mapView) { mutableStateOf<NearbySpot?>(null) }
+    var rasterPaddingApplied by remember(mapView) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(mapView, selectedLayer, selectedPoiSpot, placeTopPadding, placeBottomPadding, density) {
+        val view = mapView ?: return@LaunchedEffect
+        val spot = selectedPoiSpot
+        if (spot == null || selectedLayer == MapLayer.VECTOR_LIBERTY) {
+            if (rasterPaddingApplied) view.setMapCenterOffset(0, 0)
+            rasterPaddingApplied = false
+            focusedRasterSpot = null
+            return@LaunchedEffect
+        }
+        if (placeTopPadding <= 0.dp || placeBottomPadding <= 0.dp) return@LaunchedEffect
+        val offsetY = with(density) { ((placeTopPadding - placeBottomPadding) / 2).roundToPx() }
+        view.setMapCenterOffset(0, offsetY)
+        rasterPaddingApplied = true
+        if (focusedRasterSpot != spot) {
+            kotlinx.coroutines.delay(100L)
+            view.controller.stopAnimation(false)
+            view.controller.animateTo(
+                GeoPoint(spot.latitude, spot.longitude),
+                view.zoomLevelDouble.coerceAtLeast(16.5),
+                800L,
+            )
+            focusedRasterSpot = spot
+        }
+    }
     var vectorDataRevision by remember { mutableIntStateOf(0) }
     Box(modifier = modifier) {
         // Raster MapView (osmdroid): ベクター単体表示時は裏で常駐させず、ラスター選択時または範囲指定DL時のみマウント
@@ -233,7 +262,7 @@ internal fun MapViewsContainer(
                     isNightMode = isDarkTheme,
                     isPowerSaveActive = isLowPowerMode,
                     selectedPoiSpot = selectedPoiSpot,
-                    followLocation = followLocation,
+                    followLocation = followLocation && selectedPoiSpot == null,
                     isNavigationActive = isNavigationActive,
                     gpsStatus = gpsStatus,
                     poiVisible = poiVisible,
@@ -241,11 +270,12 @@ internal fun MapViewsContainer(
                     cameraPadding = androidx.compose.foundation.layout.PaddingValues(
                         top = if (isNavigationActive) {
                             if (isLandscape) 50.dp else (systemInsets.calculateTopPadding() + 210.dp)
-                        } else 0.dp,
+                        } else if (selectedPoiSpot != null) placeTopPadding else 0.dp,
                         bottom = if (isNavigationActive) {
                             if (isLandscape) 64.dp else (systemInsets.calculateBottomPadding() + 330.dp) // 縦画面: 数値パネル (約340dp) の上に自車位置が見えるように
-                        } else homePanelBottomPadding,
+                        } else if (selectedPoiSpot != null) placeBottomPadding else homePanelBottomPadding,
                     ),
+                    placeCameraReady = placeTopPadding > 0.dp && placeBottomPadding > 0.dp,
                     onTiltChanged = onTiltChanged,
                     onZoomLevelChanged = onZoomLevelChanged,
                     onBearingChanged = onBearingChanged,

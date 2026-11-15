@@ -22,9 +22,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.FavoriteSpot
@@ -203,38 +206,84 @@ private fun FavoriteButton(isFavorite: Boolean, onClick: () -> Unit) {
     }
 }
 
+internal const val MIN_DIRECTION_DISTANCE_METERS = 30.0
+
+/**
+ * [origin] から目的地 ([targetLat], [targetLon]) への方角 (度) を返す。
+ * [origin] が無い、または 30m 未満の近距離では方角がぶれるため null を返す。
+ */
+internal fun directionBearingDeg(
+    origin: Pair<Double, Double>?,
+    targetLat: Double,
+    targetLon: Double,
+    distanceMeters: Double? = null,
+): Double? {
+    if (origin == null) return null
+    if (!origin.first.isFinite() || !origin.second.isFinite() || !targetLat.isFinite() || !targetLon.isFinite()) {
+        return null
+    }
+    if (distanceMeters != null && distanceMeters < MIN_DIRECTION_DISTANCE_METERS) return null
+    if (haversineMeters(origin.first, origin.second, targetLat, targetLon) < MIN_DIRECTION_DISTANCE_METERS) {
+        return null
+    }
+    return initialBearingDeg(origin.first, origin.second, targetLat, targetLon)
+}
+
+internal fun formatShortDistance(distanceMeters: Double): String {
+    val safe = distanceMeters.coerceAtLeast(0.0)
+    return if (safe >= 1000.0) {
+        String.format(Locale.US, "%.1f km", safe / 1000.0)
+    } else {
+        String.format(Locale.US, "%.0f m", safe)
+    }
+}
+
+/**
+ * スポットカードの補助行ラベル: 有効な短い住所があればそれを、無ければカテゴリ表示名を返す。
+ */
+internal fun formatSpotSubtitle(address: String?, category: String): String {
+    val short = address
+        ?.takeIf { it.isNotBlank() && it.trim() != "周辺エリア" }
+        ?.let { shortAddress(it) }
+        ?.takeIf { it.isNotBlank() }
+    return short ?: formatCategoryLabel(category)
+}
+
 @Composable
-private fun DistanceAndDirection(distanceMeters: Double?, bearingDeg: Double?) {
+internal fun DistanceAndDirection(
+    distanceMeters: Double?,
+    bearingDeg: Double?,
+    modifier: Modifier = Modifier.padding(start = 6.dp),
+    color: Color = MaterialTheme.colorScheme.primary,
+    fontSize: TextUnit = 13.sp,
+    iconSize: Dp = 14.dp,
+    boldDistance: Boolean = true,
+) {
     if (distanceMeters == null) return
     Row(
-        modifier = Modifier.padding(start = 6.dp),
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (bearingDeg != null && distanceMeters >= 30.0) {
+        if (bearingDeg != null && distanceMeters >= MIN_DIRECTION_DISTANCE_METERS) {
             Icon(
                 painterResource(R.drawable.ic_lucide_arrow_up),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(14.dp).rotate(bearingDeg.toFloat()),
+                tint = color,
+                modifier = Modifier.size(iconSize).rotate(bearingDeg.toFloat()),
             )
             Text(
                 compassLabel8(bearingDeg),
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.primary,
+                fontSize = fontSize,
+                color = color,
                 maxLines = 1,
             )
         }
-        val distanceText = if (distanceMeters >= 1000.0) {
-            String.format(Locale.US, "%.1f km", distanceMeters / 1000.0)
-        } else {
-            String.format(Locale.US, "%.0f m", distanceMeters)
-        }
         Text(
-            distanceText,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            formatShortDistance(distanceMeters),
+            fontSize = fontSize,
+            fontWeight = if (boldDistance) FontWeight.Bold else FontWeight.Normal,
+            color = color,
             maxLines = 1,
         )
     }

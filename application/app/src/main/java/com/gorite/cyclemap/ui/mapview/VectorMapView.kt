@@ -84,6 +84,7 @@ internal fun VectorMapView(
     poiVisible: Boolean = true,
     poiSelected: Set<PoiCategory> = PoiCategory.defaults(),
     cameraPadding: PaddingValues = PaddingValues(0.dp),
+    placeCameraReady: Boolean = true,
     onTiltChanged: (Double) -> Unit = {},
     onZoomLevelChanged: (Double) -> Unit = {},
     onBearingChanged: (Double) -> Unit = {},
@@ -112,7 +113,7 @@ internal fun VectorMapView(
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnUserPan by rememberUpdatedState(onUserPan)
     val currentBearingForMarker by rememberUpdatedState(bearing)
-    val currentFollowLocation by rememberUpdatedState(followLocation)
+    val currentFollowLocation by rememberUpdatedState(followLocation && selectedPoiSpot == null)
     val currentGpsStatus by rememberUpdatedState(gpsStatus)
     // 県のタイル切替 (rebuildStyle) など長期生存の LaunchedEffect からも最新のルートを描き直すための状態ホルダー。
     // 値をそのまま捕まえると、最初の合成のとき (ルートが空) の値でスタイルを張り直し、ルートが消えたままになる
@@ -560,10 +561,10 @@ internal fun VectorMapView(
         }
 
         // 現在地追従（停止時・低速巡航時のデバウンス制御、MED-08: 乖離時復帰・トグル直後復帰）
-        LaunchedEffect(currentLocation, followLocation, speedMps, mapLibreMap) {
+        LaunchedEffect(currentLocation, followLocation, selectedPoiSpot, speedMps, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val loc = currentLocation ?: return@LaunchedEffect
-            if (!followLocation) {
+            if (!followLocation || selectedPoiSpot != null) {
                 lastFollowLocation = false
                 return@LaunchedEffect
             }
@@ -609,7 +610,7 @@ internal fun VectorMapView(
             }
         }
 
-        // DEF-07: POI選択時のカメラ移動およびハイライトピン描画
+        // DEF-07: POI選択時のハイライトピン描画 (カメラは余白設定後に移動)
         LaunchedEffect(selectedPoiSpot, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val spot = selectedPoiSpot
@@ -630,10 +631,6 @@ internal fun VectorMapView(
                 }
                 return@LaunchedEffect
             }
-            map.animateCamera(
-                CameraUpdateFactory.newLatLng(LatLng(spot.latitude, spot.longitude)),
-                800,
-            )
             map.getStyle { style ->
                 val cat = PoiCategory.forCategory(spot.category)
                 val iconKey = if (cat != null) "poi-pin-${cat.name}" else "cyclemap-poi-pin-icon"
@@ -656,13 +653,32 @@ internal fun VectorMapView(
 
         // ナビ案内時等のカメラパディング連携 (自車位置の前方視界確保)
         val density = LocalDensity.current
-        LaunchedEffect(cameraPadding, mapLibreMap, density) {
+        var focusedSpot by remember(mapLibreMap) { mutableStateOf<NearbySpot?>(null) }
+        LaunchedEffect(cameraPadding, selectedPoiSpot, placeCameraReady, mapLibreMap, density) {
             val map = mapLibreMap ?: return@LaunchedEffect
             val leftPx = with(density) { cameraPadding.calculateLeftPadding(LayoutDirection.Ltr).roundToPx() }
             val topPx = with(density) { cameraPadding.calculateTopPadding().roundToPx() }
             val rightPx = with(density) { cameraPadding.calculateRightPadding(LayoutDirection.Ltr).roundToPx() }
             val bottomPx = with(density) { cameraPadding.calculateBottomPadding().roundToPx() }
+            val spot = selectedPoiSpot
+            if (spot != null && !placeCameraReady) return@LaunchedEffect
             map.setPadding(leftPx, topPx, rightPx, bottomPx)
+            if (spot == null) {
+                focusedSpot = null
+            } else if (focusedSpot != spot) {
+                // Wait for entering overlays and sheet size changes to settle. A new
+                // measurement cancels this effect before it can start another move.
+                delay(100L)
+                map.cancelTransitions()
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(spot.latitude, spot.longitude),
+                        map.cameraPosition.zoom.coerceAtLeast(16.5),
+                    ),
+                    800,
+                )
+                focusedSpot = spot
+            }
             // 余白が変わると見える範囲の中心がずれるので、現在地を追っているときは中心へ戻す
             // (待ち受けの盤面を出し入れしたとき、現在地が盤面の下に隠れないように)
             val loc = currentLocation
