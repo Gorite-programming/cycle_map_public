@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.ui.cycling
 
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
@@ -72,7 +73,8 @@ fun SpotPanelSheet(
     val favorites by favoritesManager.favorites.collectAsState()
     var showFavoritesOnly by remember(initialShowFavoritesOnly) { mutableStateOf(initialShowFavoritesOnly) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    // ステータスバーより下で止める (端末がダーク設定でアプリがライトのとき、白い時計が明るいシートに溶けるため)
+    ModalBottomSheet(modifier = Modifier.statusBarsPadding(), onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
       Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier

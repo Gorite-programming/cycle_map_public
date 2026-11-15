@@ -68,7 +68,8 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(isDark, isNavigatingState) {
                 enableEdgeToEdge(
-                    statusBarStyle = if (isDark || isNavigatingState) {
+                    // 案内中も上端の影はテーマの背景色なので、時計の色はテーマに合わせる (以前は案内中だけ常に白で、ライトでは読めなかった)
+                    statusBarStyle = if (isDark) {
                         SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                     } else {
                         SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)

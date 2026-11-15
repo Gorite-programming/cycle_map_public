@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.ui.cycling
 
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -148,11 +149,12 @@ fun QuickSpotBottomSheet(
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
     val favorites by favoritesManager.favorites.collectAsState()
 
+    // ステータスバーより下で止める (端末がダーク設定でアプリがライトのとき、白い時計が明るいシートに溶けるため)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
-        modifier = modifier,
+        modifier = modifier.statusBarsPadding(),
     ) {
         Column(
             modifier = Modifier
