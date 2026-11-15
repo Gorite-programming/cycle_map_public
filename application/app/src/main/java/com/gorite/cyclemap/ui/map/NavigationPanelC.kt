@@ -367,7 +367,7 @@ internal fun NavBottomPanelC(
                             style = numStyle(56, p.warn, p),
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(text = "km/h", style = numStyle(18, p.sub, p), modifier = Modifier.padding(bottom = 8.dp))
+                        Text(text = "km/h", style = numStyle(16, p.sub, p), modifier = Modifier.padding(bottom = 8.dp), maxLines = 1, softWrap = false)
                     }
                 }
                 val (rn, ru) = splitRemaining(data.remainingMeters)
@@ -376,7 +376,7 @@ internal fun NavBottomPanelC(
                 }
                 MetricCard(label = "勾配", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
                     val g = data.gradePct
-                    ValueWithUnit(if (g == null) "--" else String.format("%+.0f", g), "%", p)
+                    ValueWithUnit(formatGradePct(g), "%", p)
                 }
             }
 
@@ -439,9 +439,21 @@ internal fun NavBottomPanelC(
     }
 }
 
-private fun splitRemaining(meters: Double): Pair<String, String> {
+/** 残り距離。3 列のカードに 1 行で収まるよう、10km 以上は整数にする (「102.1」が折り返していた)。 */
+internal fun splitRemaining(meters: Double): Pair<String, String> {
     val m = meters.coerceAtLeast(0.0)
-    return if (m < 1000.0) m.roundToInt().toString() to "m" else String.format("%.1f", m / 1000.0) to "km"
+    return when {
+        m < 1000.0 -> m.roundToInt().toString() to "m"
+        m < 10_000.0 -> String.format("%.1f", m / 1000.0) to "km"
+        else -> (m / 1000.0).roundToInt().toString() to "km"
+    }
+}
+
+/** 勾配 (%)。丸めて 0 になる小さな値は「-0」「+0」でなく「0」と出す。 */
+internal fun formatGradePct(g: Double?): String {
+    if (g == null || !g.isFinite()) return "--"
+    val r = g.roundToInt()
+    return if (r == 0) "0" else String.format("%+d", r)
 }
 
 private fun formatClock(epochMillis: Long): String {
@@ -460,7 +472,7 @@ private fun MetricCard(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(palette.chip)
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 9.dp),
+            .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 9.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = TextStyle(fontSize = 11.sp, letterSpacing = 0.8.sp, color = palette.sub))
@@ -471,9 +483,10 @@ private fun MetricCard(
 @Composable
 private fun ValueWithUnit(value: String, unit: String, palette: NavPalette) {
     Row(verticalAlignment = Alignment.Bottom) {
-        Text(text = value, style = numStyle(36, palette.text, palette))
+        // 3 列に並べたカードは幅が狭いので、30 にして 1 行に収める (折り返さない)
+        Text(text = value, style = numStyle(30, palette.text, palette), maxLines = 1, softWrap = false)
         Spacer(Modifier.width(2.dp))
-        Text(text = unit, style = numStyle(15, palette.sub, palette), modifier = Modifier.padding(bottom = 3.dp))
+        Text(text = unit, style = numStyle(14, palette.sub, palette), modifier = Modifier.padding(bottom = 3.dp), maxLines = 1, softWrap = false)
     }
 }
 

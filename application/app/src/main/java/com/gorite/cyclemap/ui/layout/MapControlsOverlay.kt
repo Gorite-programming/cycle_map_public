@@ -74,6 +74,8 @@ internal fun BoxScope.MapControlsOverlay(
     effectiveTopPadding: Dp,
     bottomHudVisible: Boolean = false,
     isRoutePreviewActive: Boolean = false,
+    /** 案内中の上部カードの高さ。0 なら未計測で、従来の固定位置 (104dp) を使う。 */
+    navHeaderHeight: Dp = 0.dp,
 ) {
     val canZoomIn = if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
         (vectorMap?.cameraPosition?.zoom ?: 14.0) < 22.0
@@ -275,7 +277,11 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = effectiveTopPadding + 104.dp, end = 14.dp)
+                // 案内カードは「そのあと」の帯・2 行の案内文・車線で高さが変わるので、測った高さの下に置く
+                .padding(
+                    top = effectiveTopPadding + if (navHeaderHeight > 0.dp) navHeaderHeight + 8.dp + 12.dp else 104.dp,
+                    end = 14.dp,
+                )
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

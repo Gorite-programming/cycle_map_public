@@ -177,6 +177,8 @@ internal fun MapContentLayout(
         var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
+        var navHeaderHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
         androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle) { mapExpanded = false }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
@@ -366,6 +368,7 @@ internal fun MapContentLayout(
                         networkLink = networkLink,
                         onStopNavigation = onStopNavigation,
                         isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                        onNavHeaderHeightChanged = { navHeaderHeightPx = it },
                     )
 
                     // Right-Side Controls: Google Maps Style
@@ -395,6 +398,7 @@ internal fun MapContentLayout(
                         effectiveTopPadding = effectiveTopPadding,
                         bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
                         isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                        navHeaderHeight = navHeaderHeight,
                     )
 
                     // Bottom Area: Active Navigation Footer or Dashboard

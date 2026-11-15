@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -44,7 +46,9 @@ internal fun MapDrawerContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 24.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
+                // メニューは画面の上端から描かれるので、ステータスバーの分を空けて時計と重ならないようにする
+                .statusBarsPadding()
+                .padding(start = 24.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -136,10 +140,13 @@ internal fun MapDrawerContent(
             )
 
             Text(
-                text = "地図データ © OpenStreetMap contributors ・ 国土地理院",
+                // 出典ごとに改行し、語の途中で折り返さないようにする
+                text = "地図データ © OpenStreetMap contributors\n国土地理院",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp),
             )
         }
     }

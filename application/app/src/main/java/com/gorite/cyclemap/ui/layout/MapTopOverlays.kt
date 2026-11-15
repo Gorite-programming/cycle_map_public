@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +53,8 @@ internal fun BoxScope.MapTopOverlays(
     networkLink: com.gorite.cyclemap.net.Link = com.gorite.cyclemap.net.Link.Offline,
     onStopNavigation: () -> Unit = {},
     isRoutePreviewActive: Boolean = false,
+    /** 案内中の上部カードの高さ (px)。右側の地図ボタンをその下に置くために使う。 */
+    onNavHeaderHeightChanged: (Int) -> Unit = {},
 ) {
     // Normal Top Bar (ルートプレビュー中は検索バーとチップを隠し、地図を広く使う)
     AnimatedVisibility(
@@ -116,6 +119,8 @@ internal fun BoxScope.MapTopOverlays(
                         .padding(top = effectiveTopPadding + 8.dp)
                 },
             )
+            // padding より後ろなので、カード自体の高さ (上の余白を含まない) が届く
+            .onSizeChanged { onNavHeaderHeightChanged(it.height) }
             .zIndex(2f),
     ) {
         val progress = navigationProgress
