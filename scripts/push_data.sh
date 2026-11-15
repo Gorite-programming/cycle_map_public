@@ -25,6 +25,15 @@ DEST_DIR="/sdcard/Android/data/${PACKAGE_NAME}/files/Documents/CycleMap"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Windows (Git Bash) では、adb.exe に渡す端末側のパス (/sdcard/...) が C:/Program Files/Git/sdcard/... に書き換えられて
+# push が失敗する。書き換えを止め、手元のファイルのパスは cygpath で Windows の形にして渡す。Mac / Linux では何もしない。
+if command -v cygpath >/dev/null 2>&1; then
+    export MSYS_NO_PATHCONV=1
+    native_path() { cygpath -w "$1"; }
+else
+    native_path() { printf '%s' "$1"; }
+fi
+
 DRY_RUN=false
 DB_ONLY=false
 TILES_ONLY=false
@@ -195,7 +204,7 @@ push_file() {
         echo "         -> Would push to: ${remote_path}"
     else
         echo "         -> Pushing to device..."
-        adb push "$local_path" "$remote_path"
+        adb push "$(native_path "$local_path")" "$remote_path"
 
         echo "         -> Verifying on-device SHA-256..."
         remote_hash_line=$(adb shell sha256sum "$remote_path" 2>/dev/null || true)
