@@ -3,6 +3,11 @@
 # scripts/push_data.sh - Deploy CycleMap offline data to connected Android device
 # =============================================================================
 #
+# Select a device with --serial SERIAL (takes precedence over ANDROID_SERIAL).
+# With neither set, one online device is selected automatically; two or more
+# require --serial. Logs show only a short serial prefix (e.g. RFG…).
+# Push and transient SHA-256 failures are attempted up to three times.
+#
 # Target directory on device:
 #   /sdcard/Android/data/com.gorite.cyclemap.test/files/Documents/CycleMap/
 #   (getExternalFilesDir(DOCUMENTS)/CycleMap/)
@@ -38,6 +43,8 @@ DRY_RUN=false
 DB_ONLY=false
 TILES_ONLY=false
 TARGET_PREF=""
+DEVICE_ID="${ANDROID_SERIAL:-}"
+SERVER_RESTARTED=false
 
 ALL_PREFS=("Hokkaido" "Aomori" "Iwate" "Miyagi" "Akita" "Yamagata" "Fukushima"     "Ibaraki" "Tochigi" "Gunma" "Saitama" "Chiba" "Tokyo" "Kanagawa" "Niigata"     "Toyama" "Ishikawa" "Fukui" "Yamanashi" "Nagano" "Gifu" "Shizuoka" "Aichi"     "Mie" "Shiga" "Kyoto" "Osaka" "Hyogo" "Nara" "Wakayama" "Tottori" "Shimane"     "Okayama" "Hiroshima" "Yamaguchi" "Tokushima" "Kagawa" "Ehime" "Kochi"     "Fukuoka" "Saga" "Nagasaki" "Kumamoto" "Oita" "Miyazaki" "Kagoshima" "Okinawa")
 
@@ -52,13 +59,26 @@ Options:
   --db-only       Transfer only search.db files (skip routing graph and map tile files)
   --tiles-only    Transfer only vector map tiles (packages/<prefecture>.pmtiles)
   --pref <name>   Transfer single prefecture (e.g. Yamaguchi, Hiroshima, Okayama, Shimane, Tottori)
+  --serial <id>   Target device (overrides ANDROID_SERIAL)
   -h, --help      Show this help message
+
+With no --serial or ANDROID_SERIAL, select the only online device automatically.
+If two or more devices are online, stop and list models with masked serials;
+specify the full serial privately with --serial. Serial values are masked in logs.
 EOF
     exit 0
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --serial)
+            if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+                echo "ERROR: --serial requires a device serial." >&2
+                exit 2
+            fi
+            DEVICE_ID="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -79,7 +99,7 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         *)
-            echo "Unknown option: $1" >&2
+            echo "ERROR: Unknown option (see --help)." >&2
             usage
             ;;
     esac
@@ -94,6 +114,68 @@ calc_sha256() {
     else
         python3 -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$file"
     fi
+}
+
+# Never pass through adb diagnostics containing a full device serial.
+masked_serial() {
+    if [[ ${#1} -le 3 ]]; then
+        printf '…'
+    else
+        printf '%s…' "${1:0:3}"
+    fi
+}
+device_adb() {
+    local line serial
+    command adb -s "$DEVICE_ID" "$@" 2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
+        for serial in "${DEVICE_IDS[@]}" "$DEVICE_ID"; do
+            [[ -n "$serial" ]] && line="${line//"$serial"/"$(masked_serial "$serial")"}"
+        done
+        printf '%s\n' "$line"
+    done
+}
+
+retry_pause() {
+    if [[ "$SERVER_RESTARTED" == false ]]; then
+        SERVER_RESTARTED=true
+        device_adb start-server >/dev/null || true
+    fi
+    sleep 2
+}
+
+push_with_retry() {
+    local attempt
+    for attempt in 1 2 3; do
+        if device_adb push "$(native_path "$1")" "$2"; then
+            return 0
+        fi
+        [[ "$attempt" -eq 3 ]] && break
+        echo "WARNING: adb push failed; retrying ($((attempt + 1))/3)..." >&2
+        retry_pause
+    done
+    echo "ERROR: adb push failed after 3 attempts." >&2
+    return 1
+}
+
+# Return 2 for an actual mismatch, 1 for exhausted transient failures.
+# Run in the current shell so the one-time server recovery is shared with push.
+verify_hash() {
+    local expected="$1" path="$2" attempt output hash
+    for attempt in 1 2 3; do
+        if output=$(device_adb shell sha256sum "$path"); then
+            hash=$(printf '%s\n' "$output" | tr -d '\r' |
+                awk 'length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {print tolower($1); exit}')
+            if [[ -n "$hash" ]]; then
+                [[ "$hash" == "$expected" ]] && return 0
+                echo "ERROR: Hash mismatch for $(basename "$path")." >&2
+                return 2
+            fi
+        fi
+        [[ "$attempt" -eq 3 ]] && break
+        echo "WARNING: SHA-256 unavailable; retrying ($((attempt + 1))/3)..." >&2
+        retry_pause
+    done
+    echo "ERROR: Could not read device SHA-256 after 3 attempts." >&2
+    return 1
 }
 
 human_size() {
@@ -140,38 +222,60 @@ if [[ "$DRY_RUN" == false ]]; then
         echo "ERROR: adb command not found on PATH." >&2
         exit 1
     fi
-    DEVICE_LIST=$(adb devices | grep -v "List of devices" | grep "device$" || true)
-    if [[ -z "$DEVICE_LIST" ]]; then
-        echo "ERROR: No connected Android device found in 'device' state." >&2
-        echo "Please connect device via USB and ensure USB debugging is enabled." >&2
-        adb devices
+    if ! DEVICE_LIST=$(command adb devices 2>/dev/null); then
+        echo "ERROR: Could not list Android devices." >&2
         exit 1
     fi
-    DEVICE_ID=$(echo "$DEVICE_LIST" | head -n1 | awk '{print $1}')
-    echo "Connected device: ${DEVICE_ID}"
+    DEVICE_IDS=()
+    while read -r serial state _; do
+        [[ "$state" == device ]] && DEVICE_IDS+=("$serial")
+    done <<< "$(printf '%s\n' "$DEVICE_LIST" | tr -d '\r')"
+    if [[ ${#DEVICE_IDS[@]} -eq 0 ]]; then
+        echo "ERROR: No connected Android device found in 'device' state." >&2
+        echo "Please connect device via USB and ensure USB debugging is enabled." >&2
+        exit 1
+    fi
+    if [[ -z "$DEVICE_ID" && ${#DEVICE_IDS[@]} -gt 1 ]]; then
+        echo "ERROR: Multiple devices connected. Use --serial <full serial> (or ANDROID_SERIAL)." >&2
+        for DEVICE_ID in "${DEVICE_IDS[@]}"; do
+            model=$(device_adb shell getprop ro.product.model | tr -d '\r') || model="unknown model"
+            printf '  %s  %s\n' "$(masked_serial "$DEVICE_ID")" "$model" >&2
+        done
+        exit 1
+    fi
+    DEVICE_ID="${DEVICE_ID:-${DEVICE_IDS[0]}}"
+    selected=false
+    for serial in "${DEVICE_IDS[@]}"; do
+        [[ "$serial" == "$DEVICE_ID" ]] && selected=true
+    done
+    if [[ "$selected" == false ]]; then
+        echo "ERROR: Selected device $(masked_serial "$DEVICE_ID") is not in 'device' state." >&2
+        exit 1
+    fi
+    echo "Connected device: $(masked_serial "$DEVICE_ID")"
 
     # The data directory must be created by the app itself. A directory created by adb is owned by
     # the shell user (mode 2770) and the app can neither read nor write it (seen on a fresh emulator).
     # So when it is missing, start the app once and let it create the directory.
-    if ! adb shell "[ -d '${DEST_DIR}' ]"; then
+    if ! device_adb shell "[ -d '${DEST_DIR}' ]"; then
         echo "Data directory is missing; starting ${PACKAGE_NAME} once so that the app creates it..."
-        adb shell monkey -p "${PACKAGE_NAME}" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+        device_adb shell monkey -p "${PACKAGE_NAME}" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-            adb shell "[ -d '${DEST_DIR}' ]" && break
+            device_adb shell "[ -d '${DEST_DIR}' ]" && break
             sleep 1
         done
     fi
 
     echo "Stopping ${PACKAGE_NAME} to safely write files..."
-    adb shell am force-stop "${PACKAGE_NAME}" || true
+    device_adb shell am force-stop "${PACKAGE_NAME}" || true
 
-    if ! adb shell "[ -d '${DEST_DIR}' ]"; then
+    if ! device_adb shell "[ -d '${DEST_DIR}' ]"; then
         # Last resort (the app is not installed yet, or could not start): create it from adb and open
         # the mode, because the app is not in the directory's group. Other apps still cannot reach
         # Android/data/<package> on Android 11+.
         echo "WARNING: the app did not create ${DEST_DIR}; creating it from adb with mode 777." >&2
-        adb shell mkdir -p "${DEST_DIR}"
-        adb shell chmod 777 "${DEST_DIR}" || true
+        device_adb shell mkdir -p "${DEST_DIR}"
+        device_adb shell chmod 777 "${DEST_DIR}" || true
     fi
 fi
 
@@ -188,7 +292,7 @@ TOTAL_BYTES=0
 # Print size + SHA-256, then (live mode) push and verify the on-device hash.
 push_file() {
     local local_path="$1"
-    local file_name file_bytes local_hash remote_path remote_hash_line remote_hash
+    local file_name file_bytes local_hash remote_path verify_status permissions
     file_name="$(basename "$local_path")"
     file_bytes="$(wc -c < "$local_path" | tr -d ' ')"
     local_hash="$(calc_sha256 "$local_path")"
@@ -204,19 +308,25 @@ push_file() {
         echo "         -> Would push to: ${remote_path}"
     else
         echo "         -> Pushing to device..."
-        adb push "$(native_path "$local_path")" "$remote_path"
+        push_with_retry "$local_path" "$remote_path"
 
         echo "         -> Verifying on-device SHA-256..."
-        remote_hash_line=$(adb shell sha256sum "$remote_path" 2>/dev/null || true)
-        remote_hash=$(echo "$remote_hash_line" | awk '{print $1}' | tr -d '\r\n')
-
-        if [[ "$local_hash" != "$remote_hash" ]]; then
-            echo "ERROR: Hash mismatch for ${file_name}!" >&2
-            echo "  Local:  ${local_hash}" >&2
-            echo "  Remote: ${remote_hash}" >&2
-            exit 1
+        if verify_hash "$local_hash" "$remote_path"; then
+            :
+        else
+            verify_status=$?
+            [[ "$verify_status" -eq 2 ]] || exit 1
+            echo "         -> Re-pushing once after hash mismatch..." >&2
+            # A mismatch gets exactly one corrective push, without push retries.
+            device_adb push "$(native_path "$local_path")" "$remote_path"
+            verify_hash "$local_hash" "$remote_path" || exit 1
         fi
         echo "         -> Verified OK (SHA-256 match)"
+        permissions=$(device_adb shell ls -l "$remote_path")
+        if [[ "${permissions:0:10}" != "-rw-rw-rw-" ]]; then
+            echo "         -> Setting file permissions to 666"
+            device_adb shell chmod 666 "$remote_path"
+        fi
     fi
 }
 
