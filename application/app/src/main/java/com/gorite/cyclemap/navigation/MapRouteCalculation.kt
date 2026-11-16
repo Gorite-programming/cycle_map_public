@@ -379,6 +379,7 @@ internal fun executeRouteCalculation(
                 "ROUTE_RESULT pref=$pref success=${result.isReachable} truncated=${result.wasTruncated} " +
                     "routeNodeCount=${result.nodeIds.size} routeDistanceM=${result.totalDistanceMeters.toInt()} " +
                     "routeCost=${"%.2f".format(java.util.Locale.US, result.totalCost)} pathHash=${result.nodeIds.hashCode()} " +
+                    "goal=${stops.last().latitude},${stops.last().longitude} " +
                     "engine=${if (usedCrossRoute) "astar" else legEngines.joinToString("+").ifEmpty { "astar" }}",
             )
             val richInstructions = crossInstructions ?: env.graphLock.read {

@@ -63,4 +63,35 @@ class EndpointTrimTest {
         assertEquals(t.result.nodeIds.size, t.result.nodeIndices.size)
         assertEquals(t.result.nodeIds.size, t.result.coordinates.size)
     }
+
+    @Test
+    fun startPassedLaterDuringADetourSkipsTheDetour() {
+        // n0 から南へ行って折り返し、北上する。起点は北上する道の途中 (34.001) の脇。
+        val r = MappedRouteResult(
+            nodeIds = listOf(10L, 11L, 12L, 13L),
+            totalDistanceMeters = 111.0 + 334.0 + 223.0,
+            totalCost = 700.0,
+            coordinates = listOf(34.000 to 132.000, 33.999 to 132.000, 34.002 to 132.000, 34.004 to 132.000),
+            nodeIndices = listOf(0, 1, 2, 3),
+        )
+        val t = trimRouteEnds(r, 34.001, 132.0001, 34.004, 132.000)
+        assertEquals(listOf(12L, 13L), t.result.nodeIds)
+        assertTrue(t.head.size == 2)
+        assertTrue(t.result.totalDistanceMeters < 340.0)
+    }
+
+    @Test
+    fun goalPassedEarlierThenLoopingBackEndsWhereItPassesTheGoal() {
+        // 終点 (34.001 の脇) を通り過ぎて 34.002 まで行き、少し戻って終わるルート。
+        val r = MappedRouteResult(
+            nodeIds = listOf(9L, 10L, 11L, 12L, 13L),
+            totalDistanceMeters = 111.0 + 278.0 + 55.0 + 72.0,
+            totalCost = 800.0,
+            coordinates = listOf(33.997 to 132.000, 33.999 to 132.000, 34.0015 to 132.000, 34.002 to 132.000, 34.0015 to 132.0005),
+            nodeIndices = listOf(0, 1, 2, 3, 4),
+        )
+        val t = trimRouteEnds(r, 33.997, 132.000, 34.001, 132.0001)
+        assertTrue(t.result.nodeIds.size < 5)
+        assertEquals(34.001 to 132.0001, t.tail.last())
+    }
 }
