@@ -119,7 +119,7 @@ internal fun BoxScope.MapBottomOverlays(
     /** ルート確認シートの高さ (px、画面下端からシート上端まで)。シートが無いときは 0。 */
     onRoutePreviewSheetHeightChanged: (Int) -> Unit = {},
 ) {
-    val isRoutePreviewActive = !isNavigationActive && routeSummary != null
+    val isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived
     LaunchedEffect(isRoutePreviewActive) {
         if (!isRoutePreviewActive) {
             onRoutePreviewSheetHeightChanged(0)
@@ -177,7 +177,7 @@ internal fun BoxScope.MapBottomOverlays(
                 .padding(bottom = systemInsets.calculateBottomPadding() + 8.dp)
                 .zIndex(2f),
         )
-    } else if (routeSummary != null) {
+    } else if (routeSummary != null && !isArrived) {
         // ルート案内前プレビューモード (テーマ追従 SCR-10)
         DisposableEffect(Unit) {
             onDispose { onRoutePreviewSheetHeightChanged(0) }

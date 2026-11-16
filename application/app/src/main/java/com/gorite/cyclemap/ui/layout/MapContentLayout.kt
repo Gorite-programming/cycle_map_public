@@ -398,7 +398,7 @@ internal fun MapContentLayout(
                             autoRerouteEnabled = autoRerouteEnabled,
                             networkLink = networkLink,
                             onStopNavigation = onStopNavigation,
-                            isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                            isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                             onNavHeaderHeightChanged = { navHeaderHeightPx = it },
                         )
                     }
@@ -429,7 +429,7 @@ internal fun MapContentLayout(
                         systemInsets = systemInsets,
                         effectiveTopPadding = effectiveTopPadding,
                         bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
-                        isRoutePreviewActive = !isNavigationActive && routeSummary != null,
+                        isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                         navHeaderHeight = navHeaderHeight,
                         routePreviewSheetHeight = routePreviewSheetHeight,
                     )
