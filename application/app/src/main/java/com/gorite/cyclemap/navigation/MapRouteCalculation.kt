@@ -348,7 +348,7 @@ internal fun executeRouteCalculation(
                 }
             }
 
-            val result = com.gorite.cyclemap.routing.MappedRouteResult(
+            val rawResult = com.gorite.cyclemap.routing.MappedRouteResult(
                 nodeIds = if (isAllReachable) allNodeIds else emptyList(),
                 totalDistanceMeters = totalDist,
                 totalCost = totalCostVal,
@@ -358,6 +358,19 @@ internal fun executeRouteCalculation(
                 // 番号の列は全区間そろっているときだけ渡す (欠けていれば座標から引く従来の処理になる)
                 nodeIndices = if (isAllReachable && allNodeIndices.size == allNodeIds.size) allNodeIndices else emptyList(),
             )
+            // 起点・終点を最寄りのノードではなく最初・最後の辺に射影して、端まで行って戻る遠回りを除く。
+            // 県またぎの経路は案内 (routeIndex) を別に組み立てているので対象外。
+            val endTrim = if (!usedCrossRoute && rawResult.isReachable && stops.size >= 2) {
+                com.gorite.cyclemap.routing.trimRouteEnds(
+                    rawResult,
+                    stops.first().latitude, stops.first().longitude,
+                    stops.last().latitude, stops.last().longitude,
+                )
+            } else null
+            val result = endTrim?.result ?: rawResult
+            if (endTrim != null && endTrim.result !== rawResult) {
+                Log.i("CycleMapRoute", "ROUTE_ENDTRIM startTrim=${endTrim.head.isNotEmpty()} goalTrim=${endTrim.tail.isNotEmpty()} nodes=${rawResult.nodeIds.size}->${result.nodeIds.size} distM=${rawResult.totalDistanceMeters.toInt()}->${result.totalDistanceMeters.toInt()}")
+            }
             if (routeJob.isCancelled()) return@launch
             if (result.wasCancelled) return@launch
 
@@ -377,6 +390,29 @@ internal fun executeRouteCalculation(
                     emptyList()
                 }
             }
+            // 表示・追従用の線は、射影点 (起点側・終点側) を端に足したもの。案内は最初のノードからの距離で
+            // 組み立てているので、射影点から最初のノードまでの距離だけ後ろへずらす。
+            // 起点側: 利用者の位置 → 射影点 → 最初のノード。終点側: 最後のノード → 射影点 → 目的地 (どちらも道から 200 m 以内のときだけ)。
+            fun pathLength(points: List<Pair<Double, Double>>): Double =
+                points.zipWithNext().sumOf { (a, b) -> haversineMeters(a.first, a.second, b.first, b.second) }
+            val first = result.coordinates.firstOrNull()
+            val last = result.coordinates.lastOrNull()
+            val headPoints: List<Pair<Double, Double>> = if (first == null || !rawResult.isReachable || usedCrossRoute) emptyList() else {
+                val seed = endTrim?.head?.takeIf { it.isNotEmpty() }
+                    ?: listOf(stops.first().latitude to stops.first().longitude)
+                if (pathLength(seed + first) in 3.0..200.0) seed else emptyList()
+            }
+            val tailPoints: List<Pair<Double, Double>> = if (last == null || !rawResult.isReachable || usedCrossRoute) emptyList() else {
+                val seed = endTrim?.tail?.takeIf { it.isNotEmpty() }
+                    ?: listOf(stops.last().latitude to stops.last().longitude)
+                if (pathLength(listOf(last) + seed) in 3.0..200.0) seed else emptyList()
+            }
+            val lineCoordinates = headPoints + result.coordinates + tailPoints
+            val headLen = if (first != null && headPoints.isNotEmpty()) pathLength(headPoints + first) else 0.0
+            val tailLen = if (last != null && tailPoints.isNotEmpty()) pathLength(listOf(last) + tailPoints) else 0.0
+            val instructionsForRoute = if (headLen > 0.0) {
+                richInstructions.map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headLen) }
+            } else richInstructions
 
             val primaryDisplayed = CompletableDeferred<Boolean>()
             val activityForDisplay = env.context as? ComponentActivity ?: return@launch
@@ -439,7 +475,7 @@ internal fun executeRouteCalculation(
                 val polyline: Polyline? = if (view != null && view.isAttachedToWindow) {
                     env.getRouteOverlay()?.let { view.overlays?.remove(it) }
                     Polyline(view).apply {
-                        setPoints(result.coordinates.map { (lat, lon) -> GeoPoint(lat, lon) })
+                        setPoints(lineCoordinates.map { (lat, lon) -> GeoPoint(lat, lon) })
                         outlinePaint.color = android.graphics.Color.parseColor("#333333")
                         outlinePaint.strokeWidth = 24f
                         outlinePaint.strokeJoin = Paint.Join.ROUND
@@ -453,9 +489,9 @@ internal fun executeRouteCalculation(
                     null
                 }
 
-                val navigationRoute = result.coordinates.map { (lat, lon) -> RoutePoint(lat, lon) }
+                val navigationRoute = lineCoordinates.map { (lat, lon) -> RoutePoint(lat, lon) }
                 val navigationManeuvers = extractManeuvers(navigationRoute)
-                val routeSummary = RouteSummary(result.totalDistanceMeters, result.nodeIds.size - 1)
+                val routeSummary = RouteSummary(result.totalDistanceMeters + headLen + tailLen, result.nodeIds.size - 1)
 
                 // 主経路を表示した時点では代替ルート未計算。古い候補をチップ表示しない。
                 if (!isReroute) env.onRouteOptionsCalculated?.invoke(emptyList())
@@ -464,7 +500,7 @@ internal fun executeRouteCalculation(
                     polyline,
                     navigationRoute,
                     navigationManeuvers,
-                    richInstructions,
+                    instructionsForRoute,
                     routeSummary,
                     isReroute,
                     if (usedCrossRoute) crossElevation else null,
