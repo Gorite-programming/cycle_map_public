@@ -48,9 +48,6 @@ import com.gorite.cyclemap.utils.normalizePlaceAddress
 @Composable
 fun PlaceDetailContent(
     detail: PlaceDetail,
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
-    onStartRoute: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     origin: Pair<Double, Double>? = null,
@@ -182,44 +179,55 @@ fun PlaceDetailContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                onClick = onStartRoute,
-                modifier = Modifier.weight(1.35f).height(48.dp),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Icon(painter = painterResource(R.drawable.ic_lucide_navigation), contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.go_here), fontWeight = FontWeight.Bold)
-            }
-
-            OutlinedButton(
-                onClick = onToggleFavorite,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Icon(
-                    painter = painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
-                    contentDescription = null,
-                    tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(if (isFavorite) stringResource(R.string.saved_place) else stringResource(R.string.save_place))
-            }
-        }
-
-        // 営業時間・電話・Web・車椅子 (検索DB にあるものだけ)。操作ボタンが畳んだ状態でも見えるよう、ボタンの下に置く
+        // 営業時間・電話・Web・車椅子 (検索DB にあるものだけ)。
         val infoRows = placeInfoRows(detail)
         if (infoRows.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             PlaceInfoList(infoRows)
+        }
+    }
+}
+
+/**
+ * スポット詳細シート下部に固定表示する主ボタン行（「ここへ行く」「保存」）。
+ */
+@Composable
+fun PlaceDetailActionBar(
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onStartRoute: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(
+            onClick = onStartRoute,
+            modifier = Modifier.weight(1.35f).height(48.dp),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Icon(painter = painterResource(R.drawable.ic_lucide_navigation), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(stringResource(R.string.go_here), fontWeight = FontWeight.Bold)
+        }
+
+        OutlinedButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Icon(
+                painter = painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
+                contentDescription = null,
+                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(if (isFavorite) stringResource(R.string.saved_place) else stringResource(R.string.save_place))
         }
     }
 }

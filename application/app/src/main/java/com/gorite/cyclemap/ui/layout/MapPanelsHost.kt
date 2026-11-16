@@ -169,38 +169,42 @@ internal fun MapPanelsHost(
                 com.gorite.cyclemap.ui.map.ThreeStageBottomSheet(
                     modifier = Modifier.onSizeChanged { placeDetailHeightPx?.intValue = it.height },
                     anchor = sheetAnchor,
-                    onAnchorChange = { sheetAnchor = it }
+                    onAnchorChange = { sheetAnchor = it },
+                    footer = {
+                        com.gorite.cyclemap.ui.map.PlaceDetailActionBar(
+                            isFavorite = isFav,
+                            onToggleFavorite = {
+                                val existing = favoritesList.firstOrNull {
+                                    kotlin.math.abs(it.latitude - currentDetail.lat) < 0.0001 &&
+                                        kotlin.math.abs(it.longitude - currentDetail.lon) < 0.0001
+                                }
+                                if (existing != null) {
+                                    favoritesManager.removeFavorite(existing.id)
+                                } else {
+                                    favoritesManager.addFavorite(
+                                        FavoriteSpot(
+                                            id = currentDetail.id,
+                                            name = currentDetail.name,
+                                            category = selectedPoiSpot?.category ?: currentDetail.category,
+                                            latitude = currentDetail.lat,
+                                            longitude = currentDetail.lon,
+                                            address = currentDetail.address.takeIf { it.isNotBlank() },
+                                        )
+                                    )
+                                }
+                            },
+                            onStartRoute = {
+                                placeDetail = null
+                                onSelectPoiSpot(null)
+                                onCloseSpotPanel()
+                                onRouteToSpot(GeoPoint(currentDetail.lat, currentDetail.lon))
+                            },
+                        )
+                    },
                 ) {
                     com.gorite.cyclemap.ui.map.PlaceDetailContent(
                         detail = currentDetail,
                         origin = origin,
-                        isFavorite = isFav,
-                        onToggleFavorite = {
-                            val existing = favoritesList.firstOrNull {
-                                kotlin.math.abs(it.latitude - currentDetail.lat) < 0.0001 &&
-                                    kotlin.math.abs(it.longitude - currentDetail.lon) < 0.0001
-                            }
-                            if (existing != null) {
-                                favoritesManager.removeFavorite(existing.id)
-                            } else {
-                                favoritesManager.addFavorite(
-                                    FavoriteSpot(
-                                        id = currentDetail.id,
-                                        name = currentDetail.name,
-                                        category = selectedPoiSpot?.category ?: currentDetail.category,
-                                        latitude = currentDetail.lat,
-                                        longitude = currentDetail.lon,
-                                        address = currentDetail.address.takeIf { it.isNotBlank() },
-                                    )
-                                )
-                            }
-                        },
-                        onStartRoute = {
-                            placeDetail = null
-                            onSelectPoiSpot(null)
-                            onCloseSpotPanel()
-                            onRouteToSpot(GeoPoint(currentDetail.lat, currentDetail.lon))
-                        },
                         onClose = {
                             placeDetail = null
                             onSelectPoiSpot(null)
