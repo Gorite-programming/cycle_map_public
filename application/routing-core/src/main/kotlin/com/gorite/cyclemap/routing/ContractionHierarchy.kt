@@ -69,6 +69,7 @@ class ContractionHierarchyBuilder(
         for (v in 0 until n) queue += QueueNode(v, priority(v), 0)
         var shortcuts = 0; var contracted = 0
         val witness = WitnessWorkspace(n)
+        val bestIn = IntArray(n); val bestOut = IntArray(n); val bestStampIn = IntArray(n); val bestStampOut = IntArray(n)
         var witnessSearches = 0L; var lastProgress = System.nanoTime(); var maxIns = 0; var maxOuts = 0
         while (queue.isNotEmpty()) {
             val item = queue.remove(); val v = item.node
@@ -76,10 +77,25 @@ class ContractionHierarchyBuilder(
             val p = priority(v)
             if (kotlin.math.abs(p - item.priority) > 1e-9) { queue += QueueNode(v, p, item.version + 1); continue }
             // Collect active incoming and outgoing edges without allocating edge objects.
+            // 同じ相手への平行な辺 (近道が積み重なってできる) は、いちばん安い 1 本だけ残す。
+            // 高い方の辺を通る最短経路は無いので結果は変わらない。残さないと、最後に残る少数のノードに
+            // 平行な辺が何十万本も集まり、入る辺 x 出る辺 の組み合わせが爆発して前処理が終わらない (茨城・神奈川)。
             val ins = IntArrayList(); var e = headIn[v]
-            while (e >= 0) { if (active[from[e]]) ins.add(e); e = nextIn[e] }
+            while (e >= 0) {
+                val u = from[e]
+                if (active[u]) { if (bestStampIn[u] != contracted + 1 || cost[e] < cost[bestIn[u]]) { bestStampIn[u] = contracted + 1; bestIn[u] = e } }
+                e = nextIn[e]
+            }
+            e = headIn[v]
+            while (e >= 0) { val u = from[e]; if (active[u] && bestIn[u] == e && bestStampIn[u] == contracted + 1) ins.add(e); e = nextIn[e] }
             val outs = IntArrayList(); e = headOut[v]
-            while (e >= 0) { if (active[to[e]]) outs.add(e); e = nextOut[e] }
+            while (e >= 0) {
+                val w = to[e]
+                if (active[w]) { if (bestStampOut[w] != contracted + 1 || cost[e] < cost[bestOut[w]]) { bestStampOut[w] = contracted + 1; bestOut[w] = e } }
+                e = nextOut[e]
+            }
+            e = headOut[v]
+            while (e >= 0) { val w = to[e]; if (active[w] && bestOut[w] == e && bestStampOut[w] == contracted + 1) outs.add(e); e = nextOut[e] }
             // Do not publish shortcuts until every witness search for v is done.
             // A shortcut created for an earlier incoming edge may itself pass
             // through v; exposing it immediately would let later witness searches

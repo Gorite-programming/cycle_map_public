@@ -42,7 +42,7 @@ fun mainBuildCh(args: Array<String>) {
     val input = File(args.getOrNull(0) ?: error("graph path required")); val out = File(args.getOrNull(1) ?: error("output path required"))
     LazyMappedRoadGraph.load(input).use { graph ->
         val verbose = System.getProperty("ch.progress") != null
-        val r = ContractionHierarchyBuilder().build(graph, GraphFingerprint.fromFile(input), if (verbose) { m -> System.err.println("CH_PROGRESS $m") } else null); out.parentFile?.mkdirs(); r.hierarchy.write(out)
+        val r = ContractionHierarchyBuilder(maxWitnessSettled = System.getProperty("ch.witnessSettled")?.toInt() ?: ContractionHierarchyBuilder.DEFAULT_MAX_WITNESS_SETTLED).build(graph, GraphFingerprint.fromFile(input), if (verbose) { m -> System.err.println("CH_PROGRESS $m") } else null); out.parentFile?.mkdirs(); r.hierarchy.write(out)
         println("CH build ms=${r.elapsedMillis} nodes=${graph.nodeCount} original_edges=${r.inputEdgeCount} shortcuts=${r.shortcutCount} stored_arcs=${r.inputEdgeCount + r.shortcutCount} upward_arcs=${r.hierarchy.edgeCount} bytes=${out.length()} graph_bytes=${input.length()} size_ratio=${out.length().toDouble() / input.length()}")
         println("witness_max_settled=${ContractionHierarchyBuilder.DEFAULT_MAX_WITNESS_SETTLED} witness_max_cost=${ContractionHierarchyBuilder.DEFAULT_MAX_WITNESS_COST}")
     }
