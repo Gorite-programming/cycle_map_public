@@ -1,6 +1,6 @@
 # MapLibre Native への報告の下書き (根室半島の地図の崩れ)
 
-GitHub の `maplibre/maplibre-native` に出す英語の下書き。**まだ出していない** (この環境には `gh` が無く、ブラウザも GitHub にログインしていないため、出すのは Gorite)。
+GitHub の `maplibre/maplibre-native` に出す英語の下書き。**2026-11-16 に出した**: https://github.com/maplibre/maplibre-native/issues/5017 (Android 用のバグ報告のテンプレート。下は出す前の下書きで、実際の本文は欄に合わせて分けてある)。
 
 - 新しいイシューを立てる場合は https://github.com/maplibre/maplibre-native/issues/new/choose の「Bug report」を選び、下の「題名」と「本文」を貼る。
 - 近い既存イシュー: [#1843](https://github.com/maplibre/maplibre-native/issues/1843) (Wrong rendering of island/areas near water ... "native と JS で違う"、未解決)。新規でなくそこへのコメントでもよい。
