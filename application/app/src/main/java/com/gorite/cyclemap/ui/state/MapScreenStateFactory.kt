@@ -260,6 +260,17 @@ internal fun rememberMapScreenState(
     }
 
     val isCalculatingRouteState = viewModel.route.isCalculating
+    val offlineGraphUsage = remember {
+        OfflineGraphUsageRegistry.Entry(loadedGraphNameState, isSwitchingGraphState, isCalculatingRouteState)
+    }
+    DisposableEffect(context, offlineGraphUsage) {
+        OfflineGraphUsageRegistry.entries[context] = offlineGraphUsage
+        onDispose {
+            if (OfflineGraphUsageRegistry.entries[context] === offlineGraphUsage) {
+                OfflineGraphUsageRegistry.entries.remove(context)
+            }
+        }
+    }
     val navStatsState = viewModel.navigation.stats
     val navSpeedMpsState = viewModel.navigation.speedMps
     val navStartElapsedMsState = viewModel.navigation.startElapsedMs

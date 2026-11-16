@@ -17,6 +17,12 @@ import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.Prefecture
 import com.gorite.cyclemap.data.TileProgress
+import com.gorite.cyclemap.data.OfflineDataDeleter
+import com.gorite.cyclemap.data.SearchDbSelection
+import com.gorite.cyclemap.data.SearchDbSelector
+import com.gorite.cyclemap.ui.state.OfflineGraphUsageRegistry
+import java.io.File
+import org.json.JSONObject
 import com.gorite.cyclemap.power.BatteryStatus
 import com.gorite.cyclemap.routing.NavigationStats
 import com.gorite.cyclemap.routing.RouteInstruction
@@ -265,6 +271,37 @@ internal fun MapModalsHost(
 
     MapDownloadDialogs(
         context = context,
+        offlineDataUsage = {
+            val graph = OfflineGraphUsageRegistry.entries[context]
+            val dataDir = cycleMapDataDir(context)
+            val centers = listOfNotNull(
+                currentLocation?.let { it.latitude to it.longitude },
+                vectorMap?.cameraPosition?.target?.let { it.latitude to it.longitude },
+                (mapView?.mapCenter as? GeoPoint)?.let { it.latitude to it.longitude },
+            )
+            val searchNames = centers.mapNotNull { (lat, lon) ->
+                (SearchDbSelector.select(lat, lon) as? SearchDbSelection.Available)?.let {
+                    SearchDbSelector.resolveDbFile(dataDir, it.fileName)?.name
+                }
+            }.toSet()
+            val sources = vectorMap?.style?.json?.let { JSONObject(it).optJSONObject("sources") }
+            val tileNames = buildSet {
+                sources?.keys()?.forEach { key ->
+                    val source = sources?.optJSONObject(key)
+                    val url = source?.optString("url").orEmpty()
+                    if (url.startsWith("pmtiles://file://")) add(File(url.removePrefix("pmtiles://file://")).name)
+                }
+            }
+            OfflineDataDeleter.Usage(
+                loadedGraphName = graph?.loadedName?.value,
+                searchDbName = if (centers.isEmpty()) SearchDbSelector.findFirstAvailableDb(dataDir)?.name else null,
+                // 検索は現在地と地図中心の両方から起動しうるため、双方を保護する。
+                searchDbNames = searchNames,
+                tileNames = tileNames,
+                busy = graph == null || graph.switching.value || graph.calculating.value ||
+                    spotLoading || quickSpotLoading || showDestinationSearch || isDownloading || isRoutingBenchmarkRunning,
+            )
+        },
         showAreaDownloadConfirmDialog = showAreaDownloadConfirmDialog,
         selectedAreaBounds = selectedAreaBounds,
         isDownloading = isDownloading,

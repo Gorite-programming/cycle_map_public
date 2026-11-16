@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.Prefecture
+import com.gorite.cyclemap.data.OfflineDataDeleter
 import com.gorite.cyclemap.search.SearchResult
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -39,6 +40,7 @@ internal fun MapDownloadDialogs(
     onDownloadPrefectureGsi: (Prefecture) -> Unit,
     onDownloadPrefectureOsm: (Prefecture) -> Unit,
     onDismissDownloadConfirm: () -> Unit,
+    offlineDataUsage: () -> OfflineDataDeleter.Usage = { OfflineDataDeleter.Usage(busy = true) },
 ) {
     // Area download confirmation dialog (high-zoom z15-z16 for user-selected bbox)
     if (showAreaDownloadConfirmDialog && selectedAreaBounds != null) {
@@ -89,6 +91,7 @@ internal fun MapDownloadDialogs(
     if (showPrefectureListDialog) {
         PrefectureListDialog(
             context = context,
+            offlineDataUsage = offlineDataUsage,
             onDismiss = onDismissPrefectureListDialog,
             onPrefectureSelected = onPrefectureSelected,
         )

@@ -18,6 +18,8 @@ import androidx.compose.runtime.MutableDoubleState
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -80,6 +82,18 @@ import com.gorite.cyclemap.net.OnlineFeatureGate
 import com.gorite.cyclemap.ui.map.MapViewModel
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
+
+/** モーダルから読み込み済みグラフを参照する、画面の生存期間だけの登録。
+ * MapSheets / Scaffold の引数を増やさず、同じ Context の画面へ配線する。
+ */
+internal object OfflineGraphUsageRegistry {
+    class Entry(
+        val loadedName: State<String?>,
+        val switching: State<Boolean>,
+        val calculating: State<Boolean>,
+    )
+    val entries = mutableStateMapOf<Context, Entry>()
+}
 
 internal class MapScreenState(
     val context: Context,

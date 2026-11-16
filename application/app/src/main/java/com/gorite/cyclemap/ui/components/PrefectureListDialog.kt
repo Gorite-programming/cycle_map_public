@@ -21,6 +21,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.DownloadStatusManager
 import com.gorite.cyclemap.data.MapSourceType
 import com.gorite.cyclemap.data.Prefecture
+import com.gorite.cyclemap.data.OfflineDataDeleter
+import com.gorite.cyclemap.ui.theme.CycleMapColors
 import com.gorite.cyclemap.data.PrefectureDataStatus
 import com.gorite.cyclemap.data.offlineDataStatus
 import com.gorite.cyclemap.utils.cycleMapDataDir
@@ -64,6 +68,7 @@ internal fun PrefectureListDialog(
     context: Context,
     onDismiss: () -> Unit,
     onPrefectureSelected: (Prefecture) -> Unit,
+    offlineDataUsage: () -> OfflineDataDeleter.Usage = { OfflineDataDeleter.Usage(busy = true) },
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var dataLoaded by remember { mutableStateOf(false) }
@@ -71,6 +76,10 @@ internal fun PrefectureListDialog(
     var downloadStatus by remember { mutableStateOf<Map<String, Pair<Boolean, Boolean>>>(emptyMap()) }
 
     var dataStatus by remember { mutableStateOf<List<PrefectureDataStatus>>(emptyList()) }
+    var deletionPlan by remember { mutableStateOf<OfflineDataDeleter.Plan?>(null) }
+    var deletionMessage by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+    val latestUsage by rememberUpdatedState(offlineDataUsage)
 
     // 端末に保存したファイル (県の ZIP、または .graph などの単体) の取り込み
     var importMessage by remember { mutableStateOf<String?>(null) }
@@ -115,6 +124,7 @@ internal fun PrefectureListDialog(
         }
     }
 
+    val currentUsage = offlineDataUsage()
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
             Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(16.dp)) {
@@ -138,7 +148,7 @@ internal fun PrefectureListDialog(
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(enabled = !importing, onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+                                    OutlinedButton(enabled = !importing && !deleting && deletionPlan == null, onClick = { importLauncher.launch(arrayOf("*/*")) }) {
                                         Text("ファイルから取り込む")
                                     }
                                     if (importedAny && !importing) {
@@ -152,7 +162,27 @@ internal fun PrefectureListDialog(
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        items(dataStatus, key = { it.id }) { OfflineDataStatusRow(it) }
+                        item {
+                            deletionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        }
+                        items(dataStatus, key = { it.id }) { status ->
+                            val prefecture = PrefectureData.ALL.first { it.id == status.id }
+                            val refusal = OfflineDataDeleter.refusalReason(prefecture, currentUsage)
+                            OfflineDataStatusRow(status, refusal, !importing && !deleting) {
+                                deleting = true
+                                scope.launch {
+                                    try {
+                                        val plan = withContext(Dispatchers.IO) {
+                                            OfflineDataDeleter.plan(cycleMapDataDir(context), prefecture)
+                                        }
+                                        val reason = OfflineDataDeleter.refusalReason(plan, latestUsage())
+                                        if (reason != null) deletionMessage = reason
+                                        else if (plan.files.isEmpty()) deletionMessage = "削除できる県別ファイルはありません。tiles/ 内のデータは保持します。"
+                                        else deletionPlan = plan
+                                    } finally { deleting = false }
+                                }
+                            }
+                        }
                         if (dataLoaded) {
                             if (dataStatus.isEmpty()) {
                                 item { Text("端末にデータが入っている県はまだありません", style = MaterialTheme.typography.bodySmall) }
@@ -255,6 +285,34 @@ internal fun PrefectureListDialog(
             }
         }
     }
+    deletionPlan?.let { plan ->
+        AlertDialog(
+            onDismissRequest = { deletionPlan = null },
+            title = { Text("${plan.prefecture.name}のデータを削除") },
+            text = {
+                Text("${plan.kinds.joinToString("・")}\n${plan.files.size} ファイル・合計 ${formatOfflineDataSize(plan.totalBytes)}\n\n元に戻せません。\ntiles/ 内のデータは保持します。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // 再判定と削除の間で画面のグラフ切替が走らないよう、同じメインスレッドで実行する。
+                    val result = OfflineDataDeleter.delete(plan, latestUsage())
+                    deletionPlan = null
+                    deletionMessage = when {
+                        result.refusalReason != null -> result.refusalReason
+                        result.failed.isNotEmpty() -> "削除できなかったファイル: ${result.failed.joinToString("、") { it.name }}"
+                        else -> "${plan.prefecture.name}のデータを削除しました。"
+                    }
+                    deleting = true
+                    scope.launch {
+                        try {
+                            dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
+                        } finally { deleting = false }
+                    }
+                }) { Text("削除する", color = CycleMapColors.Danger) }
+            },
+            dismissButton = { TextButton(onClick = { deletionPlan = null }) { Text("キャンセル") } },
+        )
+    }
 }
 
 internal fun startPrefectureDownload(
@@ -276,7 +334,12 @@ internal fun startPrefectureDownload(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun OfflineDataStatusRow(status: PrefectureDataStatus) {
+private fun OfflineDataStatusRow(
+    status: PrefectureDataStatus,
+    refusalReason: String?,
+    canDelete: Boolean,
+    onDelete: () -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -286,6 +349,15 @@ private fun OfflineDataStatusRow(status: PrefectureDataStatus) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(status.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text(formatOfflineDataSize(status.totalBytes), style = MaterialTheme.typography.bodySmall)
+                TextButton(enabled = canDelete && refusalReason == null, onClick = onDelete) {
+                    Text(if (refusalReason != null) "使用中" else "削除",
+                        color = if (canDelete && refusalReason == null) CycleMapColors.Danger
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (refusalReason != null) {
+                Text(refusalReason, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("ルート" to status.hasRouting, "検索" to status.hasSearch,
