@@ -151,6 +151,48 @@ class ContractionHierarchyTest {
         }
     }
 
+    /**
+     * 平行な辺が多く、近道が最大に増える設定 (witness=1) の密なグラフでも、前処理が短時間で終わり、A* と同じ結果になること。
+     * 注意: 茨城・神奈川で起きた爆発 (最後に残る少数のノードに平行な辺が何十万本も集まる) は、数百万ノードの実データでしか再現できず、
+     * この小さなグラフでは、整理前の実装でも終わる (確かめた)。再発の検知は、実データでの前処理時間 (茨城 約 2 分) で行う。
+     */
+    @Test fun denseGraphWithManyParallelEdgesFinishesAndMatchesAStar() {
+        val n = 36
+        val out = List(n) { u ->
+            val edges = ArrayList<E>()
+            for (v in 0 until n) if (v != u) for (k in 0 until 4) edges += E(v, 5.0 + ((u * 31 + v * 17 + k * 7) % 53))
+            edges
+        }
+        graphFrom(out).use { graph ->
+            var built: ContractionHierarchy? = null; var failure: Throwable? = null
+            val worker = Thread { try { built = ContractionHierarchyBuilder(maxWitnessSettled = 1).build(graph, GraphFingerprint.UNKNOWN).hierarchy } catch (t: Throwable) { failure = t } }
+            worker.isDaemon = true; worker.start(); worker.join(30_000)
+            assertFalse(worker.isAlive, "前処理が 30 秒で終わらない (平行な辺が積み重なって爆発している疑い)")
+            failure?.let { throw it }
+            val ch = built!!
+            for (s in 0 until n step 5) for (g in 0 until n) {
+                val a = graph.route(s, g, preference = RoutePreference.RECOMMENDED, costMode = RouteCostMode.BICYCLE)
+                val c = ch.route(s, g, graph)
+                assertEquals(a.isReachable, c.isReachable, "$s->$g reachability")
+                if (a.isReachable) assertTrue(abs(a.totalCost - c.totalCost) <= maxOf(1e-12, abs(a.totalCost) * 1e-9), "$s->$g cost ${a.totalCost} != ${c.totalCost}")
+            }
+        }
+    }
+
+    /** 進捗の表示は結果を変えない (表示あり・なしで、近道の数・辺の数が同じ)。 */
+    @Test fun progressCallbackDoesNotChangeTheResult() {
+        val n = 24
+        val out = List(n) { u -> (1..5).mapNotNull { step -> val v = (u * 7 + step * 11 + 3) % n; if (v != u) E(v, 4.0 + ((u * 19 + v * 13 + step) % 37)) else null } }
+        graphFrom(out).use { graph ->
+            val plain = ContractionHierarchyBuilder(maxWitnessSettled = 50).build(graph, GraphFingerprint.UNKNOWN)
+            var calls = 0
+            val withProgress = ContractionHierarchyBuilder(maxWitnessSettled = 50).build(graph, GraphFingerprint.UNKNOWN) { calls++ }
+            assertEquals(plain.shortcutCount, withProgress.shortcutCount)
+            assertEquals(plain.hierarchy.edgeCount, withProgress.hierarchy.edgeCount)
+            assertTrue(calls >= 0)
+        }
+    }
+
     private fun graphFrom(out: List<List<E>>): LazyMappedRoadGraph {
         val bytes = ByteArrayOutputStream(); val starts = LongArray(out.size); val first = IntArray(out.size); val counts = IntArray(out.size); val targets = ArrayList<Int>()
         DataOutputStream(bytes).use { d -> out.forEachIndexed { u, edges ->
