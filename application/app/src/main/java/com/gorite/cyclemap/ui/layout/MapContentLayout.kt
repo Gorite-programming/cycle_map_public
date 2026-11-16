@@ -206,6 +206,7 @@ internal fun MapContentLayout(
                     navigationRoute = navigationRoute,
                     alternativeRoutes = alternativeRoutes,
                     destination = destination,
+                    showDestination = !isArrived,
                     currentLocation = currentLocation,
                     hasHeadingSensorFix = hasHeadingSensorFix,
                     headingDegrees = headingDegrees,

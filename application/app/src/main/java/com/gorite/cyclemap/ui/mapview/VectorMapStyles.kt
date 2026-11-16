@@ -465,6 +465,7 @@ internal fun updateRouteLine(
     points: List<GeoPoint>,
     alternativeRoutes: List<List<GeoPoint>> = emptyList(),
     destination: GeoPoint? = null,
+    showDestination: Boolean = true,
 ) {
     val source = style.getSourceAs<GeoJsonSource>("cyclemap-route-source") ?: return
     if (points.size < 2) {
@@ -486,7 +487,8 @@ internal fun updateRouteLine(
 
     val destSource = style.getSourceAs<GeoJsonSource>("cyclemap-dest-source")
     if (destSource != null) {
-        val targetDest = destination ?: points.lastOrNull()
+        // 到着後は目的地ピンだけ消す (ルート線は「完了」を押すまで残す)。
+        val targetDest = if (showDestination) destination ?: points.lastOrNull() else null
         if (targetDest != null) {
             destSource.setGeoJson(
                 FeatureCollection.fromFeature(

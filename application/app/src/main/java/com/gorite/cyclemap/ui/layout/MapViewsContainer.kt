@@ -62,6 +62,7 @@ internal fun MapViewsContainer(
     navigationRoute: List<RoutePoint>,
     alternativeRoutes: List<List<GeoPoint>> = emptyList(),
     destination: GeoPoint? = null,
+    showDestination: Boolean = true,
     currentLocation: Location?,
     hasHeadingSensorFix: Boolean,
     headingDegrees: Float,
@@ -252,6 +253,7 @@ internal fun MapViewsContainer(
                     routePoints = navigationRoute.map { GeoPoint(it.latitude, it.longitude) },
                     alternativeRoutes = alternativeRoutes,
                     destination = destination,
+                    showDestination = showDestination,
                     currentLocation = currentLocation?.let { GeoPoint(it.latitude, it.longitude) },
                     bearing = if (currentLocation != null && currentLocation.hasBearing() && currentLocation.speed >= 1.0f) {
                         currentLocation.bearing

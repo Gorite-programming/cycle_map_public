@@ -72,6 +72,7 @@ internal fun VectorMapView(
     routePoints: List<GeoPoint> = emptyList(),
     alternativeRoutes: List<List<GeoPoint>> = emptyList(),
     destination: GeoPoint? = null,
+    showDestination: Boolean = true,
     currentLocation: GeoPoint? = null,
     bearing: Float? = null,
     speedMps: Float? = null,
@@ -120,6 +121,7 @@ internal fun VectorMapView(
     val currentRoutePoints by rememberUpdatedState(routePoints)
     val currentAlternativeRoutes by rememberUpdatedState(alternativeRoutes)
     val currentDestination by rememberUpdatedState(destination)
+    val currentShowDestination by rememberUpdatedState(showDestination)
     // 案内中の現在地マーカー・カメラを、GPSの更新間 (約1秒) でも毎フレーム滑らかに動かす
     val locationGlide = remember { LocationGlide() }
     val markerBearingFollower = remember { AngleFollower(timeConstantSec = 0.12f) }
@@ -284,7 +286,7 @@ internal fun VectorMapView(
                                         map.uiSettings.isCompassEnabled = false
                                         setupRouteLayers(context, style, night)
                                         setupDynamicPoiLayers(context, style, night)
-                                        updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination)
+                                        updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination, currentShowDestination)
                                         updateLocationPoint(style, currentLocUpdated ?: currentLocation, currentBearingForMarker, currentNavigationActive, currentGpsStatus)
                                         triggerPoisRef = { triggerFetchPois(map) }
                                         triggerFetchPois(map)
@@ -391,10 +393,10 @@ internal fun VectorMapView(
         }
 
         // ルート・代替候補・目的地更新の反映
-        LaunchedEffect(routePoints, alternativeRoutes, destination, mapLibreMap) {
+        LaunchedEffect(routePoints, alternativeRoutes, destination, showDestination, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             map.getStyle { style ->
-                updateRouteLine(style, routePoints, alternativeRoutes, destination)
+                updateRouteLine(style, routePoints, alternativeRoutes, destination, showDestination)
             }
         }
 
@@ -420,7 +422,7 @@ internal fun VectorMapView(
                 map.uiSettings.isCompassEnabled = false
                 setupRouteLayers(context, style, night)
                 setupDynamicPoiLayers(context, style, night)
-                updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination)
+                updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination, currentShowDestination)
                 updateLocationPoint(style, currentLocUpdated ?: currentLocation, currentBearingForMarker, currentNavigationActive, currentGpsStatus)
                 triggerPoisRef?.invoke()
             }

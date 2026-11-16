@@ -314,11 +314,18 @@ internal fun MapScreen(
     val curNavRoute = state.navigationRouteState.value
     val curDest = state.destinationState.value
     val curWaypoints = state.waypointsState.value
-    LaunchedEffect(curMapView, curNavRoute, curDest, curWaypoints) {
+    val curArrived = state.isArrivedState.value
+    LaunchedEffect(curMapView, curNavRoute, curDest, curWaypoints, curArrived) {
         val view = curMapView ?: return@LaunchedEffect
 
+        // 到着後は目的地ピンだけ消す (ルート線は「完了」まで残す)。再構築もしない。
+        if (curArrived) {
+            state.destinationMarkerState.value?.let { view.overlays.remove(it); view.invalidate() }
+            state.destinationMarkerState.value = null
+        }
+
         // 目的地の再構築
-        if (curDest != null && state.destinationMarkerState.value == null) {
+        if (!curArrived && curDest != null && state.destinationMarkerState.value == null) {
             val destM = org.osmdroid.views.overlay.Marker(view).apply {
                 position = curDest
                 title = "目的地"
