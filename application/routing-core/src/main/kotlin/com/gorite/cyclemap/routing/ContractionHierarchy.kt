@@ -20,7 +20,11 @@ class ContractionHierarchyBuilder(
 
     data class BuildResult(val hierarchy: ContractionHierarchy, val shortcutCount: Int, val inputEdgeCount: Int, val elapsedMillis: Long)
 
-    fun build(graph: LazyMappedRoadGraph, graphFingerprint: GraphFingerprint): BuildResult {
+    /**
+     * [progress] を渡すと、約 [PROGRESS_INTERVAL_MILLIS] ミリ秒ごとに、前処理の進み具合 (取り除いたノード数・辺の総数・近道の数・
+     * 直前に取り除いたノードの入出次数・迂回路探しの累計回数) を呼ぶ。結果には影響しない。
+     */
+    fun build(graph: LazyMappedRoadGraph, graphFingerprint: GraphFingerprint, progress: ((String) -> Unit)? = null): BuildResult {
         val started = System.nanoTime()
         val n = graph.nodeCount
         require(graph.edgeCount < Int.MAX_VALUE / 2) { "Graph edge count too large for S1 arrays: ${graph.edgeCount}" }
@@ -65,6 +69,7 @@ class ContractionHierarchyBuilder(
         for (v in 0 until n) queue += QueueNode(v, priority(v), 0)
         var shortcuts = 0; var contracted = 0
         val witness = WitnessWorkspace(n)
+        var witnessSearches = 0L; var lastProgress = System.nanoTime(); var maxIns = 0; var maxOuts = 0
         while (queue.isNotEmpty()) {
             val item = queue.remove(); val v = item.node
             if (!active[v]) continue
@@ -82,8 +87,18 @@ class ContractionHierarchyBuilder(
             val pendingFrom = IntArrayList(); val pendingTo = IntArrayList()
             val pendingCost = DoubleArrayList(); val pendingDistance = DoubleArrayList()
             val pendingChildA = IntArrayList(); val pendingChildB = IntArrayList()
+            if (progress != null) {
+                if (ins.size > maxIns) maxIns = ins.size
+                if (outs.size > maxOuts) maxOuts = outs.size
+                val now = System.nanoTime()
+                if (now - lastProgress > PROGRESS_INTERVAL_MILLIS * 1_000_000L) {
+                    lastProgress = now
+                    progress("contracted=$contracted/$n edges=$edgeN shortcuts=$shortcuts witnessSearches=$witnessSearches queue=${queue.size} lastIns=${ins.size} lastOuts=${outs.size} maxIns=$maxIns maxOuts=$maxOuts")
+                }
+            }
             for (i in 0 until ins.size) {
                 val ie = ins[i]; val u = from[ie]
+                witnessSearches++
                 witness.search(u, v, maxWitnessCost, active, headOut, to, cost, nextOut, edgeN, maxWitnessSettled, maxWitnessCost)
                 for (j in 0 until outs.size) {
                     val oe = outs[j]; val w = to[oe]
@@ -139,6 +154,7 @@ class ContractionHierarchyBuilder(
     companion object {
         const val DEFAULT_MAX_WITNESS_SETTLED = 100
         const val DEFAULT_MAX_WITNESS_COST = 1_000_000.0
+        const val PROGRESS_INTERVAL_MILLIS = 5_000L
     }
 }
 
