@@ -58,7 +58,10 @@ internal fun BoxScope.MapTopOverlays(
 ) {
     // Normal Top Bar (ルートプレビュー中は検索バーとチップを隠し、地図を広く使う)
     AnimatedVisibility(
-        visible = !isNavigationActive && !isRoutePreviewActive,
+        visible = !isNavigationActive && !isRoutePreviewActive && com.gorite.cyclemap.ui.state.SimpleModeVisibility.of(
+            if (com.gorite.cyclemap.ui.state.isSimpleMode()) com.gorite.cyclemap.ui.state.DisplayMode.SIMPLE else com.gorite.cyclemap.ui.state.DisplayMode.NORMAL,
+            isNavigationActive,
+        ).topBar,
         enter = Motion.topBarEnter(effectiveAnimationEnabled),
         exit = Motion.topBarExit(effectiveAnimationEnabled),
         modifier = Modifier

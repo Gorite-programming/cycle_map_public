@@ -60,7 +60,7 @@ class CycleComputerDestinationsTest {
     fun displayModePrefFallsBackToNormal() {
         assertEquals(DisplayMode.CYCLE_COMPUTER, displayModeFromPref("CYCLE_COMPUTER"))
         assertEquals(DisplayMode.NORMAL, displayModeFromPref(null))
-        assertEquals(DisplayMode.NORMAL, displayModeFromPref("SIMPLE"))
+        assertEquals(DisplayMode.SIMPLE, displayModeFromPref("SIMPLE"))
         assertEquals(DisplayMode.NORMAL, displayModeFromPref("garbage"))
         assertNotNull(DisplayMode.entries)
     }

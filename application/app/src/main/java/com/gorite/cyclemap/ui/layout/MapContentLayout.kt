@@ -175,7 +175,12 @@ internal fun MapContentLayout(
         // 「地図を広げる」で従来の全画面の地図に切り替え、戻るで盤面に戻る。
         var mapExpanded by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
         val isIdle = !isNavigationActive && routeSummary == null && destination == null && !isAreaSelectMode && selectedPoiSpot == null
-        val homeVisible = !isLandscape && isIdle && !mapExpanded
+        val simple = com.gorite.cyclemap.ui.state.isSimpleMode()
+        val simpleVisibility = com.gorite.cyclemap.ui.state.SimpleModeVisibility.of(
+            if (simple) com.gorite.cyclemap.ui.state.DisplayMode.SIMPLE else com.gorite.cyclemap.ui.state.DisplayMode.NORMAL,
+            isNavigationActive,
+        )
+        val homeVisible = !isLandscape && isIdle && !mapExpanded && simpleVisibility.homePanel
         var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
@@ -215,7 +220,7 @@ internal fun MapContentLayout(
                     selectedPoiSpot = selectedPoiSpot,
                     followLocation = followLocation,
                     isNavigationActive = isNavigationActive,
-                    poiVisible = poiVisible,
+                    poiVisible = poiVisible && simpleVisibility.poiPins,
                     poiSelected = poiSelected,
                     isLandscape = isLandscape,
                     systemInsets = systemInsets,
@@ -400,6 +405,16 @@ internal fun MapContentLayout(
                             onStopNavigation = onStopNavigation,
                             isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                             onNavHeaderHeightChanged = { navHeaderHeightPx = it },
+                        )
+                    }
+
+                    // シンプルモード: 左上に小さなモード切替ボタン (ナビ中は案内ヘッダと重なるので出さない)
+                    if (simpleVisibility.modeSwitchButton) {
+                        com.gorite.cyclemap.ui.layout.SimpleModeSwitch(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = 14.dp, top = effectiveTopPadding + 12.dp)
+                                .zIndex(3f),
                         )
                     }
 

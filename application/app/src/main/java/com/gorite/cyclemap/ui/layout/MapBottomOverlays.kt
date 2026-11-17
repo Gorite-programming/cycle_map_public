@@ -476,7 +476,7 @@ internal fun BoxScope.MapBottomOverlays(
                         }
                     }
                 }
-            } else if (!isLandscape) {
+            } else if (!isLandscape && !com.gorite.cyclemap.ui.state.isSimpleMode()) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {

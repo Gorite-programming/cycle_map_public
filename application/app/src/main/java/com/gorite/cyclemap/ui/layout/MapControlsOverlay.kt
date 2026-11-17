@@ -181,7 +181,7 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive) 12.dp else 122.dp), end = 14.dp)
+                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp), end = 14.dp)
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -203,8 +203,8 @@ internal fun BoxScope.MapControlsOverlay(
                     color = if (currentVectorTilt > 15.0) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
                 )
             }
-            // エリア選択ボタン (縦画面)
-            Surface(
+            // エリア選択ボタン (縦画面。シンプルモードでは出さない)
+            if (!com.gorite.cyclemap.ui.state.isSimpleMode()) Surface(
                 shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
                 color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else CycleMapTheme.palette.mapControlSurface,
                 shadowElevation = 6.dp,
@@ -261,7 +261,8 @@ internal fun BoxScope.MapControlsOverlay(
         val bottomSheetOffset = if (isRoutePreviewActive && routePreviewSheetHeight > 0.dp) {
             routePreviewSheetHeight + 12.dp
         } else {
-            systemInsets.calculateBottomPadding() + 176.dp + (if (bottomHudVisible) 68.dp else 0.dp)
+            // シンプルモードは下のシートが無いので、持ち上げる量を小さくする
+            systemInsets.calculateBottomPadding() + (if (com.gorite.cyclemap.ui.state.isSimpleMode()) 24.dp else 176.dp) + (if (bottomHudVisible) 68.dp else 0.dp)
         }
         Column(
             modifier = Modifier

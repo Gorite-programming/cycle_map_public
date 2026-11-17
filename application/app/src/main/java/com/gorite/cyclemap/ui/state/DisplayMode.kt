@@ -20,6 +20,6 @@ val LocalDisplayModeController = compositionLocalOf<DisplayModeController?> { nu
 
 internal const val PREF_DISPLAY_MODE = "display_mode"
 
-/** 保存された値から復元する。壊れた値・未実装のシンプルは通常に戻す。 */
+/** 保存された値から復元する。壊れた値は通常に戻す。 */
 fun displayModeFromPref(saved: String?): DisplayMode =
-    DisplayMode.entries.firstOrNull { it.name == saved && it != DisplayMode.SIMPLE } ?: DisplayMode.NORMAL
+    DisplayMode.entries.firstOrNull { it.name == saved } ?: DisplayMode.NORMAL
