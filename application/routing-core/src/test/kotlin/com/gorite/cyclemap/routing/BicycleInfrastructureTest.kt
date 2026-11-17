@@ -17,7 +17,9 @@ class BicycleInfrastructureTest {
         left: SideInfo = SideInfo(SideFacility.NONE, roadway),
         right: SideInfo = SideInfo(SideFacility.NONE, roadway),
         flags: Int = 0,
-    ) = BicycleRoadInfo(roadway, left, right, flags)
+    ) = BicycleRoadInfo(roadway, left, right, flags or
+        (if (left.facility == SideFacility.SIDEWALK) BicycleRoadInfo.FLAG_SIDEWALK_LEFT else 0) or
+        (if (right.facility == SideFacility.SIDEWALK) BicycleRoadInfo.FLAG_SIDEWALK_RIGHT else 0))
 
     private fun check(cases: List<Case>) {
         for (case in cases) {
@@ -38,7 +40,8 @@ class BicycleInfrastructureTest {
         )) cases += Case(mapOf("highway" to highway), info())
         for (highway in listOf("path", "track", "bridleway")) {
             cases += Case(mapOf("highway" to highway), info(BikeAccess.UNKNOWN))
-            cases += Case(mapOf("highway" to highway, "bicycle" to "yes"), info())
+            cases += Case(mapOf("highway" to highway, "bicycle" to "yes"),
+                info(flags = if (highway == "path") BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED else 0))
         }
         check(cases.flatMap { listOf(it, it.copy(reverse = true)) })
     }
@@ -76,7 +79,8 @@ class BicycleInfrastructureTest {
             cases += Case(mapOf("highway" to highway, "vehicle" to "yes", "access" to "yes"), info(BikeAccess.FORBIDDEN, flags = flags))
             for (permission in listOf("yes", "designated", "permissive")) {
                 cases += Case(mapOf("highway" to highway, "bicycle" to permission),
-                    info(if (highway == "steps") BikeAccess.FORBIDDEN else BikeAccess.ALLOWED, flags = flags))
+                    info(if (highway == "steps") BikeAccess.FORBIDDEN else BikeAccess.ALLOWED,
+                        flags = flags or if (highway in listOf("footway", "pedestrian")) BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED else 0))
             }
         }
         cases += listOf(
@@ -144,8 +148,8 @@ class BicycleInfrastructureTest {
             Case(mapOf("sidewalk:left" to "separate"), info(flags = BicycleRoadInfo.FLAG_SEPARATE_SIDEWALK)),
             Case(mapOf("bicycle" to "yes", "sidewalk" to "both"), info(left = sidewalk, right = sidewalk)),
             Case(mapOf("bicycle" to "no", "sidewalk" to "both"), info(BikeAccess.FORBIDDEN, sidewalk, sidewalk)),
-            // 全体の sidewalk:bicycle は今回の規則の対象外。左右または both の明示のみ使う。
-            Case(mapOf("sidewalk" to "both", "sidewalk:bicycle" to "yes"), info(left = sidewalk, right = sidewalk)),
+            Case(mapOf("sidewalk" to "both", "sidewalk:bicycle" to "yes"),
+                info(left = SideInfo(SideFacility.SIDEWALK, BikeAccess.ALLOWED), right = SideInfo(SideFacility.SIDEWALK, BikeAccess.ALLOWED))),
         )
         for ((value, access) in mapOf(
             "yes" to BikeAccess.ALLOWED, "designated" to BikeAccess.ALLOWED, "permissive" to BikeAccess.ALLOWED,
@@ -174,7 +178,7 @@ class BicycleInfrastructureTest {
             Case(mapOf("shoulder" to "no"), info()),
             Case(mapOf("shoulder" to "unknown"), info()),
             Case(mapOf("shoulder" to "both", "sidewalk:left" to "yes", "cycleway:right" to "lane"), info(left = sidewalk, right = lane)),
-            Case(mapOf("cycleway:left" to "lane", "sidewalk:left" to "yes"), info(left = lane)),
+            Case(mapOf("cycleway:left" to "lane", "sidewalk:left" to "yes"), info(left = lane, flags = BicycleRoadInfo.FLAG_SIDEWALK_LEFT)),
         ))
     }
 
@@ -200,9 +204,9 @@ class BicycleInfrastructureTest {
             Case(mapOf("junction" to "roundabout", "oneway" to "no"), info(), true),
             Case(mapOf("oneway" to "unknown"), info(BikeAccess.UNKNOWN)),
             Case(mapOf("oneway" to "yes", "oneway:bicycle" to "no", "bicycle" to "no"),
-                info(BikeAccess.FORBIDDEN, flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED), true),
+                info(BikeAccess.FORBIDDEN), true),
             Case(mapOf("oneway" to "yes", "oneway:bicycle" to "no", "highway" to "steps"),
-                info(BikeAccess.FORBIDDEN, flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED), true),
+                info(BikeAccess.FORBIDDEN), true),
         )
         check(cases)
     }
@@ -261,15 +265,174 @@ class BicycleInfrastructureTest {
                 BikeAccess.entries.random(random),
                 SideInfo(SideFacility.entries.random(random), BikeAccess.entries.random(random)),
                 SideInfo(SideFacility.entries.random(random), BikeAccess.entries.random(random)),
-                random.nextInt(256),
+                random.nextInt(0x4000),
             )
             assertEquals(original, BicycleRoadInfo.decode(original.encode()), "組み合わせ $it")
         }
         // フィールドの配置も固定し、encode/decode が同時に変わる事故を検出する。
         val packed = info(BikeAccess.DISMOUNT, SideInfo(SideFacility.BIKE_LANE, BikeAccess.FORBIDDEN),
             SideInfo(SideFacility.SHOULDER, BikeAccess.UNKNOWN), 0xff)
-        assertEquals(3 or (3 shl 3) or (2 shl 6) or (6 shl 9) or (4 shl 12) or (255 shl 15), packed.encode())
-        assertFailsWith<IllegalArgumentException> { info(flags = 256).encode() }
+        assertEquals(3 or (3 shl 3) or (2 shl 7) or (6 shl 10) or (4 shl 14) or (255 shl 17), packed.encode())
+        for (flags in listOf(-1, 0x4000, Int.MIN_VALUE, Int.MAX_VALUE)) {
+            assertFailsWith<IllegalArgumentException> { info(flags = flags).encode() }
+        }
+        assertEquals(0x3fff, BicycleRoadInfo.decode(info(flags = 0x3fff).encode()).flags)
+    }
+
+    @Test
+    fun negativeOnewayOppositeFacilitiesUseWayLeftSide() {
+        for ((value, facility) in mapOf("opposite" to SideFacility.SHARED_LANE,
+            "opposite_lane" to SideFacility.BIKE_LANE, "opposite_track" to SideFacility.BIKE_TRACK)) {
+            val tags = mapOf("oneway" to "-1", "cycleway" to value)
+            check(listOf(
+                Case(tags, info(left = SideInfo(facility, BikeAccess.ALLOWED), flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)),
+                Case(tags, info(flags = BicycleRoadInfo.FLAG_ONEWAY), true),
+                Case(tags + ("cycleway:right" to value), info(
+                    left = SideInfo(facility, BikeAccess.ALLOWED), right = SideInfo(facility, BikeAccess.ALLOWED),
+                    flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)),
+            ))
+        }
+    }
+
+    @Test
+    fun directionalFacilitiesAreAbsentOnTheOtherEdge() {
+        val lane = SideInfo(SideFacility.BIKE_LANE, BikeAccess.ALLOWED)
+        val cases = mutableListOf<Case>()
+        for (direction in listOf("yes", "1", "-1", "no")) {
+            for (reverse in listOf(false, true)) {
+                val usable = direction == "no" || reverse == (direction == "-1")
+                val tags = mapOf("cycleway:right" to "lane", "cycleway:right:oneway" to direction)
+                cases += Case(tags, info(
+                    left = if (usable && reverse) lane else SideInfo(SideFacility.NONE, BikeAccess.ALLOWED),
+                    right = if (usable && !reverse) lane else SideInfo(SideFacility.NONE, BikeAccess.ALLOWED)), reverse)
+            }
+        }
+        for (oneway in listOf("yes", "-1")) {
+            val reverse = oneway == "yes"
+            cases += Case(mapOf("oneway" to oneway, "cycleway" to "lane"), info(BikeAccess.FORBIDDEN), reverse)
+            cases += Case(mapOf("oneway" to oneway, "cycleway:right" to "lane", "cycleway:right:oneway" to oneway),
+                info(BikeAccess.FORBIDDEN), reverse)
+        }
+        cases += Case(mapOf("oneway" to "yes", "cycleway:right" to "lane", "cycleway:right:oneway" to "-1"),
+            info(flags = BicycleRoadInfo.FLAG_ONEWAY))
+        check(cases)
+    }
+
+    @Test
+    fun bicycleOnewayCannotBeOverriddenByBidirectionalCycleway() {
+        for (direction in listOf("yes", "-1")) {
+            val reverse = direction == "yes"
+            val tags = mapOf("oneway" to "no", "oneway:bicycle" to direction)
+            assertEquals(info(BikeAccess.FORBIDDEN), classifyBicycleRoad(tags, reverse))
+            val result = classifyBicycleRoad(tags + mapOf("cycleway:right" to "lane", "cycleway:right:oneway" to "no"), reverse)
+            assertEquals(BikeAccess.FORBIDDEN, result.roadway)
+            assertEquals(0, result.flags and BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
+            assertEquals(BicycleRoadInfo.FLAG_ONEWAY, classifyBicycleRoad(tags, !reverse).flags)
+        }
+    }
+
+    @Test
+    fun contraflowFlagRequiresPermittedRoadway() {
+        for ((bicycle, access) in mapOf("yes" to BikeAccess.ALLOWED, "private" to BikeAccess.CONDITIONAL,
+            "no" to BikeAccess.FORBIDDEN, "dismount" to BikeAccess.DISMOUNT, "unknown" to BikeAccess.UNKNOWN)) {
+            for (exception in listOf(mapOf("oneway:bicycle" to "no"), mapOf("cycleway" to "opposite_lane"))) {
+                val result = classifyBicycleRoad(mapOf("oneway" to "yes", "bicycle" to bicycle) + exception, true)
+                assertEquals(access, result.roadway)
+                assertEquals(if (access in listOf(BikeAccess.ALLOWED, BikeAccess.CONDITIONAL))
+                    BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED else 0, result.flags and BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
+            }
+        }
+        val steps = classifyBicycleRoad(mapOf("highway" to "steps", "oneway" to "yes", "cycleway" to "opposite_lane"), true)
+        assertEquals(BikeAccess.FORBIDDEN, steps.roadway)
+        assertEquals(0, steps.flags and BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
+    }
+
+    @Test
+    fun sidewalksRemainVisibleAlongsideCycleways() {
+        for (cycleway in listOf("lane", "track", "shared_lane")) {
+            val tags = mapOf("highway" to "trunk", "sidewalk" to "both", "cycleway" to cycleway,
+                "sidewalk:bicycle" to "no", "cycleway:left:bicycle" to "private")
+            for (reverse in listOf(false, true)) {
+                val result = classifyBicycleRoad(tags, reverse)
+                assertEquals(BikeAccess.ALLOWED, result.roadway)
+                assertEquals(BicycleRoadInfo.FLAG_SIDEWALK_LEFT or BicycleRoadInfo.FLAG_SIDEWALK_RIGHT, result.flags)
+                assertEquals(BikeAccess.CONDITIONAL, (if (reverse) result.right else result.left).access)
+                assertEquals(BikeAccess.ALLOWED, (if (reverse) result.left else result.right).access)
+                assertEquals(when (cycleway) {
+                    "lane" -> SideFacility.BIKE_LANE
+                    "track" -> SideFacility.BIKE_TRACK
+                    else -> SideFacility.SHARED_LANE
+                }, result.left.facility)
+            }
+        }
+        for (reverse in listOf(false, true)) {
+            val result = classifyBicycleRoad(mapOf("cycleway" to "lane", "sidewalk" to "left"), reverse)
+            assertEquals(if (reverse) BicycleRoadInfo.FLAG_SIDEWALK_RIGHT else BicycleRoadInfo.FLAG_SIDEWALK_LEFT, result.flags)
+        }
+        for (value in listOf("no", "none", "separate")) {
+            val result = classifyBicycleRoad(mapOf("cycleway" to "lane", "sidewalk" to value), false)
+            assertEquals(0, result.flags and (BicycleRoadInfo.FLAG_SIDEWALK_LEFT or BicycleRoadInfo.FLAG_SIDEWALK_RIGHT))
+        }
+    }
+
+    @Test
+    fun sidewalkFallbackAndSeparateFlagsUseFinalSideValues() {
+        val allowed = SideInfo(SideFacility.SIDEWALK, BikeAccess.ALLOWED)
+        val forbidden = SideInfo(SideFacility.SIDEWALK, BikeAccess.FORBIDDEN)
+        check(listOf(
+            Case(mapOf("sidewalk" to "both", "sidewalk:bicycle" to "yes", "sidewalk:both:bicycle" to "no", "sidewalk:left:bicycle" to "yes"),
+                info(left = allowed, right = forbidden)),
+            Case(mapOf("sidewalk" to "separate", "sidewalk:left" to "yes", "sidewalk:right" to "yes", "sidewalk:bicycle" to "yes"),
+                info(left = allowed, right = allowed)),
+            Case(mapOf("sidewalk" to "separate", "sidewalk:both" to "yes", "sidewalk:bicycle" to "yes"),
+                info(left = allowed, right = allowed)),
+            Case(mapOf("sidewalk" to "separate", "sidewalk:left" to "yes", "sidewalk:right" to "no", "sidewalk:bicycle" to "yes"),
+                info(left = allowed)),
+            Case(mapOf("sidewalk" to "separate", "sidewalk:left" to "yes", "sidewalk:bicycle" to "yes"),
+                info(left = allowed, flags = BicycleRoadInfo.FLAG_SEPARATE_SIDEWALK)),
+            Case(mapOf("sidewalk" to "unknown", "sidewalk:bicycle" to "yes"),
+                info(left = SideInfo(SideFacility.UNKNOWN, BikeAccess.UNKNOWN), right = SideInfo(SideFacility.UNKNOWN, BikeAccess.UNKNOWN))),
+            Case(mapOf("oneway" to "yes", "cycleway" to "no", "sidewalk" to "both", "sidewalk:bicycle" to "yes"),
+                info(BikeAccess.FORBIDDEN, allowed, allowed), true),
+        ))
+    }
+
+    @Test
+    fun pedestrianSharedPathsRespectSegregation() {
+        for (highway in listOf("footway", "pedestrian", "path")) {
+            for (bicycle in listOf("yes", "designated", "permissive")) {
+                for (segregated in listOf("no", "yes")) {
+                    val tags = mapOf("highway" to highway, "foot" to "designated", "bicycle" to bicycle, "segregated" to segregated)
+                    for (reverse in listOf(false, true)) check(listOf(Case(tags, info(flags =
+                        if (segregated == "yes") BicycleRoadInfo.FLAG_SEGREGATED else BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED), reverse)))
+                }
+            }
+            assertEquals(0, classifyBicycleRoad(mapOf("highway" to highway, "bicycle" to "no"), false).flags)
+        }
+        for (foot in listOf("yes", "designated")) {
+            assertEquals(BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED,
+                classifyBicycleRoad(mapOf("highway" to "cycleway", "foot" to foot, "bicycle" to "designated"), false).flags)
+        }
+    }
+
+    @Test
+    fun decodingUnknownEnumValuesDoesNotOverflowAdjacentFields() {
+        for (shift in listOf(0, 7, 14)) {
+            for (value in BikeAccess.entries.size..7) {
+                val expected = when (shift) {
+                    0 -> info(BikeAccess.UNKNOWN, SideInfo(SideFacility.NONE, BikeAccess.ALLOWED), SideInfo(SideFacility.NONE, BikeAccess.ALLOWED))
+                    7 -> info(left = SideInfo(SideFacility.NONE, BikeAccess.UNKNOWN))
+                    else -> info(right = SideInfo(SideFacility.NONE, BikeAccess.UNKNOWN))
+                }
+                assertEquals(expected, BicycleRoadInfo.decode(value shl shift))
+            }
+        }
+        for (shift in listOf(3, 10)) {
+            for (value in SideFacility.entries.size..15) {
+                val unknown = SideInfo(SideFacility.UNKNOWN, BikeAccess.ALLOWED)
+                assertEquals(if (shift == 3) info(left = unknown) else info(right = unknown), BicycleRoadInfo.decode(value shl shift))
+            }
+        }
     }
 
     @Test

@@ -15,11 +15,14 @@ data class BicycleRoadInfo(
     val right: SideInfo,
     val flags: Int,
 ) {
-    /** 下位から車道・左設備・左条件・右設備・右条件に各3ビット、続いて8ビットのフラグ。 */
+    /** 下位から車道3・左設備4・左条件3・右設備4・右条件3・フラグ14ビット。 */
     fun encode(): Int {
-        require(flags and 0xff == flags) { "未定義のフラグは保存できません: $flags" }
-        return roadway.ordinal or (left.facility.ordinal shl 3) or (left.access.ordinal shl 6) or
-            (right.facility.ordinal shl 9) or (right.access.ordinal shl 12) or (flags shl 15)
+        require(roadway.ordinal in 0..7) { "車道の条件が3ビットを超えています" }
+        require(left.facility.ordinal in 0..15 && right.facility.ordinal in 0..15) { "設備が4ビットを超えています" }
+        require(left.access.ordinal in 0..7 && right.access.ordinal in 0..7) { "設備の条件が3ビットを超えています" }
+        require(flags in 0..0x3fff) { "フラグが14ビットを超えています: $flags" }
+        return roadway.ordinal or (left.facility.ordinal shl 3) or (left.access.ordinal shl 7) or
+            (right.facility.ordinal shl 10) or (right.access.ordinal shl 14) or (flags shl 17)
     }
 
     companion object {
@@ -31,13 +34,16 @@ data class BicycleRoadInfo(
         const val FLAG_SEGREGATED = 1 shl 5
         const val FLAG_MOTORROAD = 1 shl 6
         const val FLAG_CONDITIONAL_TAGS = 1 shl 7
+        const val FLAG_SIDEWALK_LEFT = 1 shl 8
+        const val FLAG_SIDEWALK_RIGHT = 1 shl 9
+        const val FLAG_PEDESTRIAN_SHARED = 1 shl 10
 
         fun decode(bits: Int): BicycleRoadInfo {
             fun access(shift: Int) = BikeAccess.entries.getOrNull((bits ushr shift) and 7) ?: BikeAccess.UNKNOWN
-            fun facility(shift: Int) = SideFacility.entries.getOrNull((bits ushr shift) and 7) ?: SideFacility.UNKNOWN
+            fun facility(shift: Int) = SideFacility.entries.getOrNull((bits ushr shift) and 15) ?: SideFacility.UNKNOWN
             return BicycleRoadInfo(
-                access(0), SideInfo(facility(3), access(6)), SideInfo(facility(9), access(12)),
-                (bits ushr 15) and 0xff,
+                access(0), SideInfo(facility(3), access(7)), SideInfo(facility(10), access(14)),
+                (bits ushr 17) and 0x3fff,
             )
         }
     }
@@ -57,13 +63,15 @@ fun classifyBicycleRoad(tags: Map<String, String>, againstWayDirection: Boolean)
     if (tags["bicycle"] == "use_sidepath") flag(BicycleRoadInfo.FLAG_USE_SIDEPATH)
     if (tags["segregated"] == "yes") flag(BicycleRoadInfo.FLAG_SEGREGATED)
     if (tags.keys.any { it.endsWith(":conditional") }) flag(BicycleRoadInfo.FLAG_CONDITIONAL_TAGS)
-    for (side in listOf("cycleway", "sidewalk")) {
-        if (listOf(side, "$side:both", "$side:left", "$side:right").any { tags[it] == "separate" }) {
-            flag(if (side == "cycleway") BicycleRoadInfo.FLAG_SEPARATE_CYCLEWAY else BicycleRoadInfo.FLAG_SEPARATE_SIDEWALK)
-        }
+    if (listOf("cycleway", "cycleway:both", "cycleway:left", "cycleway:right").any { tags[it] == "separate" }) {
+        flag(BicycleRoadInfo.FLAG_SEPARATE_CYCLEWAY)
     }
 
     val explicitBicycle = tags["bicycle"]
+    if (tags["segregated"] != "yes" && (
+        (highway in setOf("footway", "pedestrian", "path") && explicitBicycle in setOf("yes", "designated", "permissive")) ||
+            (tags["foot"] in setOf("designated", "yes") && explicitBicycle == "designated")
+        )) flag(BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED)
     var roadway = when {
         highway == "steps" -> BikeAccess.FORBIDDEN
         explicitBicycle != null -> infrastructureAccess(explicitBicycle)
@@ -81,6 +89,17 @@ fun classifyBicycleRoad(tags: Map<String, String>, againstWayDirection: Boolean)
         tags["cycleway:$side:bicycle"] ?: tags["cycleway:both:bicycle"] ?: tags["cycleway:bicycle"]
     fun cyclewayDirection(side: String): String? =
         tags["cycleway:$side:oneway"] ?: tags["cycleway:both:oneway"] ?: tags["cycleway:oneway"]
+    fun sidewalk(side: String): String? = tags["sidewalk:$side"] ?: tags["sidewalk:both"] ?: tags["sidewalk"]?.let {
+        if (it in setOf("left", "right") && it != side) "no" else it
+    }
+    for (side in listOf("left", "right")) {
+        val value = sidewalk(side)
+        if (value == "separate") flag(BicycleRoadInfo.FLAG_SEPARATE_SIDEWALK)
+        if (value in setOf("yes", "both", "left", "right")) {
+            val travelLeft = (side == "left") != againstWayDirection
+            flag(if (travelLeft) BicycleRoadInfo.FLAG_SIDEWALK_LEFT else BicycleRoadInfo.FLAG_SIDEWALK_RIGHT)
+        }
+    }
 
     val wayOneway = tags["oneway"] ?: if (tags["junction"] == "roundabout") "yes" else "no"
     val bicycleOneway = tags["oneway:bicycle"]
@@ -92,37 +111,43 @@ fun classifyBicycleRoad(tags: Map<String, String>, againstWayDirection: Boolean)
         else -> null
     }
     val travelDirection = if (againstWayDirection) -1 else 1
+    val againstOneway = direction != null && direction != 0 && direction != travelDirection
     val oppositeValues = setOf("opposite", "opposite_lane", "opposite_track")
     fun oppositeOnSide(side: String) =
-        tags.containsKey("cycleway:$side") || tags.containsKey("cycleway:both") || side == "right"
-    val contraflow = bicycleOneway in setOf("no", "false", "0") || listOf("left", "right").any { side ->
+        tags.containsKey("cycleway:$side") || tags.containsKey("cycleway:both") ||
+            (direction == 1 && side == "right") || (direction == -1 && side == "left")
+    fun cyclewayUsable(side: String): Boolean {
+        if (cycleway(side) in oppositeValues && (!againstOneway || !oppositeOnSide(side))) return false
+        return when (cyclewayDirection(side)) {
+            "yes", "true", "1" -> travelDirection == 1
+            "-1" -> travelDirection == -1
+            "no", "false", "0" -> true
+            else -> !againstOneway || cycleway(side) in oppositeValues
+        }
+    }
+    val explicitBicycleOneway = bicycleOneway in setOf("yes", "true", "1", "-1")
+    val contraflow = !explicitBicycleOneway && (bicycleOneway in setOf("no", "false", "0") || listOf("left", "right").any { side ->
         val value = cycleway(side)
         val access = cyclewayAccess(side)?.let(::infrastructureAccess) ?: BikeAccess.ALLOWED
-        val sideDirection = cyclewayDirection(side)
         value in setOf("lane", "track", "shared_lane", "share_busway", "shared", "opposite", "opposite_lane", "opposite_track") &&
-            access == BikeAccess.ALLOWED &&
-            ((value in oppositeValues && againstWayDirection && oppositeOnSide(side)) ||
-                sideDirection == "no" || sideDirection == "0" || sideDirection == "false" ||
-                (sideDirection == "-1" && againstWayDirection) ||
-                (sideDirection in setOf("yes", "true", "1") && !againstWayDirection))
-    }
+            access == BikeAccess.ALLOWED && cyclewayUsable(side)
+    })
     when {
         direction == null && bicycleOneway !in setOf("no", "false", "0") -> {
             if (roadway == BikeAccess.ALLOWED) roadway = BikeAccess.UNKNOWN
         }
         direction != null && direction != 0 && direction == travelDirection -> flag(BicycleRoadInfo.FLAG_ONEWAY)
         direction != null && direction != 0 -> {
-            if (contraflow) flag(BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
-            else roadway = BikeAccess.FORBIDDEN
+            if (contraflow) {
+                if (roadway in setOf(BikeAccess.ALLOWED, BikeAccess.CONDITIONAL)) flag(BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
+            } else roadway = BikeAccess.FORBIDDEN
         }
     }
 
     fun sideInfo(side: String): SideInfo {
         val cycle = cycleway(side)
-        val opposite = cycle in oppositeValues
-        // 側指定なしの逆走設備は、日本の左側通行では way 基準の右側にある。
         val cycleFacility = when {
-            cycle == null || (opposite && (!againstWayDirection || !oppositeOnSide(side))) -> SideFacility.NONE
+            cycle == null -> SideFacility.NONE
             cycle in setOf("no", "none", "separate") -> SideFacility.NONE
             cycle in setOf("lane", "opposite_lane") -> SideFacility.BIKE_LANE
             cycle in setOf("track", "opposite_track") -> SideFacility.BIKE_TRACK
@@ -130,18 +155,20 @@ fun classifyBicycleRoad(tags: Map<String, String>, againstWayDirection: Boolean)
             else -> SideFacility.UNKNOWN
         }
         if (cycleFacility != SideFacility.NONE) {
+            // 方向指定に合わない設備は、この辺では車道と同じ条件で扱う。
+            if (!cyclewayUsable(side)) return SideInfo(SideFacility.NONE, roadway)
             val access = cyclewayAccess(side)?.let(::infrastructureAccess)
                 ?: if (cycleFacility == SideFacility.UNKNOWN) BikeAccess.UNKNOWN else BikeAccess.ALLOWED
             return SideInfo(cycleFacility, access)
         }
 
-        val sidewalk = tags["sidewalk:$side"] ?: tags["sidewalk:both"] ?: tags["sidewalk"]?.let {
-            if (it in setOf("left", "right") && it != side) "no" else it
-        }
+        val sidewalk = sidewalk(side)
         if (sidewalk != null && sidewalk !in setOf("no", "none", "separate")) {
             val facility = if (sidewalk in setOf("yes", "both", "left", "right")) SideFacility.SIDEWALK else SideFacility.UNKNOWN
-            val access = tags["sidewalk:$side:bicycle"] ?: tags["sidewalk:both:bicycle"]
-            return SideInfo(facility, access?.let(::infrastructureAccess) ?: BikeAccess.UNKNOWN)
+            val access = tags["sidewalk:$side:bicycle"] ?: tags["sidewalk:both:bicycle"] ?: tags["sidewalk:bicycle"]
+            return SideInfo(facility, if (facility == SideFacility.SIDEWALK) {
+                access?.let(::infrastructureAccess) ?: BikeAccess.UNKNOWN
+            } else BikeAccess.UNKNOWN)
         }
         if (tags["shoulder"] in setOf("yes", "both", side)) return SideInfo(SideFacility.SHOULDER, BikeAccess.UNKNOWN)
         return SideInfo(SideFacility.NONE, roadway)
