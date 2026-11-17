@@ -304,6 +304,30 @@ fun SettingsPanelSheet(
                 }
             }
 
+            val handednessController = com.gorite.cyclemap.ui.state.LocalHandednessController.current
+            if (handednessController != null) {
+                Text("利き手", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                SettingDescription("左手を選ぶと、地図の操作ボタン (現在地・拡大縮小・3D・レイヤー・ルート検索) が左側に移ります")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    com.gorite.cyclemap.ui.state.Handedness.entries.forEach { h ->
+                        val selected = handednessController.value.value == h
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { handednessController.set(h) },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(h.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+
             SettingSwitch("動きの演出", animationEnabled, onAnimationEnabledChange,
                 subtitle = "画面の切り替えや地図の移動をなめらかに見せます。オフにすると電池の減りを少し抑えます")
 

@@ -277,6 +277,28 @@ internal fun updateBuildingExtrusion(style: Style, shouldExtrude: Boolean, isNig
     }
 }
 
+/**
+ * MapLibre のロゴと帰属表記 (OSM・国土地理院の表記を含む) の置き場所。
+ * 左手モードでは操作ボタンが左側に来て重なるので、右側へ寄せる。常に見える位置に残す。
+ */
+internal fun applyMapAttributionSide(context: Context, map: org.maplibre.android.maps.MapLibreMap, leftHanded: Boolean) {
+    val density = context.resources.displayMetrics.density
+    val bottomMarginPx = (96 * density).toInt()
+    val sideMarginPx = (16 * density).toInt()
+    val attributionOffsetPx = (80 * density).toInt()
+    if (leftHanded) {
+        map.uiSettings.logoGravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+        map.uiSettings.attributionGravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+        map.uiSettings.setLogoMargins(0, 0, sideMarginPx, bottomMarginPx)
+        map.uiSettings.setAttributionMargins(0, 0, sideMarginPx + attributionOffsetPx, bottomMarginPx)
+    } else {
+        map.uiSettings.logoGravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
+        map.uiSettings.attributionGravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
+        map.uiSettings.setLogoMargins(sideMarginPx, 0, 0, bottomMarginPx)
+        map.uiSettings.setAttributionMargins(sideMarginPx + attributionOffsetPx, 0, 0, bottomMarginPx)
+    }
+}
+
 internal fun configureVectorMapUiSettings(context: Context, map: org.maplibre.android.maps.MapLibreMap) {
     map.prefetchZoomDelta = 2
     map.uiSettings.isCompassEnabled = false
@@ -290,8 +312,7 @@ internal fun configureVectorMapUiSettings(context: Context, map: org.maplibre.an
     val density = context.resources.displayMetrics.density
     val bottomMarginPx = (96 * density).toInt()
     val sideMarginPx = (16 * density).toInt()
-    map.uiSettings.setLogoMargins(sideMarginPx, 0, 0, bottomMarginPx)
-    map.uiSettings.setAttributionMargins(sideMarginPx + (80 * density).toInt(), 0, 0, bottomMarginPx)
+    applyMapAttributionSide(context, map, leftHanded = false)
 
     map.gesturesManager?.shoveGestureDetector?.let { detector ->
         detector.isEnabled = true

@@ -317,8 +317,8 @@ internal fun MapContentLayout(
                     // 盤面のすぐ上の右: 地図を広げる・現在地
                     Column(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = homePanelHeight + 12.dp),
+                            .align(com.gorite.cyclemap.ui.state.controlsBottomAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                            .padding(start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 12.dp, bottom = homePanelHeight + 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         com.gorite.cyclemap.ui.map.FloatingCircleButton(
@@ -412,8 +412,8 @@ internal fun MapContentLayout(
                     if (simpleVisibility.modeSwitchButton) {
                         com.gorite.cyclemap.ui.layout.SimpleModeSwitch(
                             modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(start = 14.dp, top = effectiveTopPadding + 12.dp)
+                                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(!com.gorite.cyclemap.ui.state.isLeftHanded()))
+                                .padding(start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp, top = effectiveTopPadding + 12.dp)
                                 .zIndex(3f),
                         )
                     }

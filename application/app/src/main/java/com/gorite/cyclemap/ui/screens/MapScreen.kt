@@ -430,6 +430,17 @@ internal fun MapScreen(
         }
     }
     val rideSession = remember { com.gorite.cyclemap.tracking.RideSession() }
+    val handednessState = remember {
+        androidx.compose.runtime.mutableStateOf(
+            com.gorite.cyclemap.ui.state.handednessFromPref(state.prefs.getString(com.gorite.cyclemap.ui.state.PREF_HANDEDNESS, null)),
+        )
+    }
+    val handednessController = remember {
+        com.gorite.cyclemap.ui.state.HandednessController(handednessState) { h ->
+            handednessState.value = h
+            state.prefs.edit().putString(com.gorite.cyclemap.ui.state.PREF_HANDEDNESS, h.name).apply()
+        }
+    }
 
     MapTrackingEffects(
         hasLocationPermission = state.hasLocationPermissionState.value,
@@ -787,6 +798,7 @@ internal fun MapScreen(
 
     androidx.compose.runtime.CompositionLocalProvider(
         com.gorite.cyclemap.ui.state.LocalDisplayModeController provides displayModeController,
+        com.gorite.cyclemap.ui.state.LocalHandednessController provides handednessController,
     ) {
     MapScreenScaffold(
         state = state,

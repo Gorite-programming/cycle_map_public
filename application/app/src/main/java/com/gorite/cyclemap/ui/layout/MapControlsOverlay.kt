@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
@@ -169,9 +170,10 @@ internal fun BoxScope.MapControlsOverlay(
             isLandscape = true,
             onNavStartClick = onNavStartClick,
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
                 .padding(
-                    end = systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
+                    start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp else 0.dp,
+                    end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
                     top = effectiveTopPadding + (if (isNavigationActive) 12.dp else 68.dp),
                 )
                 .zIndex(2f),
@@ -180,8 +182,8 @@ internal fun BoxScope.MapControlsOverlay(
         // 右上 (チップ列の直下): レイヤー切替ボタン + 回転時のみコンパス (Google Maps 配置)
         Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp), end = 14.dp)
+                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp), start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp)
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -266,8 +268,8 @@ internal fun BoxScope.MapControlsOverlay(
         }
         Column(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 14.dp, bottom = bottomSheetOffset)
+                .align(com.gorite.cyclemap.ui.state.controlsBottomAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                .padding(start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp, bottom = bottomSheetOffset)
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -291,11 +293,12 @@ internal fun BoxScope.MapControlsOverlay(
         // 案内中も地図上部の右側に主要操作を残し、Google Mapsのナビ画面に近い操作配置にする。
         Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
                 // 案内カードは「そのあと」の帯・2 行の案内文・車線で高さが変わるので、測った高さの下に置く
                 .padding(
                     top = effectiveTopPadding + if (navHeaderHeight > 0.dp) navHeaderHeight + 8.dp + 12.dp else 104.dp,
-                    end = 14.dp,
+                    start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp,
+                    end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp,
                 )
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),

@@ -496,6 +496,13 @@ internal fun VectorMapView(
         }
 
         // 省電力モード時の 3D -> 2D 自動フォールバック即時反映
+        // 利き手が変わったら、ロゴ・帰属表記を操作ボタンと重ならない側へ移す
+        val leftHandedNow = com.gorite.cyclemap.ui.state.isLeftHanded()
+        LaunchedEffect(leftHandedNow, mapLibreMap) {
+            val map = mapLibreMap ?: return@LaunchedEffect
+            applyMapAttributionSide(context, map, leftHandedNow)
+        }
+
         LaunchedEffect(isPowerSaveActive, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             if (isPowerSaveActive && lastExtruded) {
