@@ -123,6 +123,14 @@ class LazyMappedRoadGraph private constructor(
     internal var edgeTurnLaneIds: MappedIntColumn? = null
     internal var turnLaneTable: Array<String> = emptyArray()
 
+    /** Optional per-edge bicycle rules, mapped without a heap copy. */
+    private var edgeBicycleInfos: MappedIntColumn? = null
+
+    fun bicycleInfoOfEdge(ordinal: Int): BicycleRoadInfo? {
+        val bits = edgeBicycleInfos?.getOrNull(ordinal) ?: return null
+        return if (bits == 0) null else BicycleRoadInfo.decode(bits)
+    }
+
     /** 辺 (通し番号 [ordinal]) の進行方向の車線 (OSM の turn:lanes)。無ければ null。 */
     fun turnLanesOfEdge(ordinal: Int): String? {
         val id = edgeTurnLaneIds?.getOrNull(ordinal) ?: return null
@@ -1033,6 +1041,7 @@ class LazyMappedRoadGraph private constructor(
 
         private const val ROAD_NAME_SECTION_MAGIC = "CYCLEMAP_ROADNAME_V1"
         private const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
+        private const val BIKE_INFO_SECTION_MAGIC = "CYCLEMAP_BIKEINFO_V1"
 
         /** 文字列の表 + 辺ごとの番号 (-1 は無し) の区間を読む。件数が合わなければ null。 */
         private fun readStringTableSection(
@@ -1077,6 +1086,12 @@ class LazyMappedRoadGraph private constructor(
                             val (table, ids) = readStringTableSection(input, edgeCount, indexMapped, position) ?: return
                             graph.turnLaneTable = table
                             graph.edgeTurnLaneIds = ids
+                        }
+                        BIKE_INFO_SECTION_MAGIC -> {
+                            if (input.readInt() != edgeCount) return
+                            val base = mappedSection(indexMapped, position(), edgeCount.toLong() * 4L) ?: return
+                            skipFully(input, edgeCount.toLong() * 4L)
+                            graph.edgeBicycleInfos = MappedIntColumn(indexMapped, base, edgeCount, 4)
                         }
                         else -> return
                     }

@@ -48,3 +48,13 @@ Claude・Codex・Antigravity が、同じ依頼文 (`work/codex/lane_detect_desi
 1. 要望を上の形に**絞って**よいか (道の中の横位置は作らない)。
 2. データの置き場は、第 1 段 `.graph.idx` 末尾 + 第 2 段サイドカー、でよいか。
 3. 最初の試験は、広島県の短い区間でよいか。
+
+## 6. 実装の状況と、広島での実測 (2026-11-17)
+
+- 済み: 分類器 `BicycleInfrastructure` (19 件のテスト、31 ビット)、`.graph.idx` 末尾の `CYCLEMAP_BIKEINFO_V1` 区間 (読み側 `bicycleInfoOfEdge`、テスト)、作り直しの道具 `BikeInfoReindexMain` (`:osm-importer:reindexBikeInfo`。既存の graph・CH・idx は変えずに、新しい idx を別に出す。広島で約 10 秒)。
+- **広島 (`work/Hiroshima`、辺 3,858,862 本) の実測** (統計は `work/bikeinfo/hiroshima_stats.txt`、git 管理外):
+  - 辺と way の対応: 1 対 1 が 99.999% (曖昧 45 本、対応しない辺 0)。**対応づけは問題ない。**
+  - タグの充足率: `sidewalk` が付いた辺は 0.10%、`cycleway` は 0.10%、`bicycle` は 1.23%。**OSM の歩道・自転車設備のタグは、広島ではほとんど無い。**
+  - 通行条件: 車道 ALLOWED 71.7%、UNKNOWN 28.2% (`path` などの判断材料不足)、FORBIDDEN 0.06% (自動車専用など 2,380 本)、CONDITIONAL 0.01%。歩行者と共有のフラグ (`PEDESTRIAN_SHARED`) 1.14%。
+  - **国道2号 (`ref=2`、8,352 本)**: 車道 ALLOWED 91.1%、FORBIDDEN 8.9% (740 本、`motorroad=yes` の自動車専用区間 = 広島バイパスなど。正しく検出できている)。`sidewalk` タグは 2.5% (206 本、すべて `sidewalk=separate`: 歩道は別の way)、`cycleway` タグは 0%、`bicycle` タグは 1.1%。
+- 読み取れること: 国道2号沿いで OSM から出せるのは、**「車道は通れる (左側通行が原則)」「ここは自動車専用で自転車は不可」「歩道は別の way で描かれている」**まで。「歩道を自転車で通れるか」「自転車レーンがあるか」は、タグが無くて、ほぼ出せない。

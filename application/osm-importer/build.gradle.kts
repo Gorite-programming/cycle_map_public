@@ -16,6 +16,21 @@ application {
     mainClass.set("com.gorite.cyclemap.importer.OsmImporterKt")
 }
 
+// 既存 graph/CH を保持して通行ルールを別 idx に追記: :osm-importer:reindexBikeInfo -Pgraph=<.graph> -Pindex=<.graph.idx> -Ppbf=<.pbf> -Pout=<new.idx> [-Pref=2]
+tasks.register<JavaExec>("reindexBikeInfo") {
+    group = "application"
+    description = "Append bicycle rules to a new graph index without rebuilding graph/CH"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.gorite.cyclemap.importer.BikeInfoReindexMain")
+    jvmArgs("-Xmx4g")
+    doFirst {
+        args(listOf("graph", "index", "pbf", "out").map {
+            project.findProperty(it) as String? ?: error("-P$it is required")
+        })
+        (project.findProperty("ref") as String?)?.let { args("--ref", it) }
+    }
+}
+
 // 経路の実際の登り量を方針別に比べる: ./gradlew :osm-importer:benchmarkAscent -Pgraph=<.graph> -Pdem=<dem14> [-Pod=200]
 tasks.register<JavaExec>("benchmarkAscent") {
     group = "verification"
