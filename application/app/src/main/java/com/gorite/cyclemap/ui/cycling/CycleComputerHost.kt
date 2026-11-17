@@ -31,6 +31,7 @@ import java.util.Locale
 @Composable
 fun CycleComputerHost(
     rideSession: RideSession,
+    store: com.gorite.cyclemap.tracking.RideSessionStore,
     location: Location?,
     destLat: Double?,
     destLon: Double?,
@@ -44,6 +45,18 @@ fun CycleComputerHost(
         while (true) {
             nowMs = System.currentTimeMillis()
             delay(1000)
+        }
+    }
+    // 走行中の値を 15 秒ごとに保存する (アプリが落ちても戻せるように)。画面を離れるときにも保存する。
+    LaunchedEffect(rideSession) {
+        while (true) {
+            delay(15_000)
+            if (rideSession.snapshot(System.currentTimeMillis()).state != RideState.IDLE) store.save(rideSession)
+        }
+    }
+    DisposableEffect(rideSession) {
+        onDispose {
+            if (rideSession.snapshot(System.currentTimeMillis()).state != RideState.IDLE) store.save(rideSession)
         }
     }
     // 表示している間だけ画面を点けたままにする。
@@ -73,7 +86,7 @@ fun CycleComputerHost(
                 if (rideSession.snapshot(System.currentTimeMillis()).state == RideState.RUNNING) rideSession.pause()
                 else rideSession.start()
             },
-            onResetLongPress = { rideSession.reset() },
+            onResetLongPress = { rideSession.reset(); store.clear() },
             onExitMode = onExit,
         )
     }

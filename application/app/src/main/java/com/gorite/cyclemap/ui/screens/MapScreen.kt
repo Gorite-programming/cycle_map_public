@@ -429,7 +429,15 @@ internal fun MapScreen(
             state.prefs.edit().putString(com.gorite.cyclemap.ui.state.PREF_DISPLAY_MODE, mode.name).apply()
         }
     }
-    val rideSession = remember { com.gorite.cyclemap.tracking.RideSession() }
+    // サイコンの走行統計。落ちても値が戻るよう保存し (CycleComputerHost が定期的に保存)、起動時に 30 分以内のものを一時停止で戻す。
+    val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
+    val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
+    // 気圧計はサイコン画面を出している間だけ動かす (電池のため)
+    val pressureReader = remember { com.gorite.cyclemap.tracking.PressureReader(state.context) }
+    androidx.compose.runtime.DisposableEffect(displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) {
+        if (displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) pressureReader.start()
+        onDispose { pressureReader.stop() }
+    }
     val handednessState = remember {
         androidx.compose.runtime.mutableStateOf(
             com.gorite.cyclemap.ui.state.handednessFromPref(state.prefs.getString(com.gorite.cyclemap.ui.state.PREF_HANDEDNESS, null)),
@@ -461,6 +469,7 @@ internal fun MapScreen(
                 speedMps = if (loc.hasSpeed()) loc.speed else null,
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else 100f,
                 altitudeM = if (loc.hasAltitude()) loc.altitude else null,
+                pressureHpa = pressureReader.latestHpa,
             )
         },
         lastValidLocation = state.lastValidLocationState.value,
@@ -828,6 +837,7 @@ internal fun MapScreen(
     if (displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) {
         com.gorite.cyclemap.ui.cycling.CycleComputerHost(
             rideSession = rideSession,
+            store = rideSessionStore,
             location = state.currentLocationState.value,
             destLat = state.destinationState.value?.latitude,
             destLon = state.destinationState.value?.longitude,
