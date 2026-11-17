@@ -25,9 +25,10 @@ enum class RoadRuleKind(val isWarning: Boolean) {
 fun roadRuleKindOf(info: BicycleRoadInfo, wrongWay: Boolean): RoadRuleKind? {
     val flags = info.flags
     return when {
+        // 自動車専用・通行不可は、逆走の判定より先に知らせる (自動車専用道路を逆向きに走っていても、まず「自転車は通れません」)
+        info.roadway == BikeAccess.FORBIDDEN && flags and BicycleRoadInfo.FLAG_MOTORROAD != 0 -> RoadRuleKind.MOTOR_ONLY
         // 逆走は、この辺が自転車にとっても一方通行 (ONEWAY) で、逆向き許可が無いときだけ
         wrongWay && flags and BicycleRoadInfo.FLAG_ONEWAY != 0 && flags and BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED == 0 -> RoadRuleKind.WRONG_WAY
-        info.roadway == BikeAccess.FORBIDDEN && flags and BicycleRoadInfo.FLAG_MOTORROAD != 0 -> RoadRuleKind.MOTOR_ONLY
         info.roadway == BikeAccess.FORBIDDEN -> RoadRuleKind.BICYCLE_FORBIDDEN
         info.roadway == BikeAccess.DISMOUNT -> RoadRuleKind.DISMOUNT
         flags and BicycleRoadInfo.FLAG_PEDESTRIAN_SHARED != 0 -> RoadRuleKind.PEDESTRIAN_SHARED
