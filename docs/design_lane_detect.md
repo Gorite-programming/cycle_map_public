@@ -66,3 +66,9 @@ Claude・Codex・Antigravity が、同じ依頼文 (`work/codex/lane_detect_desi
 - `RoadRuleBadge` と文言 (Antigravity。「違法」「禁止」と断定しない)。`MapScreen` が位置の更新ごとに照合 (`graphLock` は `tryLock`、待たない)、`LocalRoadRuleController` で `MapContentLayout` とサイコン画面に渡す。設定の「道路のルールを知らせる」(既定でオン)。
 - 実機 (S26) で、広島の一方通行の住宅街の道 (OSM の実際の形) を、逆向きに走ると「一方通行の逆向きです」が出て、順方向では出ないことを確認した。
 - 未: 自動車専用 (MOTOR_ONLY)・歩行者共有などの実機確認、ナビ中・シンプル・サイコンでのバッジの位置、広島以外の索引の作り直し (`reindexBikeInfo` を各県に)、配布用 ZIP への組み込み (今は `.win` の広島だけに手で置いた)、横位置の実験。
+
+### 7.1 自動車専用の通知の実機確認 (2026-11-17)
+
+- 広島高速4号線 (`highway=motorway`、`ref=4`、`bicycle` タグなし。importer が graph に入れる) に沿って模擬位置で走ると、「自動車専用道路 · 自転車は通れません」の赤いバッジが出た (S26)。
+- **分かった限界**: 西広島バイパス (`highway=motorway`、`ref=2`、`bicycle=no` の明示あり) や、`motorroad=yes` の道は、importer の `BicycleAccessFilter` が graph から**除外している**ため、近くに辺が無く、通知が出ない (同じ道を走っても何も言わない)。graph に入る自動車専用道は、`bicycle` タグが無い `motorway` だけ。→ 設計どおり、**第 2 段 (graph から除外した道のサイドカー)** が無いと、「自動車専用道路に入った」を一般には検知できない。次に作るなら、これが最優先。
+- 検証の道具 (git 管理外の `work/`): `find_motor2.py` (PBF から、graph に入る motorway を探す)、`rr_walk_json.py` (道の形の JSON に沿って、実時間に合わせた模擬位置を送る)。
