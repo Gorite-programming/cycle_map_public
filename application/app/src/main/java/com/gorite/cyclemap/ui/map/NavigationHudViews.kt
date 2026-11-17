@@ -311,9 +311,10 @@ fun LandscapeNavHudBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (currentStep != null) {
+                    // NextFlowAnimation は fillMaxWidth なので、幅を決めないと行を占領し、アイコンと案内文が押し出される
                     NextFlowAnimation(
                         animationEnabled = animationEnabled,
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.width(116.dp).padding(end = 8.dp)
                     )
                     Icon(
                         painter = painterResource(turnTypeToDrawableRes(currentStep.turnType)),
