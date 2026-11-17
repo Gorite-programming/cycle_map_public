@@ -417,6 +417,20 @@ internal fun MapScreen(
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
 
+    // 表示モード (通常 / サイコン) と、サイコンの走行統計。
+    val displayModeState = remember {
+        androidx.compose.runtime.mutableStateOf(
+            com.gorite.cyclemap.ui.state.displayModeFromPref(state.prefs.getString(com.gorite.cyclemap.ui.state.PREF_DISPLAY_MODE, null)),
+        )
+    }
+    val displayModeController = remember {
+        com.gorite.cyclemap.ui.state.DisplayModeController(displayModeState) { mode ->
+            displayModeState.value = mode
+            state.prefs.edit().putString(com.gorite.cyclemap.ui.state.PREF_DISPLAY_MODE, mode.name).apply()
+        }
+    }
+    val rideSession = remember { com.gorite.cyclemap.tracking.RideSession() }
+
     MapTrackingEffects(
         hasLocationPermission = state.hasLocationPermissionState.value,
         appLifecycleState = state.appLifecycleStateState.value,
@@ -427,7 +441,17 @@ internal fun MapScreen(
         gpsHealthMonitor = state.gpsHealthMonitor,
         gpsStatus = state.gpsStatusState.value,
         onGpsStatusChanged = { state.gpsStatusState.value = it },
-        onLocationChanged = { state.currentLocationState.value = it },
+        onLocationChanged = { loc ->
+            state.currentLocationState.value = loc
+            rideSession.onLocation(
+                timeMs = loc.time,
+                lat = loc.latitude,
+                lon = loc.longitude,
+                speedMps = if (loc.hasSpeed()) loc.speed else null,
+                accuracyM = if (loc.hasAccuracy()) loc.accuracy else 100f,
+                altitudeM = if (loc.hasAltitude()) loc.altitude else null,
+            )
+        },
         lastValidLocation = state.lastValidLocationState.value,
         onLastValidLocationChanged = { state.lastValidLocationState.value = it },
         lastValidBearingDegrees = state.lastValidBearingDegreesState.floatValue,
@@ -761,6 +785,9 @@ internal fun MapScreen(
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.gorite.cyclemap.ui.state.LocalDisplayModeController provides displayModeController,
+    ) {
     MapScreenScaffold(
         state = state,
         modifier = modifier,
@@ -785,6 +812,18 @@ internal fun MapScreen(
         weatherUiState = weatherUiState,
         onRefreshWeather = { weatherRepo.refresh(isOnline) },
     )
+    // サイコンモード: 地図の上に全面で重ねる (地図は下で動き続ける。位置・ルート・案内の状態は共有)。
+    if (displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) {
+        com.gorite.cyclemap.ui.cycling.CycleComputerHost(
+            rideSession = rideSession,
+            location = state.currentLocationState.value,
+            destLat = state.destinationState.value?.latitude,
+            destLon = state.destinationState.value?.longitude,
+            progress = state.navigationProgressState.value,
+            onExit = { displayModeController.set(com.gorite.cyclemap.ui.state.DisplayMode.NORMAL) },
+        )
+    }
+    }
 }
 
 /** 開き直したときに前回のルートを戻す処理で、現在地を待つ時間。 */

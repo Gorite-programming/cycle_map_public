@@ -280,6 +280,30 @@ fun SettingsPanelSheet(
                 }
             }
 
+            val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
+            if (displayModeController != null) {
+                Text("表示モード", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                SettingDescription("サイコンは、地図を出さずに速度・距離・時間を大きく見せます")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf(com.gorite.cyclemap.ui.state.DisplayMode.NORMAL, com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER).forEach { mode ->
+                        val selected = displayModeController.mode.value == mode
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { displayModeController.set(mode); onDismiss() },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(mode.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    }
+                }
+            }
+
             SettingSwitch("動きの演出", animationEnabled, onAnimationEnabledChange,
                 subtitle = "画面の切り替えや地図の移動をなめらかに見せます。オフにすると電池の減りを少し抑えます")
 

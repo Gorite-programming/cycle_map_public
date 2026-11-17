@@ -124,11 +124,12 @@ class RideSessionTest {
         point(session, 0)
         point(session, 1000, 100.0, accuracy = 50f)
         point(session, 2000, 10.0)
-        assertEquals(0.0, session.snapshot(2000).distanceM, 0.0)
+        // 精度の悪い飛んだ点は無視され、0 → 10 m の実際の移動だけが数えられる。
+        assertEquals(10.0, session.snapshot(2000).distanceM, 0.001)
         point(session, 62_000, 310.0)
-        assertEquals(0.0, session.snapshot(62_000).distanceM, 0.0)
+        assertEquals(10.0, session.snapshot(62_000).distanceM, 0.001)
         point(session, 63_000, 315.0)
-        assertEquals(5.0, session.snapshot(63_000).distanceM, 0.001)
+        assertEquals(15.0, session.snapshot(63_000).distanceM, 0.001)
     }
 
     @Test
@@ -154,7 +155,8 @@ class RideSessionTest {
         point(session, 4000, 20.0)
         assertEquals(18.0, session.snapshot(4000).maxKmh, 0.001)
         assertEquals(18.0, session.snapshot(4000).speedKmh, 0.001)
-        assertEquals(10.0, session.snapshot(4000).distanceM, 0.001)
+        // 飛んだ点は使わず、0 → 20 m の実際の移動 (計 20 m) だけを数える。
+        assertEquals(20.0, session.snapshot(4000).distanceM, 0.001)
     }
 
     @Test

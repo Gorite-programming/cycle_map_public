@@ -3,6 +3,9 @@ package com.gorite.cyclemap.tracking
 import com.gorite.cyclemap.routing.haversineMeters
 import kotlin.math.pow
 
+/** これを超える見かけの速さ (m/s、約 180 km/h) は位置の飛びとして扱う。 */
+private const val MAX_PLAUSIBLE_MPS = 50.0
+
 /** Android に依存しない走行統計。時刻は位置更新または表示更新から受け取る。 */
 class RideSession {
     private var state = RideState.IDLE
@@ -44,6 +47,12 @@ class RideSession {
         if (clockMs != null && timeMs < clockMs!!) return
         val dtMs = old?.let { timeMs - it.timeMs }
         val stepM = old?.let { haversineMeters(it.lat, it.lon, lat, lon) }
+        // 位置の飛び (GPS の誤差・別の測位源への切り替え): 時間の割に離れすぎた点は、距離にも速度にも使わない。
+        // 本当に移動していたなら、30 秒以上たてば次の点が起点になる (距離は足さない)。
+        if (old != null && dtMs != null && dtMs in 1..30_000 && stepM != null && stepM > MAX_PLAUSIBLE_MPS * dtMs / 1000.0 + 30.0) {
+            advance(timeMs)
+            return
+        }
         val rawSpeed = speedMps?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 }
             ?: if (dtMs != null && dtMs in 1..30_000 && stepM != null) stepM / (dtMs / 1000.0) else 0.0
         advance(timeMs)
