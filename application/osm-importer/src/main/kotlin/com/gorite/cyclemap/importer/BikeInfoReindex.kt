@@ -2,11 +2,14 @@ package com.gorite.cyclemap.importer
 
 import com.gorite.cyclemap.routing.BicycleRoadInfo
 import com.gorite.cyclemap.routing.BikeAccess
+import com.gorite.cyclemap.routing.ExcludedRoadIndex
+import com.gorite.cyclemap.routing.ExcludedSegment
 import com.gorite.cyclemap.routing.SideFacility
 import com.gorite.cyclemap.routing.classifyBicycleRoad
 import crosby.binary.osmosis.OsmosisReader
 import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer
 import org.openstreetmap.osmosis.core.domain.v0_6.Way
+import org.openstreetmap.osmosis.core.domain.v0_6.Node
 import org.openstreetmap.osmosis.core.task.v0_6.Sink
 import java.io.*
 import java.nio.file.Files
@@ -25,6 +28,7 @@ internal class BikeInfoReindex(
     val highways: List<String>,
     val nodeCount: Int = 0,
     private val ref: String? = null,
+    val bounds: ExcludedRoadBounds? = null,
 ) {
     val size get() = from.size
     val values = IntArray(size)
@@ -119,7 +123,14 @@ internal class BikeInfoReindex(
             DataInputStream(BufferedInputStream(file.inputStream())).use { input ->
                 require(input.readUTF() == "CYCLEMAP_GRAPH_V1") { "Unsupported graph" }
                 val nodes = input.readInt(); require(nodes >= 0)
-                repeat(nodes) { input.readLong(); input.readDouble(); input.readDouble() }
+                var minLat = Double.POSITIVE_INFINITY; var minLon = Double.POSITIVE_INFINITY
+                var maxLat = Double.NEGATIVE_INFINITY; var maxLon = Double.NEGATIVE_INFINITY
+                repeat(nodes) {
+                    input.readLong()
+                    val lat = input.readDouble(); val lon = input.readDouble()
+                    minLat = minOf(minLat, lat); maxLat = maxOf(maxLat, lat)
+                    minLon = minOf(minLon, lon); maxLon = maxOf(maxLon, lon)
+                }
                 val count = input.readInt(); require(count >= 0)
                 val from = LongArray(count); val to = LongArray(count); val types = IntArray(count)
                 val names = linkedMapOf<String, Int>()
@@ -132,7 +143,8 @@ internal class BikeInfoReindex(
                     input.readBoolean()
                     if (input.readBoolean()) input.readDouble()
                 }
-                BikeInfoReindex(from, to, types, names.keys.toList(), nodes, ref)
+                val bounds = if (nodes == 0) null else ExcludedRoadBounds(minLat - 0.01, minLon - 0.01, maxLat + 0.01, maxLon + 0.01)
+                BikeInfoReindex(from, to, types, names.keys.toList(), nodes, ref, bounds)
             }
     }
 }
@@ -225,26 +237,136 @@ internal fun writeBikeInfoIndex(input: File, output: File, nodes: Int, values: I
     }
 }
 
+/** graph のノード範囲（余白込み）と線分の交差を調べる。境界上も含む。 */
+internal data class ExcludedRoadBounds(val minLat: Double, val minLon: Double, val maxLat: Double, val maxLon: Double) {
+    fun intersects(a: Pair<Double, Double>, b: Pair<Double, Double>): Boolean {
+        var start = 0.0; var end = 1.0
+        fun axis(from: Double, to: Double, low: Double, high: Double): Boolean {
+            val delta = to - from
+            if (delta == 0.0) return from in low..high
+            val t0 = (low - from) / delta; val t1 = (high - from) / delta
+            start = maxOf(start, minOf(t0, t1)); end = minOf(end, maxOf(t0, t1))
+            return start <= end
+        }
+        return axis(a.first, b.first, minLat, maxLat) && axis(a.second, b.second, minLon, maxLon)
+    }
+}
+
+/** way を先に選別し、次の PBF 走査では必要なノード位置だけ保持する。 */
+internal class ExcludedRoadCollector(private val bounds: ExcludedRoadBounds?) {
+    private data class RuleWay(val way: OsmWay, val forward: BicycleRoadInfo, val backward: BicycleRoadInfo?)
+    private val ways = ArrayList<RuleWay>()
+    private val neededNodes = HashSet<Long>()
+    private val positions = HashMap<Long, Pair<Double, Double>>()
+    var writtenWays = 0
+        private set
+    val highwayCounts = sortedMapOf<String, Int>()
+    val roadwayCounts = sortedMapOf<String, Int>()
+    var motorroadCount = 0
+        private set
+
+    fun accept(way: OsmWay) {
+        if (bounds == null || way.nodeIds.size < 2 || BicycleAccessFilter.isAllowed(way.tags)) return
+        val tags = way.tags
+        if (tags["highway"] !in CAR_HIGHWAYS && tags["bicycle"] != "dismount") return
+        val forward = classifyBicycleRoad(tags, false)
+        if (forward.roadway !in setOf(BikeAccess.FORBIDDEN, BikeAccess.DISMOUNT)) return
+        val oneway = (tags["oneway"] ?: if (tags["junction"] == "roundabout") "yes" else "no") in setOf("yes", "true", "1", "-1")
+        ways.add(RuleWay(way, forward, if (oneway) null else classifyBicycleRoad(tags, true)))
+        way.nodeIds.forEach { neededNodes.add(it) }
+    }
+
+    fun acceptNode(id: Long, lat: Double, lon: Double) {
+        if (id in neededNodes && lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0) {
+            positions[id] = lat to lon
+        }
+    }
+
+    fun segments(): List<ExcludedSegment> {
+        val result = ArrayList<ExcludedSegment>()
+        writtenWays = 0; highwayCounts.clear(); roadwayCounts.clear(); motorroadCount = 0
+        for ((way, forward, backward) in ways) {
+            val before = result.size
+            fun add(a: Pair<Double, Double>, b: Pair<Double, Double>, info: BicycleRoadInfo) {
+                result.add(ExcludedSegment(a.first, a.second, b.first, b.second, info))
+                val highway = way.tags["highway"] ?: "(none)"
+                highwayCounts[highway] = (highwayCounts[highway] ?: 0) + 1
+                roadwayCounts[info.roadway.name] = (roadwayCounts[info.roadway.name] ?: 0) + 1
+                if (info.flags and BicycleRoadInfo.FLAG_MOTORROAD != 0) motorroadCount++
+            }
+            for (i in 0 until way.nodeIds.size - 1) {
+                val a = positions[way.nodeIds[i]] ?: continue
+                val b = positions[way.nodeIds[i + 1]] ?: continue
+                if (bounds?.intersects(a, b) != true) continue
+                add(a, b, forward)
+                if (backward != null) add(b, a, backward)
+            }
+            if (result.size > before) writtenWays++
+        }
+        return result
+    }
+
+    fun printStatistics(segmentCount: Int, out: PrintStream = System.out) {
+        out.println("sidecar.segments=$segmentCount; sidecar.ways=$writtenWays; counts below use directed segments")
+        highwayCounts.forEach { (name, count) -> out.println("sidecar.highway.$name=$count") }
+        BikeAccess.entries.forEach { out.println("sidecar.roadway.$it=${roadwayCounts[it.name] ?: 0}") }
+        out.println("sidecar.flag.MOTORROAD=$motorroadCount")
+    }
+
+    companion object {
+        private val CAR_HIGHWAYS = setOf("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
+            "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street", "service", "road")
+    }
+}
+
 object BikeInfoReindexMain {
     @JvmStatic fun main(args: Array<String>) {
-        require(args.size == 4 || (args.size == 6 && args[4] == "--ref" && args[5].isNotBlank())) {
-            "Usage: <input.graph> <input.graph.idx> <PBF> <output.graph.idx> [--ref <route number>]"
+        val usage = "Usage: <input.graph> <input.graph.idx> <PBF> <output.graph.idx> [--ref <route number>] [--sidecar <output.bikerules>]"
+        require(args.size >= 4 && args.size % 2 == 0) { usage }
+        val options = linkedMapOf<String, String>()
+        for (i in 4 until args.size step 2) {
+            require(args[i] in setOf("--ref", "--sidecar") && args[i + 1].isNotBlank() && args[i] !in options) { usage }
+            options[args[i]] = args[i + 1]
         }
         val output = File(args[3])
         require(!output.exists()) { "Output already exists: $output" }
-        val reindex = BikeInfoReindex.readGraph(File(args[0]), args.getOrNull(5))
+        val sidecar = options["--sidecar"]?.let(::File)
+        if (sidecar != null) {
+            // 入力や idx 出力と同じ場所へ誤って書かない。既存ファイルも保護する。
+            require(!sidecar.exists() && args.take(4).none { File(it).canonicalFile == sidecar.canonicalFile }) { "Sidecar output already exists or aliases another path: $sidecar" }
+        }
+        val reindex = BikeInfoReindex.readGraph(File(args[0]), options["--ref"])
+        val excluded = sidecar?.let { ExcludedRoadCollector(reindex.bounds) }
         val index = File(args[1])
         validateBikeInfoInput(index, reindex.nodeCount, reindex.size)
         val sink = object : Sink {
             override fun initialize(metaData: Map<String, Any>) = Unit
             override fun process(entityContainer: EntityContainer) {
                 val way = entityContainer.entity as? Way ?: return
-                reindex.accept(OsmWay(way.id, way.wayNodes.map { it.nodeId }.toLongArray(), way.tags.associate { it.key to it.value }))
+                val osmWay = OsmWay(way.id, way.wayNodes.map { it.nodeId }.toLongArray(), way.tags.associate { it.key to it.value })
+                reindex.accept(osmWay)
+                excluded?.accept(osmWay)
             }
             override fun complete() = Unit
             override fun close() = Unit
         }
         File(args[2]).inputStream().buffered().use { input -> OsmosisReader(input).apply { setSink(sink) }.run() }
+        if (excluded != null && sidecar != null) {
+            val nodeSink = object : Sink {
+                override fun initialize(metaData: Map<String, Any>) = Unit
+                override fun process(entityContainer: EntityContainer) {
+                    val node = entityContainer.entity as? Node ?: return
+                    excluded.acceptNode(node.id, node.latitude, node.longitude)
+                }
+                override fun complete() = Unit
+                override fun close() = Unit
+            }
+            File(args[2]).inputStream().buffered().use { input -> OsmosisReader(input).apply { setSink(nodeSink) }.run() }
+            val segments = excluded.segments()
+            ExcludedRoadIndex.write(sidecar, segments)
+            excluded.printStatistics(segments.size)
+            println("sidecar=${sidecar.absolutePath}")
+        }
         writeBikeInfoIndex(index, output, reindex.nodeCount, reindex.values)
         reindex.printStatistics()
         println("output=${output.absolutePath}")

@@ -72,3 +72,11 @@ Claude・Codex・Antigravity が、同じ依頼文 (`work/codex/lane_detect_desi
 - 広島高速4号線 (`highway=motorway`、`ref=4`、`bicycle` タグなし。importer が graph に入れる) に沿って模擬位置で走ると、「自動車専用道路 · 自転車は通れません」の赤いバッジが出た (S26)。
 - **分かった限界**: 西広島バイパス (`highway=motorway`、`ref=2`、`bicycle=no` の明示あり) や、`motorroad=yes` の道は、importer の `BicycleAccessFilter` が graph から**除外している**ため、近くに辺が無く、通知が出ない (同じ道を走っても何も言わない)。graph に入る自動車専用道は、`bicycle` タグが無い `motorway` だけ。→ 設計どおり、**第 2 段 (graph から除外した道のサイドカー)** が無いと、「自動車専用道路に入った」を一般には検知できない。次に作るなら、これが最優先。
 - 検証の道具 (git 管理外の `work/`): `find_motor2.py` (PBF から、graph に入る motorway を探す)、`rr_walk_json.py` (道の形の JSON に沿って、実時間に合わせた模擬位置を送る)。
+
+### 7.2 第 2 段: 除外した道のサイドカー (2026-11-17)
+
+- `<県>.bikerules` (`CYCLEMAP_BIKERULES_V1`): importer が graph に入れない道のうち、**車が通る道で自転車通行不可 (自動車専用・`bicycle=no`) のもの**と、`bicycle=dismount` の道の線分 (座標は 1e-6 度の Int、通行ルールは `BicycleRoadInfo.encode()`) を持つ任意のファイル (`ExcludedRoadIndex`、Codex)。歩道・階段・林道などは入れない。無い・壊れているときは使わず、通常どおり動く。
+- 作り方: `./gradlew :osm-importer:reindexBikeInfo ... -Psidecar=<out.bikerules>` (graph・CH は変えない)。広島で 31,594 線分 (3,124 way、632 KB、約 10 秒)。
+- アプリ: `MapScreen` が graph を読み込むとき、同じ名前の `.bikerules` を読み、照合の候補に加える (`ordinal` が負の候補)。
+- 実機 (S26): **西広島バイパス (`bicycle=no`、graph に無い) に沿って走ると、「自動車専用道路 · 自転車は通れません」が出た。** 高架の下を横切る一般道を走っても、誤って出なかった。自動車専用を逆走より先に出す順に変えた。
+- 未: 広島以外の県の `.bikerules` と索引、配布用 ZIP / `push_data.sh` への組み込み (今は `.win` の広島だけに手で置いた)。

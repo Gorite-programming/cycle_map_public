@@ -16,7 +16,7 @@ application {
     mainClass.set("com.gorite.cyclemap.importer.OsmImporterKt")
 }
 
-// 既存 graph/CH を保持して通行ルールを別 idx に追記: :osm-importer:reindexBikeInfo -Pgraph=<.graph> -Pindex=<.graph.idx> -Ppbf=<.pbf> -Pout=<new.idx> [-Pref=2]
+// 既存 graph/CH を保持して通行ルールを別 idx に追記: :osm-importer:reindexBikeInfo -Pgraph=<.graph> -Pindex=<.graph.idx> -Ppbf=<.pbf> -Pout=<new.idx> [-Pref=2] [-Psidecar=<out.bikerules>]
 tasks.register<JavaExec>("reindexBikeInfo") {
     group = "application"
     description = "Append bicycle rules to a new graph index without rebuilding graph/CH"
@@ -28,6 +28,7 @@ tasks.register<JavaExec>("reindexBikeInfo") {
             project.findProperty(it) as String? ?: error("-P$it is required")
         })
         (project.findProperty("ref") as String?)?.let { args("--ref", it) }
+        (project.findProperty("sidecar") as String?)?.let { args("--sidecar", it) }
     }
 }
 

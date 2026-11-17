@@ -454,9 +454,21 @@ internal fun MapScreen(
             kind = roadRuleKindState,
         )
     }
+    // 経路用グラフから除外した道 (自動車専用など) のサイドカー (<県>.bikerules)。無ければ使わない (任意の成果物)
+    val excludedRoadsState = remember { androidx.compose.runtime.mutableStateOf<com.gorite.cyclemap.routing.ExcludedRoadIndex?>(null) }
     LaunchedEffect(state.mappedGraphState.value) {
         roadRuleMatcher.reset()
         roadRuleKindState.value = null
+    }
+    LaunchedEffect(state.loadedGraphNameState.value) {
+        val graphName = state.loadedGraphNameState.value
+        excludedRoadsState.value = if (graphName == null) null else withContext(Dispatchers.IO) {
+            val dir = cycleMapDataDir(state.context)
+            val base = java.io.File(graphName).name.removeSuffix(".graph")
+            listOf(base, base.replaceFirstChar { it.uppercase() }, base.lowercase())
+                .distinct()
+                .firstNotNullOfOrNull { com.gorite.cyclemap.routing.ExcludedRoadIndex.load(java.io.File(dir, "$it.bikerules")) }
+        }
     }
     val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
     val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
@@ -506,7 +518,10 @@ internal fun MapScreen(
                 if (graph != null && lock.tryLock()) {
                     try {
                         val moving = loc.hasSpeed() && loc.speed >= 1.5f
-                        val candidates = if (moving) graph.roadCandidatesNear(loc.latitude, loc.longitude) else emptyList()
+                        val candidates = if (moving) {
+                            graph.roadCandidatesNear(loc.latitude, loc.longitude) +
+                                (excludedRoadsState.value?.candidatesNear(loc.latitude, loc.longitude) ?: emptyList())
+                        } else emptyList()
                         val match = roadRuleMatcher.update(
                             timeMs = loc.time,
                             lat = loc.latitude,

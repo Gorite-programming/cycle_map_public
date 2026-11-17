@@ -63,6 +63,87 @@ class BikeInfoReindexTest {
         assertFalse(empty.statistics().format().contains("NaN"))
     }
 
+    @Test fun sidecarSelectsOnlyExcludedNotificationRoadsAndCountsRules() {
+        val collector = ExcludedRoadCollector(ExcludedRoadBounds(33.99, 131.99, 34.01, 132.01))
+        val selected = listOf(
+            mapOf("highway" to "motorway", "bicycle" to "no"),
+            mapOf("highway" to "trunk", "motorroad" to "yes"),
+            mapOf("highway" to "footway", "bicycle" to "dismount"),
+        )
+        val ignored = listOf(
+            mapOf("highway" to "residential"), mapOf("highway" to "motorway"),
+            mapOf("highway" to "footway"), mapOf("highway" to "steps"),
+            mapOf("highway" to "cycleway", "bicycle" to "no"),
+            mapOf("highway" to "footway", "footway" to "sidewalk", "bicycle" to "no"),
+            mapOf("highway" to "path", "bicycle" to "no"),
+            mapOf("highway" to "track", "bicycle" to "no"),
+            mapOf("highway" to "residential", "access" to "private"),
+            mapOf("highway" to "trunk", "motorroad" to "yes", "bicycle" to "yes"),
+        )
+        (selected + ignored).forEachIndexed { i, tags -> collector.accept(OsmWay(i.toLong(), longArrayOf(10, 20), tags)) }
+        collector.acceptNode(10, 34.0, 132.0); collector.acceptNode(20, 34.001, 132.001)
+        val segments = collector.segments()
+        assertEquals(6, segments.size)
+        assertEquals(3, collector.writtenWays)
+        assertEquals(mapOf("footway" to 2, "motorway" to 2, "trunk" to 2), collector.highwayCounts)
+        assertEquals(mapOf("FORBIDDEN" to 4, "DISMOUNT" to 2), collector.roadwayCounts)
+        assertEquals(4, collector.motorroadCount)
+        selected.forEachIndexed { i, tags ->
+            assertEquals(classifyBicycleRoad(tags, false), segments[i * 2].info)
+            assertEquals(classifyBicycleRoad(tags, true), segments[i * 2 + 1].info)
+            assertEquals(segments[i * 2].fromLat, segments[i * 2 + 1].toLat)
+        }
+        val file = File.createTempFile("excluded-reindex", ".bikerules").apply { deleteOnExit() }
+        ExcludedRoadIndex.write(file, segments)
+        assertEquals(6, assertNotNull(ExcludedRoadIndex.load(file)).candidatesNear(34.0, 132.0).size)
+        val stats = ByteArrayOutputStream()
+        collector.printStatistics(segments.size, PrintStream(stats))
+        assertTrue(stats.toString().contains("sidecar.flag.MOTORROAD=4"))
+    }
+
+    @Test fun sidecarKeepsWayOrderForOnewaysIncludingReverseAndRoundabout() {
+        for (extra in listOf(mapOf("oneway" to "yes"), mapOf("oneway" to "-1"), mapOf("oneway" to "true"),
+            mapOf("oneway" to "1"), mapOf("junction" to "roundabout"))) {
+            val collector = ExcludedRoadCollector(ExcludedRoadBounds(33.0, 131.0, 35.0, 133.0))
+            val tags = mapOf("highway" to "trunk", "motorroad" to "yes", "sidewalk:left" to "yes") + extra
+            collector.accept(OsmWay(1, longArrayOf(1, 2, 3), tags))
+            (1L..3L).forEach { collector.acceptNode(it, 34.0 + it * 0.001, 132.0) }
+            val segments = collector.segments()
+            assertEquals(2, segments.size, extra.toString())
+            assertEquals(34.001, segments[0].fromLat)
+            assertEquals(34.002, segments[0].toLat)
+            assertTrue(segments.all { it.info == classifyBicycleRoad(tags, false) })
+        }
+    }
+
+    @Test fun sidecarBoundsUseGraphNodesAndMarginAndKeepCrossingSegments() {
+        val (graph, _) = graphFixture()
+        val bounds = assertNotNull(BikeInfoReindex.readGraph(graph).bounds)
+        assertEquals(33.99, bounds.minLat); assertEquals(34.011, bounds.maxLat, 1e-10)
+        assertEquals(131.99, bounds.minLon); assertEquals(132.011, bounds.maxLon, 1e-10)
+        val collector = ExcludedRoadCollector(bounds)
+        val tags = mapOf("highway" to "residential", "bicycle" to "no")
+        collector.accept(OsmWay(1, longArrayOf(1, 2, 3, 4), tags))
+        collector.acceptNode(1, 34.0, 131.9); collector.acceptNode(2, 34.0, 132.1)
+        collector.acceptNode(3, 34.1, 132.1); collector.acceptNode(4, 34.2, 132.1)
+        assertEquals(2, collector.segments().size)
+        assertEquals(1, collector.writtenWays)
+        val empty = ExcludedRoadCollector(null)
+        empty.accept(OsmWay(1, longArrayOf(1, 2), tags))
+        empty.acceptNode(1, 34.0, 132.0); empty.acceptNode(2, 34.001, 132.0)
+        assertTrue(empty.segments().isEmpty())
+    }
+
+    @Test fun sidecarSkipsMissingNodesAndHonorsExplicitTwoWayRoundabout() {
+        val collector = ExcludedRoadCollector(ExcludedRoadBounds(33.0, 131.0, 35.0, 133.0))
+        collector.accept(OsmWay(1, longArrayOf(1, 2, 3), mapOf("highway" to "footway", "bicycle" to "dismount",
+            "junction" to "roundabout", "oneway" to "no")))
+        collector.acceptNode(1, 34.0, 132.0); collector.acceptNode(2, 34.001, 132.0)
+        assertEquals(2, collector.segments().size)
+        assertEquals(2, collector.segments().size)
+        assertEquals(1, collector.writtenWays)
+    }
+
     private fun graphFixture(): Pair<File, File> {
         val file = File.createTempFile("bikeinfo-reindex", ".graph").apply { deleteOnExit() }
         val graph = RoadGraph(
