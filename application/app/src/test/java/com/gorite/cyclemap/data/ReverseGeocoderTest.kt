@@ -99,6 +99,16 @@ class ReverseGeocoderTest {
     }
 
     @Test
+    fun addressSwitchesImmediatelyAfterLargeJump() {
+        // 輪行などで大きく移動した直後に止まっていても、前の場所の地名のまま残らない (S21 で岩国→井口で確認)
+        val controller = AddressDisplayController()
+        val geocoder = FakeGeocoder("山口県岩国市麻里布町一丁目")
+        assertEquals("山口県岩国市麻里布町一丁目", controller.update(34.1720, 132.2255, 5f, geocoder))
+        geocoder.address = "広島県広島市西区井口五丁目"
+        assertEquals("広島県広島市西区井口五丁目", controller.update(34.3668, 132.3780, 5f, geocoder))
+    }
+
+    @Test
     fun administrativeBoundaries_inokuchi_fallsInNishiKu_notSaekiKu() {
         val lat = 34.366772
         val lon = 132.3779602

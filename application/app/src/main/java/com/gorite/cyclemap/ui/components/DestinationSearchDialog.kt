@@ -479,6 +479,8 @@ internal fun DestinationSearchDialog(
                         else -> {
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
                                 itemsIndexed(results) { index, result ->
+                                  // reverseLayout では item 内の並びも逆になるので、県名とカードを Column にまとめて県名を上に固定する
+                                  androidx.compose.foundation.layout.Column {
                                     result.prefectureName?.let { prefecture ->
                                         Text(prefecture, style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -507,6 +509,7 @@ internal fun DestinationSearchDialog(
                                         // 距離の横に方角 (北東など) を出すための現在地
                                         origin = effectiveLocation,
                                     )
+                                  }
                                 }
                                 if (results.size > 1) {
                                     item {

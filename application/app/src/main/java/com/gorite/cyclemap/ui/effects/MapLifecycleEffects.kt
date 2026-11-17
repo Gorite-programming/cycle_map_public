@@ -241,7 +241,8 @@ internal fun MapLifecycleEffects(
         }
         val dbSelection = SearchDbSelector.select(location.latitude, location.longitude)
         val dbFile = when (dbSelection) {
-            is SearchDbSelection.Available -> File(cycleMapDataDir(context), dbSelection.fileName)
+            // 山口は search.db / Yamaguchi.search.db の両方があり得るので、名前の違いを解決してから開く
+            is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(cycleMapDataDir(context), dbSelection.fileName) ?: File(cycleMapDataDir(context), dbSelection.fileName)
             is SearchDbSelection.Unavailable -> null
         }
         if (dbSelection is SearchDbSelection.Available) {
@@ -289,7 +290,7 @@ internal fun MapLifecycleEffects(
         val selection = SearchDbSelector.select(lat, lon)
         val label = withContext(Dispatchers.IO) {
             val available = selection as? SearchDbSelection.Available ?: return@withContext null
-            val file = File(cycleMapDataDir(context), available.fileName)
+            val file = SearchDbSelector.resolveDbFile(cycleMapDataDir(context), available.fileName) ?: return@withContext null
             if (!file.isFile) return@withContext null
             SearchDbReverseGeocoder(file, available.prefectureName).lookup(lat, lon)?.formattedAddress
         }

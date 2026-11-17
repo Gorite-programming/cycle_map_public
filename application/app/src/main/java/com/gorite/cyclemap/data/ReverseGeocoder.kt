@@ -286,13 +286,16 @@ fun findPrefectureName(latitude: Double, longitude: Double): String? {
             latitude <= pref.bounds.latNorth && latitude >= pref.bounds.latSouth &&
             longitude <= pref.bounds.lonEast && longitude >= pref.bounds.lonWest
     }
-    if (matches.size <= 1) return matches.firstOrNull()?.name
     val byArea = matches.sortedBy { pref ->
         (pref.bounds.latNorth - pref.bounds.latSouth) * (pref.bounds.lonEast - pref.bounds.lonWest)
     }
     for (pref in byArea) {
         if (PrefectureBoundaries.contains(pref.id, latitude, longitude)) return pref.name
     }
+    // 矩形の候補の行政界に入っていない (矩形が実際の県域より狭い、または候補が隣の県だけ) ときは、全県の行政界で探す
+    PrefectureBoundaries.findByPolygon(
+        PrefectureData.ALL.map { it.id }.filter { id -> byArea.none { it.id == id } }, latitude, longitude,
+    )?.let { id -> return PrefectureData.ALL.firstOrNull { it.id == id }?.name }
     return byArea.firstOrNull()?.name
 }
 
@@ -331,21 +334,25 @@ class AddressDisplayController {
         ) {
             return displayed
         }
+        // 大きく飛んだ (電車で移動した後に開いた・測位が戻った) ときは、境界のちらつきではないので確認を待たずに切り替える。
+        // 待つと、止まっている間は再検索されないため、前の場所の地名のまま残ってしまう
+        val jumped = lastQueryLat.isFinite() &&
+            distanceMeters(lastQueryLat, lastQueryLon, latitude, longitude) >= IMMEDIATE_SWITCH_DISTANCE_M
         val result = geocoder.lookup(latitude, longitude)
         lastQueryLat = latitude
         lastQueryLon = longitude
         val candidate = result?.formattedAddress ?: ADDRESS_UNKNOWN
-        return confirmCandidate(candidate)
+        return confirmCandidate(candidate, immediate = jumped)
     }
 
-    private fun confirmCandidate(candidate: String): String {
+    private fun confirmCandidate(candidate: String, immediate: Boolean = false): String {
         if (candidate == displayed) {
             pending = null
             pendingCount = 0
             return displayed
         }
         // 初回 (取得中表示の間) は即時表示し、静止時でも住所が出るようにする。
-        if (displayed == ADDRESS_LOADING) {
+        if (displayed == ADDRESS_LOADING || immediate) {
             displayed = candidate
             pending = null
             pendingCount = 0
@@ -381,5 +388,6 @@ class AddressDisplayController {
         const val REGEOCODE_MIN_DISTANCE_M = 100.0
         const val MAX_ACCURACY_M = 100f
         const val CONFIRM_COUNT = 2
+        const val IMMEDIATE_SWITCH_DISTANCE_M = 1_000.0
     }
 }

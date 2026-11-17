@@ -543,6 +543,12 @@ internal fun buildArrivalSummary(
     navigationProgress: RouteProgress?,
     routeSummary: RouteSummary?,
 ): ArrivalSummary {
+    // サイコンの記録は、平均速度と時間があり得る範囲のときだけ使う (位置の飛びや開始直後の値で 1693km/h などと出さない)
+    @Suppress("NAME_SHADOWING")
+    val rideSnapshot = rideSnapshot?.takeIf {
+        it.averageKmh.isFinite() && it.averageKmh in 0.5..80.0 &&
+            maxOf(it.movingTimeS, it.elapsedS).let { t -> t.isFinite() && t >= 10.0 }
+    }
     val distance = rideSnapshot?.distanceM?.takeIf { it.isFinite() && it > 0.0 }
         ?: navigationProgress?.distanceFromStartMeters?.takeIf { it.isFinite() && it > 0.0 }
         ?: routeSummary?.distanceMeters?.takeIf { it.isFinite() && it > 0.0 }

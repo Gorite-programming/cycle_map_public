@@ -66,4 +66,19 @@ class ArrivalSummaryTest {
         assertEquals("1時間15分", formatArrivalDuration(4500.0))
         assertEquals("--", formatArrivalDuration(0.0))
     }
+
+    @Test
+    fun ignoresImplausibleRideSnapshot() {
+        // 模擬位置の瞬間移動などで、1 秒に 275m 進んだ記録 (平均 990km/h) は使わず、ナビの値に戻す
+        val snapshot = RideSnapshot(RideState.RUNNING, 0.0, 275.0, 1.0, 1.0, 990.0, 990.0, 0.0)
+        val summary = buildArrivalSummary(
+            rideSnapshot = snapshot,
+            navStats = NavigationStats(0.0, 120.0, 5.0, 0.0, null, true),
+            navigationProgress = RouteProgress(377.0, 377.0, 0.0, null, null),
+            routeSummary = RouteSummary(377.0, 10),
+        )
+        assertEquals(377.0, summary.distanceMeters!!, 1e-6)
+        assertEquals(120.0, summary.durationSeconds!!, 1e-6)
+        assertEquals(11.31, summary.averageSpeedKmh!!, 0.01)
+    }
 }

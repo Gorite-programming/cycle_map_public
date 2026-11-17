@@ -597,7 +597,9 @@ fun RideDetailDialog(
             }
         },
         dismissButton = {
-            Column {
+            // 縦に積むとダイアログの下端で「閉じる」が切れた (S21) ので、横に並べる
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onDismiss) { Text("閉じる") }
                 TextButton(onClick = {
                     runCatching {
                         val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.gpx", ride.file)
@@ -612,7 +614,6 @@ fun RideDetailDialog(
                         android.widget.Toast.makeText(context, "共有できませんでした", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }) { Text("共有") }
-                TextButton(onClick = onDismiss) { Text("閉じる") }
             }
         },
     )

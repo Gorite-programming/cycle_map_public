@@ -75,6 +75,33 @@ internal object PrefectureBoundaries {
         return false
     }
 
+    /** 県ID → 多角形の外接範囲 [南, 北, 西, 東]。点が明らかに外の県を、多角形の判定の前に外すため。 */
+    private val polygonBoxes = ConcurrentHashMap<String, DoubleArray>()
+
+    private fun polygonBoxOf(prefectureId: String): DoubleArray = polygonBoxes.getOrPut(prefectureId) {
+        var s = 90.0; var n = -90.0; var w = 180.0; var e = -180.0
+        for (poly in polygonsOf(prefectureId)) {
+            val outer = poly.firstOrNull() ?: continue
+            var i = 0
+            while (i + 1 < outer.size) {
+                val x = outer[i]; val y = outer[i + 1]
+                if (y < s) s = y; if (y > n) n = y; if (x < w) w = x; if (x > e) e = x
+                i += 2
+            }
+        }
+        doubleArrayOf(s, n, w, e)
+    }
+
+    /**
+     * [prefectureIds] の中から、行政界の多角形が点を含む県を探す。県の矩形 (PrefectureData の bounds) は
+     * 実際の県域より狭いことがある (例: 山口県の矩形は東端が岩国まで届かない) ので、矩形で候補が見つからないときに使う。
+     */
+    fun findByPolygon(prefectureIds: List<String>, latitude: Double, longitude: Double): String? =
+        prefectureIds.firstOrNull { id ->
+            val box = polygonBoxOf(id)
+            latitude in box[0]..box[1] && longitude in box[2]..box[3] && contains(id, latitude, longitude)
+        }
+
     /** ray casting (even-odd)。x=lon, y=lat。 */
     private fun pointInRing(ring: DoubleArray, x: Double, y: Double): Boolean {
         var inside = false
