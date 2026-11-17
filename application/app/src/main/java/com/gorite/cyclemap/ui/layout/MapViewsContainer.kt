@@ -124,9 +124,13 @@ internal fun MapViewsContainer(
         }
     }
     var vectorDataRevision by remember { mutableIntStateOf(0) }
+    // サイコンモードの間は地図 (MapLibre / osmdroid) を作らない。GPU・メモリ・電池を使わないため。
+    // 戻ると作り直される (レイヤーの切り替えと同じ流れ)。位置・ルート・案内の状態は別にあるので失われない。
+    val mapsSuspended = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current?.mode?.value ==
+        com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER
     Box(modifier = modifier) {
         // Raster MapView (osmdroid): ベクター単体表示時は裏で常駐させず、ラスター選択時または範囲指定DL時のみマウント
-        if (selectedLayer != MapLayer.VECTOR_LIBERTY || isAreaSelectMode) {
+        if ((selectedLayer != MapLayer.VECTOR_LIBERTY || isAreaSelectMode) && !mapsSuspended) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { mapContext ->
@@ -213,7 +217,7 @@ internal fun MapViewsContainer(
         }
 
         // VectorMapView (MapLibre Native Android + PMTiles 完全オフライン Liberty)
-        if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
+        if (selectedLayer == MapLayer.VECTOR_LIBERTY && !mapsSuspended) {
             val (tileLat, tileLon) = if (currentLocation != null) {
                 currentLocation.latitude to currentLocation.longitude
             } else {

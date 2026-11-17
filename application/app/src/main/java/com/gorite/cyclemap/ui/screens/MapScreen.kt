@@ -430,6 +430,12 @@ internal fun MapScreen(
         }
     }
     // サイコンの走行統計。落ちても値が戻るよう保存し (CycleComputerHost が定期的に保存)、起動時に 30 分以内のものを一時停止で戻す。
+    // サイコンの間は地図を作らないので、破棄された地図への参照を捨てる (戻ると作り直された地図が登録し直す)
+    LaunchedEffect(displayModeState.value) {
+        if (displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) {
+            state.vectorMapState.value = null
+        }
+    }
     val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
     val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
     // 気圧計はサイコン画面を出している間だけ動かす (電池のため)
