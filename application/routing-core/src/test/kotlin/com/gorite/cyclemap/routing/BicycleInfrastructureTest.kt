@@ -194,7 +194,7 @@ class BicycleInfrastructureTest {
                     flags = if (isOneWay && permitted) BicycleRoadInfo.FLAG_ONEWAY else 0,
                 ), reverse)
                 cases += Case(mapOf("oneway" to oneway, "oneway:bicycle" to "no"), info(
-                    flags = if (!isOneWay) 0 else if (permitted) BicycleRoadInfo.FLAG_ONEWAY else BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED,
+                    flags = if (!isOneWay) 0 else if (permitted) (BicycleRoadInfo.FLAG_ONEWAY or BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED) else BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED,
                 ), reverse)
             }
         }
@@ -218,7 +218,8 @@ class BicycleInfrastructureTest {
             "opposite" to SideFacility.SHARED_LANE, "opposite_lane" to SideFacility.BIKE_LANE, "opposite_track" to SideFacility.BIKE_TRACK,
         )) {
             val tags = mapOf("oneway" to "yes", "cycleway" to value)
-            cases += Case(tags, info(flags = BicycleRoadInfo.FLAG_ONEWAY))
+            // 自転車だけ逆向きも通れる一方通行は、順方向の辺にも CONTRAFLOW_ALLOWED を付ける (逆走の警告を出さないため)
+            cases += Case(tags, info(flags = BicycleRoadInfo.FLAG_ONEWAY or BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED))
             cases += Case(tags, info(left = SideInfo(facility, BikeAccess.ALLOWED), flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED), true)
             cases += Case(mapOf("oneway" to "yes", "cycleway:left" to value),
                 info(right = SideInfo(facility, BikeAccess.ALLOWED), flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED), true)
@@ -286,7 +287,7 @@ class BicycleInfrastructureTest {
             val tags = mapOf("oneway" to "-1", "cycleway" to value)
             check(listOf(
                 Case(tags, info(left = SideInfo(facility, BikeAccess.ALLOWED), flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)),
-                Case(tags, info(flags = BicycleRoadInfo.FLAG_ONEWAY), true),
+                Case(tags, info(flags = BicycleRoadInfo.FLAG_ONEWAY or BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED), true),
                 Case(tags + ("cycleway:right" to value), info(
                     left = SideInfo(facility, BikeAccess.ALLOWED), right = SideInfo(facility, BikeAccess.ALLOWED),
                     flags = BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)),

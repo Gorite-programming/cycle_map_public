@@ -136,7 +136,13 @@ fun classifyBicycleRoad(tags: Map<String, String>, againstWayDirection: Boolean)
         direction == null && bicycleOneway !in setOf("no", "false", "0") -> {
             if (roadway == BikeAccess.ALLOWED) roadway = BikeAccess.UNKNOWN
         }
-        direction != null && direction != 0 && direction == travelDirection -> flag(BicycleRoadInfo.FLAG_ONEWAY)
+        direction != null && direction != 0 && direction == travelDirection -> {
+            flag(BicycleRoadInfo.FLAG_ONEWAY)
+            // 自転車だけ逆向きも通れる一方通行 (oneway:bicycle=no / cycleway=opposite*): 順方向の辺にも印を付ける (逆走の警告を出さないため)
+            val bicycleTwoWay = !explicitBicycleOneway && (bicycleOneway in setOf("no", "false", "0") ||
+                listOf("left", "right").any { cycleway(it) in oppositeValues })
+            if (bicycleTwoWay && roadway in setOf(BikeAccess.ALLOWED, BikeAccess.CONDITIONAL)) flag(BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
+        }
         direction != null && direction != 0 -> {
             if (contraflow) {
                 if (roadway in setOf(BikeAccess.ALLOWED, BikeAccess.CONDITIONAL)) flag(BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED)
