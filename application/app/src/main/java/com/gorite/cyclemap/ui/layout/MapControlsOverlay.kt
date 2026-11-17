@@ -150,6 +150,8 @@ internal fun BoxScope.MapControlsOverlay(
         NetworkStatusIndicator(networkLink)
     }
     if (isLandscape) {
+        // 横画面のナビ中は、案内ヘッダが左上にあり操作ボタンの列と重なるので、左手でも右に残す
+        val landscapeLeft = com.gorite.cyclemap.ui.state.isLeftHanded() && !isNavigationActive
         GoogleMapsControlColumn(
             headingDegrees = { mapBearing },
             isHeadingUp = isHeadingUp,
@@ -170,10 +172,10 @@ internal fun BoxScope.MapControlsOverlay(
             isLandscape = true,
             onNavStartClick = onNavStartClick,
             modifier = Modifier
-                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(landscapeLeft))
                 .padding(
-                    start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp else 0.dp,
-                    end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
+                    start = if (landscapeLeft) systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp else 0.dp,
+                    end = if (landscapeLeft) 0.dp else systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
                     top = effectiveTopPadding + (if (isNavigationActive) 12.dp else 68.dp),
                 )
                 .zIndex(2f),

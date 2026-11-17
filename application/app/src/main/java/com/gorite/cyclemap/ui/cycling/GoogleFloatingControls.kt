@@ -202,7 +202,8 @@ fun GoogleMapsControlColumn(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!isNavigationActive) {
+            // エリア選択 (シンプルモードでは出さない)
+            if (!isNavigationActive && !com.gorite.cyclemap.ui.state.isSimpleMode()) {
                 // エリア選択
                 Surface(
                     shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
