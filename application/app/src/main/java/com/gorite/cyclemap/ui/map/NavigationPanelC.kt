@@ -4,10 +4,12 @@ import com.gorite.cyclemap.ui.theme.SumiShu
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.graphics.Typeface
 import android.os.BatteryManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -333,6 +335,15 @@ internal fun buildNavPanelData(
     windowM = minOf(300.0, remainingMeters).coerceAtLeast(60.0),
 )
 
+internal const val PREF_NAV_PANEL_EXPANDED = "nav_panel_expanded"
+
+internal fun readNavPanelExpanded(prefs: SharedPreferences): Boolean =
+    prefs.getBoolean(PREF_NAV_PANEL_EXPANDED, true)
+
+internal fun saveNavPanelExpanded(prefs: SharedPreferences, expanded: Boolean) {
+    prefs.edit().putBoolean(PREF_NAV_PANEL_EXPANDED, expanded).apply()
+}
+
 @Composable
 internal fun NavBottomPanelC(
     data: NavPanelData,
@@ -344,96 +355,241 @@ internal fun NavBottomPanelC(
     bottomInset: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val p = rememberNavPalette()
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("cyclemap_prefs", Context.MODE_PRIVATE) }
+    var isExpanded by remember(prefs) { mutableStateOf(readNavPanelExpanded(prefs)) }
+    val toggleExpanded = {
+        val next = !isExpanded
+        isExpanded = next
+        saveNavPanelExpanded(prefs, next)
+    }
+
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = if (isExpanded) "ナビパネル（展開中、タップでコンパクト）" else "ナビパネル（コンパクト、タップで展開）"
+            },
         color = p.card,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         shadowElevation = 10.dp,
     ) {
         Column(
-            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 12.dp + bottomInset),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .clickable(onClick = toggleExpanded)
+                .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 12.dp + bottomInset),
+            verticalArrangement = Arrangement.spacedBy(if (isExpanded) 10.dp else 6.dp),
         ) {
-            Row(
-                modifier = Modifier.height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                MetricCard(
-                    label = "速度", modifier = Modifier.weight(1.3f).fillMaxHeight(), palette = p,
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(p.sub.copy(alpha = 0.4f)),
+            )
+
+            if (isExpanded) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = data.speedKmh.coerceAtLeast(0.0).roundToInt().toString(),
-                            style = numStyle(56, p.warn, p),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(text = "km/h", style = numStyle(16, p.sub, p), modifier = Modifier.padding(bottom = 8.dp), maxLines = 1, softWrap = false)
+                    MetricCard(
+                        label = "速度", modifier = Modifier.weight(1.3f).fillMaxHeight(), palette = p,
+                    ) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                text = data.speedKmh.coerceAtLeast(0.0).roundToInt().toString(),
+                                style = numStyle(56, p.warn, p),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(text = "km/h", style = numStyle(16, p.sub, p), modifier = Modifier.padding(bottom = 8.dp), maxLines = 1, softWrap = false)
+                        }
+                    }
+                    val (rn, ru) = splitRemaining(data.remainingMeters)
+                    MetricCard(label = "残り", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
+                        ValueWithUnit(rn, ru, p)
+                    }
+                    MetricCard(label = "勾配", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
+                        val g = data.gradePct
+                        if (g != null) {
+                            ValueWithUnit(formatGradePct(g), "%", p)
+                        } else {
+                            ValueWithUnit("—", "", p)
+                        }
                     }
                 }
-                val (rn, ru) = splitRemaining(data.remainingMeters)
-                MetricCard(label = "残り", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
-                    ValueWithUnit(rn, ru, p)
-                }
-                MetricCard(label = "勾配", modifier = Modifier.weight(1f).fillMaxHeight(), palette = p) {
-                    val g = data.gradePct
-                    ValueWithUnit(formatGradePct(g), "%", p)
-                }
-            }
 
-            ElevationAheadCard(data = data, palette = p)
-
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (data.profile.size >= 2) {
+                    ElevationAheadCard(data = data, palette = p)
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(p.chip)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
-                            style = numStyle(20, p.warn, p),
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
-                            style = TextStyle(fontSize = 11.sp, color = p.sub),
-                            modifier = Modifier.padding(bottom = 2.dp),
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip,
+                            text = "標高データなし",
+                            style = TextStyle(fontSize = 13.sp, color = p.sub),
                         )
                     }
-                    if (batteryPercent != null) BatteryBadge(percent = batteryPercent, color = p.sub)
                 }
-                IconButton(onClick = onToggleMute, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        painter = painterResource(if (isMuted) R.drawable.ic_lucide_volume_x else R.drawable.ic_lucide_volume_2),
-                        contentDescription = if (isMuted) "音声案内をオンにする" else "音声案内をミュートする",
-                        tint = p.sub,
-                        modifier = Modifier.size(22.dp),
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
+                                style = numStyle(20, p.warn, p),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                                style = TextStyle(fontSize = 14.sp, color = p.sub),
+                                modifier = Modifier.padding(bottom = 1.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                            )
+                        }
+                        if (batteryPercent != null) BatteryBadge(percent = batteryPercent, color = p.sub)
+                    }
+                    NavBottomActionButtons(
+                        isMuted = isMuted,
+                        onToggleMute = onToggleMute,
+                        onStopNavigation = onStopNavigation,
+                        palette = p,
                     )
                 }
-                Surface(
-                    onClick = onStopNavigation,
-                    modifier = Modifier
-                        .height(44.dp)
-                        .widthIn(min = 84.dp)
-                        .semantics { contentDescription = "ナビを終了" },
-                    shape = RoundedCornerShape(22.dp),
-                    color = p.stop,
+            } else {
+                // コンパクト表示: 速度・残り・到着時刻 + 操作ボタン
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(text = "終了", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = p.text))
-                        Icon(
-                            painter = painterResource(R.drawable.ic_lucide_x),
-                            contentDescription = null,
-                            tint = p.text,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                text = data.speedKmh.coerceAtLeast(0.0).roundToInt().toString(),
+                                style = numStyle(34, p.warn, p),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = "km/h",
+                                style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium, color = p.sub),
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            val (rn, ru) = splitRemaining(data.remainingMeters)
+                            Text(
+                                text = "残り",
+                                style = TextStyle(fontSize = 13.sp, color = p.sub),
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = rn,
+                                style = numStyle(24, p.text, p),
+                                modifier = Modifier.padding(bottom = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = ru,
+                                style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium, color = p.sub),
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = data.remainingSeconds?.let { formatDuration(it) } ?: "--",
+                                style = numStyle(18, p.warn, p),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                                style = TextStyle(fontSize = 14.sp, color = p.sub),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                            )
+                        }
                     }
+                    NavBottomActionButtons(
+                        isMuted = isMuted,
+                        onToggleMute = onToggleMute,
+                        onStopNavigation = onStopNavigation,
+                        palette = p,
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavBottomActionButtons(
+    isMuted: Boolean,
+    onToggleMute: () -> Unit,
+    onStopNavigation: () -> Unit,
+    palette: NavPalette,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        IconButton(onClick = onToggleMute, modifier = Modifier.size(48.dp)) {
+            Icon(
+                painter = painterResource(if (isMuted) R.drawable.ic_lucide_volume_x else R.drawable.ic_lucide_volume_2),
+                contentDescription = if (isMuted) "音声案内をオンにする" else "音声案内をミュートする",
+                tint = palette.sub,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Surface(
+            onClick = onStopNavigation,
+            modifier = Modifier
+                .height(48.dp)
+                .widthIn(min = 84.dp)
+                .semantics { contentDescription = "ナビを終了" },
+            shape = RoundedCornerShape(24.dp),
+            color = palette.stop,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                Text(text = "終了", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = palette.text))
+                Icon(
+                    painter = painterResource(R.drawable.ic_lucide_x),
+                    contentDescription = null,
+                    tint = palette.text,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }
@@ -475,7 +631,7 @@ private fun MetricCard(
             .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 9.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(text = label, style = TextStyle(fontSize = 11.sp, letterSpacing = 0.8.sp, color = palette.sub))
+        Text(text = label, style = TextStyle(fontSize = 13.sp, letterSpacing = 0.6.sp, color = palette.sub))
         content()
     }
 }
@@ -502,7 +658,7 @@ private fun ElevationAheadCard(data: NavPanelData, palette: NavPalette) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 text = gradeAheadText(data.ahead),
-                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = palette.text),
+                style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = palette.text),
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -510,7 +666,7 @@ private fun ElevationAheadCard(data: NavPanelData, palette: NavPalette) {
             data.remainingGainM?.let {
                 Text(
                     text = "残り 獲得標高 +${it.roundToInt()} m",
-                    style = TextStyle(fontSize = 12.sp, color = palette.sub),
+                    style = TextStyle(fontSize = 13.sp, color = palette.sub),
                     maxLines = 1,
                 )
             }
@@ -519,7 +675,7 @@ private fun ElevationAheadCard(data: NavPanelData, palette: NavPalette) {
         ElevationStrip(data = data, palette = palette, modifier = Modifier.fillMaxWidth().height(48.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             val w = data.windowM
-            val axis = TextStyle(fontSize = 11.sp, color = palette.sub)
+            val axis = TextStyle(fontSize = 13.sp, color = palette.sub)
             Text("いま", style = axis)
             Text(splitDistance(w / 2.0).let { (n, u) -> n + u }, style = axis, maxLines = 1)
             Text(
@@ -599,7 +755,7 @@ private fun BatteryBadge(percent: Int, color: Color) {
             drawRoundRect(color, topLeft = Offset(2.dp.toPx(), 2.dp.toPx()), size = Size(inner, body.height - 4.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()))
             drawRect(color, topLeft = Offset(body.width + 0.5.dp.toPx(), size.height * 0.3f), size = Size(2.dp.toPx(), size.height * 0.4f))
         }
-        Text(text = "$percent%", style = TextStyle(fontSize = 12.sp, color = color))
+        Text(text = "$percent%", style = TextStyle(fontSize = 13.sp, color = color))
     }
 }
 

@@ -103,4 +103,34 @@ class RealRoutePlannerTest {
             assertFalse(routes[0].id == routes[1].id)
         }
     }
+
+    @Test
+    fun planRoutes_withoutElevationOrGrade_marksElevationGainUnknown() = runBlocking {
+        val n1 = GraphNode(1L, 34.390, 132.450)
+        val n2 = GraphNode(2L, 34.395, 132.455)
+        val graph = RoadGraph(
+            mapOf(1L to n1, 2L to n2),
+            mapOf(1L to listOf(GraphEdge(1L, 2L, 600.0, "secondary", false, null)), 2L to emptyList()),
+        )
+        val planner = RealRoutePlanner(graphProvider = { null }, memoryGraphProvider = { graph })
+
+        val routes = planner.planRoutes(34.390, 132.450, 34.395, 132.455, TravelModeType.Bicycle)
+        assertFalse(routes.isEmpty())
+        assertTrue(routes.first().elevationGainMeters.isNaN())
+    }
+
+    @Test
+    fun planRoutes_withGrades_computesRealElevationGain() = runBlocking {
+        val n1 = GraphNode(1L, 34.390, 132.450)
+        val n2 = GraphNode(2L, 34.395, 132.455)
+        val graph = RoadGraph(
+            mapOf(1L to n1, 2L to n2),
+            mapOf(1L to listOf(GraphEdge(1L, 2L, 1000.0, "secondary", false, 4.0)), 2L to emptyList()),
+        )
+        val planner = RealRoutePlanner(graphProvider = { null }, memoryGraphProvider = { graph })
+
+        val routes = planner.planRoutes(34.390, 132.450, 34.395, 132.455, TravelModeType.Bicycle)
+        assertFalse(routes.isEmpty())
+        assertEquals(40.0, routes.first().elevationGainMeters, 1e-6)
+    }
 }

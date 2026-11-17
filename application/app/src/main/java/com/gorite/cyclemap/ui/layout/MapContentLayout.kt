@@ -166,7 +166,13 @@ internal fun MapContentLayout(
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
     loadedGraphName: String? = null,
+    rideSnapshot: com.gorite.cyclemap.tracking.RideSnapshot? = null,
 ) {
+    val isCycleComputer = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current?.mode?.value ==
+        com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER
+    com.gorite.cyclemap.ui.effects.KeepScreenOnEffect(
+        enabled = !isCycleComputer && (isNavigationActive || isRecording),
+    )
     Box(modifier = modifier.fillMaxSize()) {
         val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -273,23 +279,9 @@ internal fun MapContentLayout(
                     )
                 }
 
-                // 道路のルールの通知 (自動車専用・逆走など)。ナビ中は案内ヘッダの下、シンプルでは上端、通常は検索欄の下
-                com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value?.let { ruleKind ->
-                    com.gorite.cyclemap.ui.cycling.RoadRuleBadge(
-                        kind = ruleKind,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(
-                                top = effectiveTopPadding + when {
-                                    isNavigationActive -> if (isLandscape) 64.dp else (navHeaderHeight + 20.dp)
-                                    simple -> 20.dp
-                                    else -> 52.dp
-                                },
-                                start = 84.dp,
-                                end = 84.dp,
-                            )
-                            .zIndex(3f),
-                    )
+                val roadRuleKind = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value
+                val roadRuleBadgeSlot: (@Composable () -> Unit)? = roadRuleKind?.let { ruleKind ->
+                    { com.gorite.cyclemap.ui.cycling.RoadRuleBadge(kind = ruleKind) }
                 }
 
                 if (homeVisible) {
@@ -299,7 +291,7 @@ internal fun MapContentLayout(
                             .align(Alignment.TopCenter)
                             .zIndex(1f),
                     )
-                    // 上: メニュー、現在地の県データ状態ピル、通知バナー
+                    // 上: メニュー、現在地の県データ状態ピル、通知バナー、道路ルール通知 (縦積みで重ならない)
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -332,6 +324,16 @@ internal fun MapContentLayout(
                             )
                         }
                         notificationBanners(Modifier.fillMaxWidth())
+                        if (roadRuleBadgeSlot != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 72.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                roadRuleBadgeSlot()
+                            }
+                        }
                     }
                     // 盤面のすぐ上の右: 地図を広げる・現在地
                     Column(
@@ -424,6 +426,7 @@ internal fun MapContentLayout(
                             onStopNavigation = onStopNavigation,
                             isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                             onNavHeaderHeightChanged = { navHeaderHeightPx = it },
+                            roadRuleBadge = roadRuleBadgeSlot,
                         )
                     }
 
@@ -520,6 +523,7 @@ internal fun MapContentLayout(
                             null
                         },
                         onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx = it },
+                        rideSnapshot = rideSnapshot,
                     )
                 }
             }

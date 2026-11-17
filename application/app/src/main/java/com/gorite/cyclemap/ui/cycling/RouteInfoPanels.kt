@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.routing.RoutePreference
 import org.osmdroid.util.GeoPoint
+import kotlin.math.roundToInt
 
 /**
  * ルート情報カードの中身 (Google Maps 風ライトスタイルプレビュー)。
@@ -88,7 +89,7 @@ fun RouteInfoCardContent(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    metrics.remainingM?.let { formatKm(it) } ?: "--",
+                    metrics.remainingM?.let { formatRouteDistance(it) } ?: "--",
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Black,
                     fontSize = 18.sp,
@@ -184,12 +185,36 @@ fun RouteInfoCardContent(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(
-                                if (isSelected) "${choice.label} ✓" else choice.label,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    if (isSelected) "${choice.label} ✓" else choice.label,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                )
+                                choice.featureTag?.let { tag ->
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isSelected) {
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                        } else {
+                                            MaterialTheme.colorScheme.surface
+                                        },
+                                    ) {
+                                        Text(
+                                            tag,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 formatRemainingTime(choice.estimatedDurationSeconds(metrics.averageKmh)),
                                 fontSize = 20.sp,
@@ -200,7 +225,18 @@ fun RouteInfoCardContent(
                                 choice.detail,
                                 fontSize = 12.sp,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                            choice.elevationDiffText?.let { diffText ->
+                                Text(
+                                    diffText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
                         }
                     }
                 }
@@ -228,7 +264,7 @@ fun RouteInfoCardContent(
             RouteStatCell(
                 R.drawable.ic_lucide_trending_up,
                 "登り合計",
-                metrics.elevationGainM?.let { "${it.toInt()}m" } ?: "--",
+                metrics.elevationGainM?.let { "${it.roundToInt()}m" } ?: "—",
                 Modifier.weight(1f),
             )
         }
@@ -248,6 +284,13 @@ fun RouteInfoCardContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+            )
+        } else {
+            Text(
+                "標高データなし",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 10.dp),
             )
         }
         if (tileDownloadStatus != null) {

@@ -57,13 +57,15 @@ import com.gorite.cyclemap.ui.cycling.GoogleNavTabBar
 import com.gorite.cyclemap.ui.cycling.LocationSummarySheet
 import com.gorite.cyclemap.ui.cycling.RideMetrics
 import com.gorite.cyclemap.ui.cycling.RouteInfoCardContent
-import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
 import com.gorite.cyclemap.ui.cycling.elevationAt
 import com.gorite.cyclemap.ui.cycling.elevationGain
+import com.gorite.cyclemap.ui.cycling.formatRouteDistance
 import com.gorite.cyclemap.ui.cycling.forwardGradeAt
 import com.gorite.cyclemap.ui.cycling.gradeAt
+import com.gorite.cyclemap.tracking.RideSnapshot
 import com.gorite.cyclemap.ui.theme.Motion
 import org.osmdroid.util.GeoPoint
+import java.util.Locale
 
 /** 地図下部の速度表示 + GPX 記録ボタンの行を出す条件。右下のボタン群が重ならないよう MapControlsOverlay も参照する。 */
 internal fun isBottomHudVisible(isRecording: Boolean, speedKmh: Double): Boolean = isRecording || speedKmh >= 1.5
@@ -118,6 +120,8 @@ internal fun BoxScope.MapBottomOverlays(
     onBackToDashboard: (() -> Unit)? = null,
     /** ルート確認シートの高さ (px、画面下端からシート上端まで)。シートが無いときは 0。 */
     onRoutePreviewSheetHeightChanged: (Int) -> Unit = {},
+    /** 到着時の振り返り表示用。未指定時は [navigationProgress] / [navStats] / [routeSummary] から取れる項目のみ表示する。 */
+    rideSnapshot: RideSnapshot? = null,
 ) {
     val isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived
     LaunchedEffect(isRoutePreviewActive) {
@@ -127,9 +131,7 @@ internal fun BoxScope.MapBottomOverlays(
     }
     if (isNavigationActive && routeSummary != null && !isLandscape) {
         // 縦画面: 数値パネル (速度・残り・勾配・先の標高・到着・電池)
-        val navProfile = if (realElevProfile.isNotEmpty()) realElevProfile else remember(routeSummary, navigationRoute) {
-            buildRouteElevationProfile(navigationRoute.map { it.latitude to it.longitude }, routeSummary.distanceMeters)
-        }
+        val navProfile = realElevProfile
         val progressM = navigationProgress?.distanceFromStartMeters ?: 0.0
         val remainingM = navStats?.remainingMeters ?: (routeSummary.distanceMeters - progressM).coerceAtLeast(0.0)
         val panelData = remember(navProfile, progressM, remainingM, speedKmh.roundToInt(), navStats?.etaEpochMillis, navStats?.durationRemainingSeconds) {
@@ -261,9 +263,7 @@ internal fun BoxScope.MapBottomOverlays(
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         val summary = routeSummary
-                        val elevProfile = if (realElevProfile.isNotEmpty()) realElevProfile else remember(summary, navigationRoute) {
-                            buildRouteElevationProfile(navigationRoute.map { it.latitude to it.longitude }, summary.distanceMeters)
-                        }
+                        val elevProfile = realElevProfile
                         val progressM = navigationProgress?.distanceFromStartMeters
                         val rideMetrics = navStats?.let { stats ->
                             RideMetrics(
@@ -336,6 +336,12 @@ internal fun BoxScope.MapBottomOverlays(
                 exit = Motion.bannerExit(effectiveAnimationEnabled),
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
+                val arrivalSummary = buildArrivalSummary(
+                    rideSnapshot = rideSnapshot,
+                    navStats = navStats,
+                    navigationProgress = navigationProgress,
+                    routeSummary = routeSummary,
+                )
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CycleMapTheme.palette.successContainer),
                     shape = RoundedCornerShape(14.dp),
@@ -351,13 +357,32 @@ internal fun BoxScope.MapBottomOverlays(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(
-                            "目的地に到着しました",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = CycleMapTheme.palette.success,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                "目的地に到着しました",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CycleMapTheme.palette.success,
+                            )
+                            val statsParts = buildList {
+                                arrivalSummary.distanceMeters?.let { add("距離 ${formatRouteDistance(it)}") }
+                                arrivalSummary.durationSeconds?.let { add("時間 ${formatArrivalDuration(it)}") }
+                                arrivalSummary.averageSpeedKmh?.let { add("平均 ${"%.1f".format(Locale.US, it)}km/h") }
+                            }
+                            if (statsParts.isNotEmpty()) {
+                                Text(
+                                    text = statsParts.joinToString(" · "),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = CycleMapTheme.palette.success,
+                                )
+                            }
+                        }
                         Button(
                             onClick = onClearRoute,
                             shape = RoundedCornerShape(12.dp),
@@ -504,4 +529,49 @@ internal fun BoxScope.MapBottomOverlays(
             }
         }
     }
+}
+
+internal data class ArrivalSummary(
+    val distanceMeters: Double?,
+    val durationSeconds: Double?,
+    val averageSpeedKmh: Double?,
+)
+
+internal fun buildArrivalSummary(
+    rideSnapshot: RideSnapshot?,
+    navStats: NavigationStats?,
+    navigationProgress: RouteProgress?,
+    routeSummary: RouteSummary?,
+): ArrivalSummary {
+    val distance = rideSnapshot?.distanceM?.takeIf { it.isFinite() && it > 0.0 }
+        ?: navigationProgress?.distanceFromStartMeters?.takeIf { it.isFinite() && it > 0.0 }
+        ?: routeSummary?.distanceMeters?.takeIf { it.isFinite() && it > 0.0 }
+    val duration = rideSnapshot?.let {
+        when {
+            it.movingTimeS.isFinite() && it.movingTimeS > 0.0 -> it.movingTimeS
+            it.elapsedS.isFinite() && it.elapsedS > 0.0 -> it.elapsedS
+            else -> null
+        }
+    } ?: navStats?.elapsedSeconds?.takeIf { it.isFinite() && it > 0.0 }
+    val avgKmh = rideSnapshot?.averageKmh?.takeIf { it.isFinite() && it > 0.0 }
+        ?: if (distance != null && duration != null && duration >= 10.0) {
+            (distance / duration * 3.6).takeIf { it.isFinite() && it in 0.5..80.0 }
+        } else {
+            null
+        }
+    return ArrivalSummary(
+        distanceMeters = distance,
+        durationSeconds = duration,
+        averageSpeedKmh = avgKmh,
+    )
+}
+
+internal fun formatArrivalDuration(seconds: Double): String {
+    if (!seconds.isFinite() || seconds <= 0.0) return "--"
+    val totalSec = seconds.roundToInt()
+    if (totalSec < 60) return "${totalSec}秒"
+    val totalMin = (seconds / 60.0).roundToInt()
+    val hours = totalMin / 60
+    val mins = totalMin % 60
+    return if (hours > 0) "${hours}時間${mins}分" else "${totalMin}分"
 }

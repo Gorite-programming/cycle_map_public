@@ -11,7 +11,7 @@ import kotlin.math.sin
  * サイクリングUI用のデータ層。
  *
  * 構成: UI → CyclingData (このファイル) → 実データ (GPS / ルート / 標高DB)。
- * 標高はDEM実測値を優先し、未取得地点は出所を記録した推定値で補完する。
+ * 実データ (graph の標高/勾配・DEMタイル) が無いときはプロファイルを空のままにし、架空の値を出さない。
  */
 
 // ---------------------------------------------------------------------------
@@ -36,9 +36,9 @@ data class RideMetrics(
     val elevationGainM: Double? = null,
     /** 現在標高 (m) */
     val currentElevationM: Double? = null,
-    /** 現在周辺の勾配 (%)。前後80m平均。モック標高ベースの推定値。 */
+    /** 現在周辺の勾配 (%)。前後80m平均。実標高が無いときは null。 */
     val gradePct: Double? = null,
-    /** この先の勾配 (%)。前方80m (終点付近は残距離)。モック標高ベースの推定値。 */
+    /** この先の勾配 (%)。前方80m (終点付近は残距離)。実標高が無いときは null。 */
     val forwardGradePct: Double? = null,
 )
 
@@ -344,7 +344,7 @@ fun maxDownhillGrade(profile: List<ElevationSample>): Double? = gradeSummary(pro
 
 /**
  * UI表示用の勾配指標。UIはこの値を受け取って表示するだけで、プロファイル走査は行わない。
- * 注意: 現状の標高源はモック ([mockElevationProfile]) のため、これらの勾配値は推定値。
+ * 実標高が無いときはすべての項目が null になる。
  */
 data class GradeMetrics(
     /** 現在周辺の勾配 (%)。前後80m平均。 */

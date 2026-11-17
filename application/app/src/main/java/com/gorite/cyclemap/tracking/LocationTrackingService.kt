@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.location.Location
+import com.gorite.cyclemap.navigation.LocationFixPolicy
+import android.os.SystemClock
 import android.os.Binder
 import android.os.IBinder
 import android.os.Looper
@@ -93,7 +95,7 @@ class LocationTrackingService : Service() {
 
     fun addListener(listener: (Location) -> Unit) {
         listeners += listener
-        lastLocation?.let(listener)
+        lastLocation?.takeIf { LocationFixPolicy.isFresh(it.elapsedRealtimeNanos, SystemClock.elapsedRealtimeNanos()) }?.let(listener)
     }
 
     fun removeListener(listener: (Location) -> Unit) {
@@ -231,17 +233,18 @@ class LocationTrackingService : Service() {
     }
 
     private fun considerLocation(newLocation: Location) {
+        if (!LocationFixPolicy.accepts(newLocation.elapsedRealtimeNanos, SystemClock.elapsedRealtimeNanos(),
+                lastLocation?.elapsedRealtimeNanos)) return
         val isTooInaccurate = newLocation.hasAccuracy() && newLocation.accuracy > 100f
         if (isTooInaccurate) {
             gpsHealthMonitor.onAccuracyDegraded()
             notifyStatus(gpsHealthMonitor.status)
             return
         }
-        gpsHealthMonitor.onValidFix()
 
         val oldLocation = previousLocation
         var speed = 0.0
-        val timeDiffMs = if (oldLocation != null) newLocation.time - oldLocation.time else 0L
+        val timeDiffMs = if (oldLocation != null) (newLocation.elapsedRealtimeNanos - oldLocation.elapsedRealtimeNanos) / 1_000_000L else 0L
         val isLostOrStale = oldLocation == null || timeDiffMs > 8_000L || timeDiffMs < 0L
 
         if (!isLostOrStale && oldLocation != null) {
@@ -285,6 +288,7 @@ class LocationTrackingService : Service() {
         // Override speed on the location object so all downstream consumers use the filtered/smoothed speed
         newLocation.speed = speed.toFloat()
 
+        gpsHealthMonitor.onValidFix()
         notifyStatus(GpsSignalStatus.HEALTHY)
         previousLocation = newLocation
         lastLocation = newLocation

@@ -410,10 +410,14 @@ internal fun executeRouteCalculation(
             }
             val lineCoordinates = headPoints + result.coordinates + tailPoints
             val headLen = if (first != null && headPoints.isNotEmpty()) pathLength(headPoints + first) else 0.0
-            val tailLen = if (last != null && tailPoints.isNotEmpty()) pathLength(listOf(last) + tailPoints) else 0.0
             val instructionsForRoute = if (headLen > 0.0) {
                 richInstructions.map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headLen) }
             } else richInstructions
+
+            // 線の距離と案内の組立ては UI スレッドへ戻る前に済ませる。
+            val navigationRoute = lineCoordinates.map { (lat, lon) -> RoutePoint(lat, lon) }
+            val navigationManeuvers = extractManeuvers(navigationRoute)
+            val routeSummary = RouteSummary(displayedRouteDistance(lineCoordinates), result.nodeIds.size - 1)
 
             val primaryDisplayed = CompletableDeferred<Boolean>()
             val activityForDisplay = env.context as? ComponentActivity ?: return@launch
@@ -490,9 +494,6 @@ internal fun executeRouteCalculation(
                     null
                 }
 
-                val navigationRoute = lineCoordinates.map { (lat, lon) -> RoutePoint(lat, lon) }
-                val navigationManeuvers = extractManeuvers(navigationRoute)
-                val routeSummary = RouteSummary(result.totalDistanceMeters + headLen + tailLen, result.nodeIds.size - 1)
 
                 // 主経路を表示した時点では代替ルート未計算。古い候補をチップ表示しない。
                 if (!isReroute) env.onRouteOptionsCalculated?.invoke(emptyList())

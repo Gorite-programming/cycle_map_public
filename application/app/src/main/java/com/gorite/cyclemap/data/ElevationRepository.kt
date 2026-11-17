@@ -7,7 +7,6 @@ import android.util.Log
 import android.util.LruCache
 import com.gorite.cyclemap.ui.cycling.ElevationSample
 import com.gorite.cyclemap.ui.cycling.ElevationSource
-import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -40,14 +39,14 @@ class ElevationRepository(private val context: Context) {
     /**
      * ルート全体の標高プロファイルを非同期に実データ（国土地理院DEM10B）から算出する。
      * 未キャッシュタイルはバックグラウンドでダウンロード・保存する。
-     * 完全オフライン等で取得できない区間は地形モデルでスムーズに補間する。
+     * 取得できない場合は架空の推定値を補完せず、空リストを返す。
      */
     suspend fun getRouteElevationProfile(
         coordinates: List<Pair<Double, Double>>,
         totalDistanceM: Double,
     ): List<ElevationSample> = withContext(Dispatchers.IO) {
         if (coordinates.size < 2 || totalDistanceM <= 0.0) {
-            return@withContext buildRouteElevationProfile(coordinates, totalDistanceM)
+            return@withContext emptyList()
         }
 
         val sampleCount = (totalDistanceM / 50.0).roundToInt().coerceIn(30, 300)
@@ -81,8 +80,7 @@ class ElevationRepository(private val context: Context) {
             getTileBitmap(tx, ty, downloadIfMissing = true)
         }
 
-        val fallbackProfile = buildRouteElevationProfile(coordinates, totalDistanceM)
-        val result = ArrayList<ElevationSample>(sampleCount + 1)
+        val rawSamples = ArrayList<Pair<Double, Double?>>(sampleCount + 1)
         var coordIdx = 0
 
         for (s in 0..sampleCount) {
@@ -106,17 +104,10 @@ class ElevationRepository(private val context: Context) {
                 decodeElevationFromBitmap(bitmap, lat, lon, tx, ty, DEM_ZOOM)
             } else null
 
-            val fallback = fallbackProfile.getOrNull(s)?.elevationM ?: 10.0
-            result.add(
-                ElevationSample(
-                    distanceM = dist,
-                    elevationM = (realElev ?: fallback).coerceAtLeast(0.0),
-                    source = if (realElev != null) ElevationSource.GSI_DEM else ElevationSource.ESTIMATED,
-                ),
-            )
+            rawSamples.add(dist to realElev)
         }
 
-        result
+        filterRealDemSamples(rawSamples, expectedCount = sampleCount + 1)
     }
 
     private fun getTileBitmap(tx: Int, ty: Int, downloadIfMissing: Boolean): Bitmap? {
@@ -217,4 +208,19 @@ class ElevationRepository(private val context: Context) {
             }
         }
     }
+}
+
+/**
+ * 実測 DEM サンプルだけを抜き出す。実測が 2 点未満、または全体の半分未満しか取れないときは
+ * 架空の値を混ぜず空リストを返す。
+ */
+internal fun filterRealDemSamples(
+    samples: List<Pair<Double, Double?>>,
+    expectedCount: Int = samples.size,
+): List<ElevationSample> {
+    if (expectedCount <= 0) return emptyList()
+    val valid = samples.mapNotNull { (dist, elev) ->
+        elev?.takeIf { it.isFinite() }?.let { ElevationSample(dist, it, ElevationSource.GSI_DEM) }
+    }
+    return if (valid.size < 2 || valid.size * 2 < expectedCount) emptyList() else valid
 }

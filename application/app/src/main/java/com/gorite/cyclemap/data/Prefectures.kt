@@ -508,3 +508,13 @@ object TileDownloader {
 }
 
 
+
+/** 最終利用県が削除されていれば、従来の名前順探索へ戻す。 */
+internal object RoutingGraphHistory {
+    const val PREFERENCES = "routing_graph_history"
+    const val KEY_LAST_GRAPH = "last_graph"
+
+    fun findStartupGraph(dataDir: File, lastGraphName: String?): Pair<File, File>? =
+        lastGraphName?.takeIf { File(it).name == it }?.let { RoutingGraphSelector.resolveGraphFiles(dataDir, it) }
+            ?: RoutingGraphSelector.findFirstAvailableGraph(dataDir)
+}

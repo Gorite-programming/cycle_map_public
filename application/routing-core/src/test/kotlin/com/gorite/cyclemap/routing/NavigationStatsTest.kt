@@ -105,6 +105,7 @@ class NavigationStatsTest {
             nowElapsedRealtimeMs = 60_000L,
             nowEpochMillis = 0L,
             arrivalRadiusMeters = 30.0,
+            arrivalConfirmed = true,
         )
         assertNotNull(stats)
         assertTrue(stats.isArrived)

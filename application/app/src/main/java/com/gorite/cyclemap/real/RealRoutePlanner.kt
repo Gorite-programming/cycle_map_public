@@ -108,7 +108,7 @@ class RealRoutePlanner(
             dateTime = now
         )
 
-        val primaryElevGain = calculateElevationGain(lazyGraph, primaryResult, primaryDistance)
+        val primaryElevGain = calculateElevationGainOrNull(lazyGraph, primaryResult, primaryDistance) ?: Double.NaN
 
         val primaryOption = RouteOption(
             id = "route_primary",
@@ -157,7 +157,7 @@ class RealRoutePlanner(
                     mode = mode,
                     dateTime = now
                 )
-                val altElevGain = calculateElevationGain(lazyGraph, altResult, altDistance)
+                val altElevGain = calculateElevationGainOrNull(lazyGraph, altResult, altDistance) ?: Double.NaN
                 options.add(
                     RouteOption(
                         id = "route_alternative",
@@ -210,6 +210,7 @@ class RealRoutePlanner(
             }
             var totalDuration = 0.0
             var totalElevGain = 0.0
+            var hasAnyGrade = false
             for (i in 0 until candidate.nodeIds.size - 1) {
                 val u = candidate.nodeIds[i]
                 val v = candidate.nodeIds[i + 1]
@@ -223,8 +224,11 @@ class RealRoutePlanner(
                         dateTime = now,
                     )
                     val g = edge.gradePercent
-                    if (g != null && g > 0.0) {
-                        totalElevGain += edge.distanceMeters * (g / 100.0)
+                    if (g != null) {
+                        hasAnyGrade = true
+                        if (g > 0.0) {
+                            totalElevGain += edge.distanceMeters * (g / 100.0)
+                        }
                     }
                 }
             }
@@ -243,7 +247,7 @@ class RealRoutePlanner(
                 travelMode = travelMode,
                 distanceMeters = candidate.distanceMeters,
                 durationSeconds = totalDuration,
-                elevationGainMeters = totalElevGain,
+                elevationGainMeters = if (hasAnyGrade) totalElevGain else Double.NaN,
                 points = points,
                 isPrimary = idx == 0
             )
@@ -252,23 +256,30 @@ class RealRoutePlanner(
 
     /**
      * 獲得標高を求める (画面の標高プロファイルと同じ計算)。graph が標高を持てば経路上のノードの標高から、
-     * 持たなければ辺の勾配の積み上げから。どちらも無い旧 graph では 0。
+     * 持たなければ辺の勾配の積み上げから。どちらも無い旧 graph では null を返す。
      */
-    private fun calculateElevationGain(
+    internal fun calculateElevationGainOrNull(
         lazyGraph: LazyMappedRoadGraph,
         result: com.gorite.cyclemap.routing.MappedRouteResult,
         totalDistanceM: Double,
-    ): Double {
+    ): Double? {
         val coordinates = result.coordinates
-        if (coordinates.size < 2 || totalDistanceM <= 0.0) return 0.0
+        if (coordinates.size < 2 || totalDistanceM <= 0.0) return null
         // 探索結果がノードの番号を持てば、それで引く (座標から最寄りノードを探すと実機で数秒かかる)
         val byIndex = result.nodeIndices.size == coordinates.size
         val segments = if (byIndex) lazyGraph.segmentGradesAlongIndices(result.nodeIndices) else lazyGraph.segmentGradesAlong(coordinates)
+        val nodeElevations = if (byIndex) lazyGraph.nodeElevationsAt(result.nodeIndices) else lazyGraph.nodeElevationsAlong(coordinates)
         val profile = com.gorite.cyclemap.ui.cycling.buildNodeElevationProfile(
             segments,
-            if (byIndex) lazyGraph.nodeElevationsAt(result.nodeIndices) else lazyGraph.nodeElevationsAlong(coordinates),
-        ).ifEmpty { com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null) }
-        return com.gorite.cyclemap.ui.cycling.elevationGain(profile, totalDistanceM) ?: 0.0
+            nodeElevations,
+        ).ifEmpty {
+            if (segments.any { it.gradePercent != null }) {
+                com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile(segments, startElevationM = null)
+            } else {
+                emptyList()
+            }
+        }
+        return com.gorite.cyclemap.ui.cycling.elevationGain(profile, totalDistanceM)
     }
 
     private fun findNearestNode(graph: RoadGraph, lat: Double, lon: Double) =

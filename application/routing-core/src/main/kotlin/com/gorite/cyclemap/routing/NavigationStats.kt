@@ -31,7 +31,8 @@ data class NavigationStats(
  *   リルート成功時は新ルート起点でリセットすること (距離が0に戻るため)。
  * @param nowElapsedRealtimeMs 現在時刻 (同基準)。
  * @param nowEpochMillis 現在時刻 (epoch millis、ETA表示用)。
- * @param arrivalRadiusMeters この残距離以下で到着とみなす。
+ * @param arrivalRadiusMeters 到着を許可する残距離の上限。
+ * @param arrivalConfirmed 実測位置で ArrivalDetector が連続確認した結果。
  * @param defaultSpeedMps 速度が得られない場合のフォールバック (自転車の巡航速度)。
  * @param minAverageElapsedSeconds この経過秒数未満では平均を使わない。
  * @param minAverageSpeedMps 平均がこの速度未満の場合は停止・渋滞とみなしフォールバックする。
@@ -53,11 +54,12 @@ fun computeNavigationStats(
     minInstantSpeedMps: Double = 2.0,
     maxAverageSpeedMps: Double = 60_000.0 / 3_600.0,
     lastEffectiveSpeedMps: Double? = null,
+    arrivalConfirmed: Boolean = false,
 ): NavigationStats? {
     if (progress == null) return null
     val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
     val elapsed = ((nowElapsedRealtimeMs - navStartElapsedRealtimeMs).coerceAtLeast(0L)) / 1_000.0
-    val isArrived = remaining <= arrivalRadiusMeters
+    val isArrived = arrivalConfirmed && remaining <= arrivalRadiusMeters
 
     val covered = progress.distanceFromStartMeters.coerceAtLeast(0.0)
     val averageSpeed = if (elapsed >= minAverageElapsedSeconds && covered > 0.0) covered / elapsed else Double.NaN
@@ -137,5 +139,31 @@ class OffRouteDetector(
     fun reset() {
         consecutiveCount = 0
         isOffRoute = false
+    }
+}
+
+/** 実距離と精度を検査し、複数の測位で到着を確定する。 */
+class ArrivalDetector {
+    private var consecutive = 0
+    private var lastFixNanos = Long.MIN_VALUE
+
+    fun update(progress: RouteProgress?, distanceToDestinationMeters: Double, accuracyMeters: Double, fixNanos: Long): Boolean {
+        if (fixNanos <= lastFixNanos) return false
+        lastFixNanos = fixNanos
+        val radius = accuracyMeters.coerceIn(BASE_RADIUS_METERS, MAX_ACCURACY_METERS)
+        val candidate = accuracyMeters.isFinite() && accuracyMeters in 0.0..MAX_ACCURACY_METERS &&
+            distanceToDestinationMeters.isFinite() && distanceToDestinationMeters <= radius &&
+            progress != null && progress.distanceToRouteMeters <= radius &&
+            progress.routeDistanceMeters - progress.distanceFromStartMeters <= BASE_RADIUS_METERS
+        consecutive = if (candidate) consecutive + 1 else 0
+        return consecutive >= REQUIRED_FIXES
+    }
+
+    companion object {
+        // 精度の悪い測位で遠方から到着にしない。
+        private const val BASE_RADIUS_METERS = 30.0
+        private const val MAX_ACCURACY_METERS = 50.0
+        // 一度だけの GPS ジャンプでは到着にしない。
+        private const val REQUIRED_FIXES = 2
     }
 }

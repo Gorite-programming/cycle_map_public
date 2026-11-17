@@ -13,9 +13,14 @@ import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.core.location.LocationManagerCompat
 import com.gorite.cyclemap.routing.AdaptiveRerouteManager
+import com.gorite.cyclemap.routing.DeadReckoningResult
 import com.gorite.cyclemap.routing.DeadReckoner
 import com.gorite.cyclemap.routing.Maneuver
 import com.gorite.cyclemap.routing.NavigationStats
@@ -23,13 +28,17 @@ import com.gorite.cyclemap.routing.OffRouteDetector
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RouteProgress
-import com.gorite.cyclemap.routing.calculateRouteProgress
 import com.gorite.cyclemap.routing.computeNavigationStats
 import com.gorite.cyclemap.speech.VoiceGuidanceNavigator
 import com.gorite.cyclemap.tracking.AppLifecycleState
 import com.gorite.cyclemap.tracking.GpsHealthMonitor
 import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.tracking.TrackingStateController
+import com.gorite.cyclemap.routing.ArrivalDetector
+import com.gorite.cyclemap.routing.RouteProgressIndex
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.osmdroid.util.GeoPoint
@@ -80,6 +89,8 @@ internal fun MapTrackingEffects(
     onHeadingChanged: (Float) -> Unit,
     onHeadingSensorFixChanged: (Boolean) -> Unit,
     onLocationServiceEnabledChanged: (Boolean) -> Unit = {},
+    waypoints: List<GeoPoint> = emptyList(),
+    onWaypointsPassed: (Int) -> Unit = {},
 ) {
     // 端末の位置情報サービス (GPS Provider) オン/オフの監視
     DisposableEffect(context) {
@@ -152,6 +163,120 @@ internal fun MapTrackingEffects(
         )
     }
 
+    val graphNavigationState = remember(context) { navigationGraphState(context) }
+    DisposableEffect(graphNavigationState, isNavigationActive) {
+        graphNavigationState?.active = isNavigationActive
+        onDispose { graphNavigationState?.active = false }
+    }
+    val arrivalDetector = remember(navigationRoute, isNavigationActive) { ArrivalDetector() }
+    val navigationFixes = remember(navigationRoute, isNavigationActive) { Channel<Location>(Channel.CONFLATED) }
+    var progressIndex by remember(navigationRoute) { mutableStateOf<RouteProgressIndex?>(null) }
+    LaunchedEffect(navigationRoute) {
+        progressIndex = withContext(Dispatchers.Default) { RouteProgressIndex(navigationRoute) }
+    }
+    val currentOnWaypointsPassed by rememberUpdatedState(onWaypointsPassed)
+    val currentRoute by rememberUpdatedState(navigationRoute)
+    val currentNavigationActive by rememberUpdatedState(isNavigationActive)
+    val currentValidLocation by rememberUpdatedState(lastValidLocation)
+    val processNavigationFix by rememberUpdatedState<(Location, RouteProgress?) -> Unit>({ location, progress ->
+        if (isNavigationActive && navigationRoute.isNotEmpty()) {
+            onNavigationProgressChanged(progress)
+            if (progress != null) {
+                onLastValidRouteProgressMetersChanged(progress.distanceFromStartMeters)
+            }
+            val stats = computeNavigationStats(
+                progress = progress,
+                smoothedSpeedMps = navSpeedMps,
+                navStartElapsedRealtimeMs = navStartElapsedMs,
+                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+                nowEpochMillis = System.currentTimeMillis(),
+                arrivalRadiusMeters = ARRIVAL_RADIUS_METERS,
+                arrivalConfirmed = arrivalDetector.update(
+                    progress,
+                    // 道路から離れた目的地で端点の線が省略されても、目的地そのものまで測る。
+                    destination?.let { haversineMeters(location.latitude, location.longitude, it.latitude, it.longitude) }
+                        ?: navigationRoute.lastOrNull()?.let { haversineMeters(location.latitude, location.longitude, it.latitude, it.longitude) }
+                        ?: Double.POSITIVE_INFINITY,
+                    if (location.hasAccuracy()) location.accuracy.toDouble() else Double.POSITIVE_INFINITY,
+                    location.elapsedRealtimeNanos,
+                ),
+            )
+            onNavStatsChanged(stats)
+            if (stats?.isArrived == true) {
+                if (!isArrived) {
+                    onArrivedChanged(true)
+                    onNavigationActiveChanged(false)
+                    offRouteDetector.reset()
+                    voiceNavigator.onLocationUpdated(
+                        traveledMeters = progress?.distanceFromStartMeters ?: 0.0,
+                        remainingMeters = 0.0,
+                        instructions = navigationInstructions,
+                        isOffRoute = false,
+                    )
+                }
+            } else if (progress != null && !isRerouting) {
+                adaptiveRerouteManager.onLocationUpdate(
+                    distanceToRouteMeters = progress.distanceToRouteMeters,
+                    currentSpeedMps = location.speed,
+                    currentNodeId = progress.distanceFromStartMeters.toLong(),
+                    goalNodeId = navigationRoute.lastIndex.toLong(),
+                )
+                val offRoute = adaptiveRerouteManager.state.value.isOffRoute
+                val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
+                voiceNavigator.onLocationUpdated(
+                    traveledMeters = progress.distanceFromStartMeters,
+                    remainingMeters = remaining,
+                    instructions = navigationInstructions,
+                    isOffRoute = offRoute,
+                )
+                if (offRoute && autoRerouteEnabled) {
+                    val now = SystemClock.elapsedRealtime()
+                    val dest = destination
+                    val here = RoutePoint(location.latitude, location.longitude)
+                    val from = lastRerouteFrom[0]
+                    val movedSinceReroute = from == null || haversineMeters(from.latitude, from.longitude, here.latitude, here.longitude) >= REROUTE_MIN_MOVE_METERS
+                    if (dest != null && movedSinceReroute && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
+                        lastRerouteFrom[0] = here
+                        onTriggerReroute(
+                            GeoPoint(location.latitude, location.longitude),
+                            dest,
+                        )
+                    }
+                }
+            }
+        }
+    })
+    LaunchedEffect(navigationRoute, isNavigationActive, progressIndex) {
+        val index = progressIndex ?: return@LaunchedEffect
+        if (!isNavigationActive) return@LaunchedEffect
+        val waypointTracker = withContext(Dispatchers.Default) {
+            WaypointPassTracker(index, waypoints.map { RoutePoint(it.latitude, it.longitude) })
+        }
+        var lastPassed = 0
+        var previous: Double? = null
+        var previousFixNanos: Long? = null
+        for (location in navigationFixes) {
+            if (!isNavigationActive) continue
+            val elapsed = previousFixNanos?.let { (location.elapsedRealtimeNanos - it).coerceAtLeast(0L) / 1e9 } ?: 0.0
+            val progress = withContext(Dispatchers.Default) {
+                index.calculate(RoutePoint(location.latitude, location.longitude), navigationManeuvers,
+                    previous, location.speed.toDouble().coerceAtLeast(0.0) * elapsed,
+                    location.bearing.toDouble().takeIf { location.hasBearing() && location.hasSpeed() && location.speed >= PROGRESS_BEARING_MIN_SPEED_MPS })
+            }
+            // 計算中に経路が変わった測位の結果は、新しい経路へ反映しない。
+            if (currentRoute !== navigationRoute || !currentNavigationActive) continue
+            previous = progress?.distanceFromStartMeters
+            previousFixNanos = location.elapsedRealtimeNanos
+            val passed = waypointTracker.update(RoutePoint(location.latitude, location.longitude),
+                if (location.hasAccuracy()) location.accuracy.toDouble() else Double.POSITIVE_INFINITY, progress)
+            if (passed > lastPassed) {
+                currentOnWaypointsPassed(passed - lastPassed)
+                lastPassed = passed
+            }
+            processNavigationFix(location, progress)
+        }
+    }
+
     if (hasLocationPermission) {
         ServiceLocationUpdates(
             context = context,
@@ -176,68 +301,7 @@ internal fun MapTrackingEffects(
                     }
                 }
                 onRecordingPointsChanged(recording, points)
-                if (isNavigationActive && navigationRoute.isNotEmpty()) {
-                    val progress = calculateRouteProgress(
-                        RoutePoint(location.latitude, location.longitude),
-                        navigationRoute,
-                        navigationManeuvers,
-                    )
-                    onNavigationProgressChanged(progress)
-                    if (progress != null) {
-                        onLastValidRouteProgressMetersChanged(progress.distanceFromStartMeters)
-                    }
-                    val stats = computeNavigationStats(
-                        progress = progress,
-                        smoothedSpeedMps = navSpeedMps,
-                        navStartElapsedRealtimeMs = navStartElapsedMs,
-                        nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
-                        nowEpochMillis = System.currentTimeMillis(),
-                        arrivalRadiusMeters = ARRIVAL_RADIUS_METERS,
-                    )
-                    onNavStatsChanged(stats)
-                    if (stats?.isArrived == true) {
-                        if (!isArrived) {
-                            onArrivedChanged(true)
-                            onNavigationActiveChanged(false)
-                            offRouteDetector.reset()
-                            voiceNavigator.onLocationUpdated(
-                                traveledMeters = progress?.distanceFromStartMeters ?: 0.0,
-                                remainingMeters = 0.0,
-                                instructions = navigationInstructions,
-                                isOffRoute = false,
-                            )
-                        }
-                    } else if (progress != null && !isRerouting) {
-                        adaptiveRerouteManager.onLocationUpdate(
-                            distanceToRouteMeters = progress.distanceToRouteMeters,
-                            currentSpeedMps = location.speed,
-                            currentNodeId = progress.distanceFromStartMeters.toLong(),
-                            goalNodeId = navigationRoute.lastIndex.toLong(),
-                        )
-                        val offRoute = adaptiveRerouteManager.state.value.isOffRoute
-                        val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
-                        voiceNavigator.onLocationUpdated(
-                            traveledMeters = progress.distanceFromStartMeters,
-                            remainingMeters = remaining,
-                            instructions = navigationInstructions,
-                            isOffRoute = offRoute,
-                        )
-                        if (offRoute && autoRerouteEnabled) {
-                            val now = SystemClock.elapsedRealtime()
-                            val dest = destination
-                            val here = RoutePoint(location.latitude, location.longitude)
-                            val from = lastRerouteFrom[0]
-                            val movedSinceReroute = from == null || haversineMeters(from.latitude, from.longitude, here.latitude, here.longitude) >= REROUTE_MIN_MOVE_METERS
-                            if (dest != null && movedSinceReroute && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
-                                lastRerouteFrom[0] = here
-                                onTriggerReroute(
-                                    GeoPoint(location.latitude, location.longitude),
-                                    dest,
-                                )
-                            }
-                        }
-                    }
-                }
+                navigationFixes.trySend(Location(location))
             },
             onSpeedChanged = { speed ->
                 onSpeedChanged(speed * 3.6)
@@ -255,71 +319,82 @@ internal fun MapTrackingEffects(
         )
     }
 
-    // GPS 測位状態のタイムアウト監視および推測移動 (Dead Reckoning)
-    // ナビ中以外でバックグラウンド/画面オフのときは動かさない (バッテリー保護)。ナビ中は画面オフでも継続。
+    // 長く動くループでも位置・速度・方位・進捗と通知先を毎回最新にする。
+    val timeoutTick by rememberUpdatedState<suspend () -> Unit>(tick@{
+        val updated = gpsHealthMonitor.tick()
+        if (gpsStatus != updated) {
+            onGpsStatusChanged(updated)
+        }
+
+        // WEAK 状態かつ直近の有効位置がある場合、最大15秒間推測移動を実行
+        val validLoc = lastValidLocation
+        if (updated == GpsSignalStatus.WEAK && validLoc != null && gpsHealthMonitor.hasReceivedFirstFix) {
+            val elapsedSec = (SystemClock.elapsedRealtime() - gpsHealthMonitor.lastFixMs) / 1000.0
+            val speed = navSpeedMps.takeIf { it.isFinite() && it >= 0.0 } ?: validLoc.speed.toDouble()
+            val lastBearing = if (lastValidBearingDegrees != 0f) lastValidBearingDegrees.toDouble() else headingDegrees.toDouble()
+            val index = progressIndex
+            val progressMeters = lastValidRouteProgressMeters
+            val drResult = withContext(Dispatchers.Default) {
+                val straight = DeadReckoner.estimate(
+                    lastLocation = RoutePoint(validLoc.latitude, validLoc.longitude),
+                    lastBearingDegrees = lastBearing,
+                    speedMps = speed,
+                    elapsedSeconds = elapsedSec,
+                )
+                val along = if (isNavigationActive && progressMeters != null && straight.distanceAdvancedMeters > 0.0) {
+                    index?.pointAt(progressMeters + straight.distanceAdvancedMeters)
+                } else null
+                if (along != null) DeadReckoningResult(along.first, along.second ?: lastBearing,
+                    straight.distanceAdvancedMeters, straight.isExpired) else straight
+            }
+
+            if (currentValidLocation?.elapsedRealtimeNanos != validLoc.elapsedRealtimeNanos) return@tick
+            if (drResult.distanceAdvancedMeters > 0.0) {
+                val estLocation = Location(validLoc).apply {
+                    latitude = drResult.location.latitude
+                    longitude = drResult.location.longitude
+                    bearing = drResult.bearingDegrees.toFloat()
+                    accuracy = 100f
+                    this.speed = speed.toFloat()
+                    time = System.currentTimeMillis()
+                }
+                onLocationChanged(estLocation)
+
+                if (isNavigationActive && navigationRoute.isNotEmpty()) {
+                    val index = progressIndex
+                    val progress = withContext(Dispatchers.Default) {
+                        index?.calculate(drResult.location, navigationManeuvers, lastValidRouteProgressMeters,
+                            drResult.distanceAdvancedMeters, drResult.bearingDegrees)
+                    }
+                    if (progress != null) {
+                        onNavigationProgressChanged(progress)
+                        val stats = computeNavigationStats(
+                            progress = progress,
+                            smoothedSpeedMps = navSpeedMps,
+                            navStartElapsedRealtimeMs = navStartElapsedMs,
+                            nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+                            nowEpochMillis = System.currentTimeMillis(),
+                            arrivalRadiusMeters = ARRIVAL_RADIUS_METERS,
+                        )
+                        onNavStatsChanged(stats)
+                        val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
+                        voiceNavigator.onLocationUpdated(
+                            traveledMeters = progress.distanceFromStartMeters,
+                            remainingMeters = remaining,
+                            instructions = navigationInstructions,
+                            isOffRoute = false,
+                        )
+                    }
+                }
+            }
+        }
+    })
     LaunchedEffect(hasLocationPermission, isNavigationActive, navigationRoute, appLifecycleState) {
         if (!hasLocationPermission) return@LaunchedEffect
         if (!isNavigationActive && appLifecycleState != AppLifecycleState.RESUMED) return@LaunchedEffect
         while (isActive) {
             delay(1000L)
-            val updated = gpsHealthMonitor.tick()
-            if (gpsStatus != updated) {
-                onGpsStatusChanged(updated)
-            }
-
-            // WEAK 状態かつ直近の有効位置がある場合、最大15秒間推測移動を実行
-            val validLoc = lastValidLocation
-            if (updated == GpsSignalStatus.WEAK && validLoc != null && gpsHealthMonitor.hasReceivedFirstFix) {
-                val elapsedSec = (SystemClock.elapsedRealtime() - gpsHealthMonitor.lastFixMs) / 1000.0
-                val speed = navSpeedMps.takeIf { it.isFinite() && it >= 0.0 } ?: validLoc.speed.toDouble()
-                val drResult = DeadReckoner.estimate(
-                    lastLocation = RoutePoint(validLoc.latitude, validLoc.longitude),
-                    lastBearingDegrees = if (lastValidBearingDegrees != 0f) lastValidBearingDegrees.toDouble() else headingDegrees.toDouble(),
-                    speedMps = speed,
-                    elapsedSeconds = elapsedSec,
-                    route = if (isNavigationActive) navigationRoute else emptyList(),
-                    lastRouteProgressMeters = if (isNavigationActive) lastValidRouteProgressMeters else null,
-                )
-
-                if (drResult.distanceAdvancedMeters > 0.0) {
-                    val estLocation = Location(validLoc).apply {
-                        latitude = drResult.location.latitude
-                        longitude = drResult.location.longitude
-                        bearing = drResult.bearingDegrees.toFloat()
-                        accuracy = 100f
-                        this.speed = speed.toFloat()
-                        time = System.currentTimeMillis()
-                    }
-                    onLocationChanged(estLocation)
-
-                    if (isNavigationActive && navigationRoute.isNotEmpty()) {
-                        val progress = calculateRouteProgress(
-                            drResult.location,
-                            navigationRoute,
-                            navigationManeuvers,
-                        )
-                        if (progress != null) {
-                            onNavigationProgressChanged(progress)
-                            val stats = computeNavigationStats(
-                                progress = progress,
-                                smoothedSpeedMps = navSpeedMps,
-                                navStartElapsedRealtimeMs = navStartElapsedMs,
-                                nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
-                                nowEpochMillis = System.currentTimeMillis(),
-                                arrivalRadiusMeters = ARRIVAL_RADIUS_METERS,
-                            )
-                            onNavStatsChanged(stats)
-                            val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
-                            voiceNavigator.onLocationUpdated(
-                                traveledMeters = progress.distanceFromStartMeters,
-                                remainingMeters = remaining,
-                                instructions = navigationInstructions,
-                                isOffRoute = false,
-                            )
-                        }
-                    }
-                }
-            }
+            timeoutTick()
         }
     }
 
@@ -337,3 +412,6 @@ internal fun MapTrackingEffects(
         }
     }
 }
+
+// 停止時の不安定な GPS 方位を区間選択に使わない。
+private const val PROGRESS_BEARING_MIN_SPEED_MPS = 1.5f

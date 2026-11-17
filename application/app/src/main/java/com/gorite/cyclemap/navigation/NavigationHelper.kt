@@ -23,9 +23,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import org.osmdroid.views.MapView
+import com.gorite.cyclemap.contract.TurnType
 import com.gorite.cyclemap.routing.IconResolver
 import com.gorite.cyclemap.routing.InstructionType
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
+import com.gorite.cyclemap.routing.ManeuverType
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RouteProgress
@@ -34,6 +36,7 @@ import com.gorite.cyclemap.routing.bearingBetween
 import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.tracking.LocationTrackingService
 import com.gorite.cyclemap.tracking.locationServiceConnection
+import com.gorite.cyclemap.ui.map.toGuidanceTurnType
 import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------
@@ -129,6 +132,146 @@ internal fun outgoingRoadNameAt(edgeNames: List<String?>, routeIndex: Int): Stri
 // ---------------------------------------------------------------------------
 // ナビ案内バナー文言生成
 // ---------------------------------------------------------------------------
+
+/**
+ * 案内ヘッダー用の統一表示ステップ。
+ * 矢印・距離・案内文・道路名・車線・次の予告が同じステップから決まるため食い違わない。
+ */
+internal data class NavGuidanceDisplay(
+    val turnType: TurnType,
+    val distanceMeters: Double,
+    val instructionText: String,
+    val targetInstruction: RouteInstruction?,
+    val nextInstruction: RouteInstruction?,
+    val distanceToNextMeters: Double?,
+)
+
+private fun straightGuidanceText(distanceMeters: Double): String = when (((distanceMeters / 250).toInt()) % 3) {
+    0 -> "このまま直進です"
+    1 -> "道なりに直進してください"
+    else -> "この先しばらく直進です"
+}
+
+private fun maneuverGuidanceText(instruction: RouteInstruction, distanceMeters: Double): String {
+    val label = IconResolver.getLabel(instruction.type, instruction.turnAngleDegrees)
+    return when {
+        distanceMeters >= 100.0 -> "${label}です"
+        distanceMeters >= 30.0 -> "まもなく${label}です"
+        else -> "${label}です"
+    }
+}
+
+internal fun resolveNavGuidanceDisplay(
+    progress: RouteProgress?,
+    remainingMeters: Double?,
+    richInstructions: List<RouteInstruction> = emptyList(),
+    arrivalRadiusMeters: Double = ARRIVAL_RADIUS_METERS_NAV,
+): NavGuidanceDisplay {
+    if (progress == null) {
+        return NavGuidanceDisplay(TurnType.Straight, 0.0, "直進", null, null, null)
+    }
+    val traveled = progress.distanceFromStartMeters
+    val remaining = (remainingMeters ?: (progress.routeDistanceMeters - traveled)).coerceAtLeast(0.0)
+    if (remaining <= arrivalRadiusMeters) {
+        return NavGuidanceDisplay(TurnType.Arrive, remaining, "目的地に到着しました", null, null, null)
+    }
+
+    val future = richInstructions.filter { it.distanceFromStartMeters > traveled }
+    val richNext = future.firstOrNull()
+    if (richNext != null) {
+        val richDist = (richNext.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
+        if (richNext.type == InstructionType.STRAIGHT) {
+            val upcoming = future.firstOrNull { it.type != InstructionType.STRAIGHT }
+            val upcomingDist = upcoming?.let { (it.distanceFromStartMeters - traveled).coerceAtLeast(0.0) }
+            if (upcoming != null && upcomingDist != null && upcomingDist < 200.0) {
+                val upcomingIdx = future.indexOf(upcoming)
+                val after = future.drop(upcomingIdx + 1).firstOrNull { it.type != InstructionType.STRAIGHT }
+                val distAfter = after?.let { (it.distanceFromStartMeters - upcoming.distanceFromStartMeters).coerceAtLeast(0.0) }
+                return NavGuidanceDisplay(
+                    turnType = upcoming.toGuidanceTurnType(),
+                    distanceMeters = upcomingDist,
+                    instructionText = maneuverGuidanceText(upcoming, upcomingDist),
+                    targetInstruction = upcoming,
+                    nextInstruction = after,
+                    distanceToNextMeters = distAfter,
+                )
+            }
+            val straightDist = upcomingDist ?: remaining
+            return NavGuidanceDisplay(
+                turnType = TurnType.Straight,
+                distanceMeters = straightDist,
+                instructionText = straightGuidanceText(richDist),
+                targetInstruction = null,
+                nextInstruction = upcoming,
+                distanceToNextMeters = upcomingDist,
+            )
+        }
+        if (richDist >= 500.0) {
+            return NavGuidanceDisplay(
+                turnType = TurnType.Straight,
+                distanceMeters = richDist,
+                instructionText = straightGuidanceText(richDist),
+                targetInstruction = null,
+                nextInstruction = richNext,
+                distanceToNextMeters = richDist,
+            )
+        }
+        val after = future.drop(1).firstOrNull { it.type != InstructionType.STRAIGHT }
+        val distAfter = after?.let { (it.distanceFromStartMeters - richNext.distanceFromStartMeters).coerceAtLeast(0.0) }
+        return NavGuidanceDisplay(
+            turnType = richNext.toGuidanceTurnType(),
+            distanceMeters = richDist,
+            instructionText = maneuverGuidanceText(richNext, richDist),
+            targetInstruction = richNext,
+            nextInstruction = after,
+            distanceToNextMeters = distAfter,
+        )
+    }
+
+    val distance = (progress.distanceToNextManeuverMeters ?: remaining).coerceAtLeast(0.0)
+    val type = progress.nextManeuver?.type
+    if (type == null || distance >= 500.0) {
+        return NavGuidanceDisplay(TurnType.Straight, distance, straightGuidanceText(distance), null, null, null)
+    }
+    return when (type) {
+        ManeuverType.RIGHT -> NavGuidanceDisplay(
+            turnType = TurnType.Right,
+            distanceMeters = distance,
+            instructionText = when {
+                distance >= 300.0 -> "右折です"
+                distance >= 100.0 -> if ((distance.toInt() / 50) % 2 == 0) "まもなく右折です" else "右方向です"
+                else -> if ((distance.toInt() / 30) % 2 == 0) "まもなく右へお進みください" else "右方向です"
+            },
+            targetInstruction = null,
+            nextInstruction = null,
+            distanceToNextMeters = null,
+        )
+        ManeuverType.LEFT -> NavGuidanceDisplay(
+            turnType = TurnType.Left,
+            distanceMeters = distance,
+            instructionText = when {
+                distance >= 300.0 -> "左折です"
+                distance >= 100.0 -> if ((distance.toInt() / 50) % 2 == 0) "まもなく左折です" else "左方向です"
+                else -> if ((distance.toInt() / 30) % 2 == 0) "まもなく左へお進みください" else "左方向です"
+            },
+            targetInstruction = null,
+            nextInstruction = null,
+            distanceToNextMeters = null,
+        )
+        ManeuverType.U_TURN -> NavGuidanceDisplay(
+            turnType = TurnType.Uturn,
+            distanceMeters = distance,
+            instructionText = when {
+                distance >= 100.0 -> "Uターンです"
+                distance >= 30.0 -> "まもなくUターンです"
+                else -> "ここでUターンしてください"
+            },
+            targetInstruction = null,
+            nextInstruction = null,
+            distanceToNextMeters = null,
+        )
+    }
+}
 
 private const val ARRIVAL_RADIUS_METERS_NAV = 30.0
 

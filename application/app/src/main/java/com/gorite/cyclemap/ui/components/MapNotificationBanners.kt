@@ -6,7 +6,9 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -22,15 +25,18 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.TileProgress
 import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.ui.theme.Motion
@@ -155,6 +161,55 @@ internal fun MapNotificationBanners(
                         context.startActivity(intent)
                     }) {
                         Text("設定を開く")
+                    }
+                }
+            }
+        }
+
+        // GPS signal status chip (shown when permission & OS location service are enabled)
+        val showGpsChip = hasLocationPermission && isLocationServiceEnabled &&
+            (gpsStatus != GpsSignalStatus.HEALTHY || !hasReceivedFirstFix)
+        AnimatedVisibility(
+            visible = showGpsChip,
+            enter = Motion.bannerEnter(effectiveAnimationEnabled),
+            exit = Motion.bannerExit(effectiveAnimationEnabled),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            val palette = CycleMapTheme.palette
+            val (label, bgColor, fgColor) = when {
+                gpsStatus == GpsSignalStatus.LOST ->
+                    Triple("GPS信号が途絶えました", palette.dangerContainer, palette.danger)
+                gpsStatus == GpsSignalStatus.WEAK ->
+                    Triple("GPS精度が低下しています", palette.warningContainer, palette.warning)
+                else ->
+                    Triple("GPS測位中…", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = bgColor,
+                    shadowElevation = 4.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(fgColor),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = fgColor,
+                        )
                     }
                 }
             }

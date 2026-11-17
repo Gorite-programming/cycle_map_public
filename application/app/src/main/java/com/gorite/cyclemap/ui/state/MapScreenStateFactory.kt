@@ -29,7 +29,6 @@ import com.gorite.cyclemap.ui.cycling.anchoredStartElevation
 import com.gorite.cyclemap.ui.cycling.buildGradeElevationProfile
 import com.gorite.cyclemap.ui.cycling.buildNodeElevationProfile
 import com.gorite.cyclemap.routing.nodeElevationsAlong
-import com.gorite.cyclemap.ui.cycling.buildRouteElevationProfile
 import com.gorite.cyclemap.routing.segmentGradesAlong
 import kotlin.concurrent.read
 import com.gorite.cyclemap.data.MapSourceType
@@ -295,8 +294,8 @@ internal fun rememberMapScreenState(
         val navRoute = navigationRouteState.value
         if (summary != null && navRoute.isNotEmpty()) {
             val coords = navRoute.map { it.latitude to it.longitude }
-            // オフラインで使える本命: 経路沿いの辺の勾配 (osm-importer が標高タイルから書き込んだ値) を積み上げる。
-            // 勾配の入っていない旧 graph のときだけ、従来の推定 (実際の標高ではない) に戻す。
+            // オフラインで使える本命: 経路沿いのノード標高・辺の勾配 (osm-importer が標高タイルから書き込んだ値)。
+            // どちらも入っていない旧 graph かつ DEM タイルも無いときは、架空の標高を作らず空のままにする。
             val graph = mappedGraphState.value
             val gradeProfile = if (crossRouteElevationState.value != null) {
                 val cross = crossRouteElevationState.value!!
@@ -327,9 +326,9 @@ internal fun rememberMapScreenState(
                     }
                 }
             } else emptyList()
-            realElevProfileState.value = gradeProfile.ifEmpty { buildRouteElevationProfile(coords, summary.distanceMeters) }
+            realElevProfileState.value = gradeProfile
             // graph が標高を持たない旧版のときだけ、標高タイルが端末にあれば (またはネット接続で取得できれば)
-            // 絶対標高の実測で置き換える。一部しか実測で埋まらない場合は、架空値が混ざるので置き換えない。
+            // 絶対標高の実測で置き換える。実測が取れなければ空のままにする。
             // graph が標高を持つときは上書きしない (別の計算と食い違い、値が揺れるため)。
             if (crossRouteElevationState.value == null && (graph == null || !graph.hasElevations)) {
                 val real = elevationRepository.getRouteElevationProfile(coords, summary.distanceMeters)

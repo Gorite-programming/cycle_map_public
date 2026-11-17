@@ -16,6 +16,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.remember
+import com.gorite.cyclemap.data.RoutingGraphHistory
 import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
 import com.gorite.cyclemap.routing.loadTimingSink
@@ -60,6 +62,9 @@ internal fun MapGraphEffects(
     onGpxRecordingEmpty: () -> Unit,
     onGpxRecordingSaved: (points: Int, fileName: String) -> Unit,
 ) {
+    val switchGate = remember { GraphSwitchGate() }
+    val graphNavigationState = remember(context) { navigationGraphState(context) }
+    val graphHistory = remember(context) { context.getSharedPreferences(RoutingGraphHistory.PREFERENCES, Context.MODE_PRIVATE) }
     /**
      * 県グラフ切替。routing要求時 (runRouteCalculation) と現在地更新時 (先読み) から呼ばれる。
      */
@@ -103,6 +108,7 @@ internal fun MapGraphEffects(
                 val previous = loadedGraphName
                 graphLock.write { onMappedGraphChanged(loaded.first) }
                 onLoadedGraphNameChanged(selection.fileName)
+                graphHistory.edit().putString(RoutingGraphHistory.KEY_LAST_GRAPH, selection.fileName).apply()
                 Log.i(
                     "CycleMapRoute",
                     "GRAPH_SWITCH from=${previous ?: "(none)"} to=${selection.fileName} " +
@@ -139,11 +145,11 @@ internal fun MapGraphEffects(
     }
     switchRef.set(startGraphSwitch)
 
-    // Load graph & tile check (起動時: 配置済み最初のグラフ。現在地が他県なら後続の位置効果で切替)。
+    // 起動時は最終利用県を優先し、無ければ配置済み最初のグラフを読む。
     LaunchedEffect(Unit) {
         val dataDir = cycleMapDataDir(context)
         configureOsmdroid(context, dataDir)
-        val resolvedFiles = RoutingGraphSelector.findFirstAvailableGraph(dataDir)
+        val resolvedFiles = RoutingGraphHistory.findStartupGraph(dataDir, graphHistory.getString(RoutingGraphHistory.KEY_LAST_GRAPH, null))
         if (resolvedFiles == null) {
             android.util.Log.w("CycleMapGraph", "no graph in ${dataDir.absolutePath}")
             onWarningMessageChanged("ルートデータが端末に入っていません。メニュー「オフラインデータ」で確認できます")
@@ -164,6 +170,7 @@ internal fun MapGraphEffects(
                 }
                 onMappedGraphChanged(result.first)
                 onLoadedGraphNameChanged(graphFile.name)
+                graphHistory.edit().putString(RoutingGraphHistory.KEY_LAST_GRAPH, graphFile.name).apply()
                 Log.i("CycleMapGraph", "mappedLoadMs=${result.second} pssDeltaKb=${result.third} nodes=${result.first.nodeCount} edges=${result.first.edgeCount}")
                 Log.i("CycleMapRoute", "GRAPH_SELECT startup file=${graphFile.name} loaded=true nodes=${result.first.nodeCount}")
                 // 読み込み中に頼まれたルート (起動直後に目的地を選んだ、開き直してルートを戻すなど) は保留されているので、ここで計算する。
@@ -188,8 +195,15 @@ internal fun MapGraphEffects(
     LaunchedEffect(currentLocation) {
         val loc = currentLocation ?: return@LaunchedEffect
         onLocationUpdate?.invoke(loc)
-        if (isSwitchingGraph) return@LaunchedEffect
-        when (val sel = RoutingGraphSelector.select(loc.latitude, loc.longitude)) {
+        val selected = RoutingGraphSelector.select(loc.latitude, loc.longitude)
+        val target = (selected as? RoutingGraphSelection.Available)?.fileName
+        // 先読みで計算を中断したり、案内中の経路が使うグラフを閉じたりしない。
+        val busy = isSwitchingGraph || routeJobRef.get() != null || inFlightRouteRef.get() != null ||
+            pendingRouteRef.get() != null || graphNavigationState?.active == true
+        if (!switchGate.update(target, loadedGraphName,
+                if (loc.hasAccuracy()) loc.accuracy.toDouble() else Double.POSITIVE_INFINITY,
+                loc.elapsedRealtimeNanos / 1_000_000L, busy)) return@LaunchedEffect
+        when (val sel = selected) {
             is RoutingGraphSelection.Available -> {
                 // 端末にグラフの無い県では先読みしない (経路を求めたときに「ルートデータが入っていません」と案内する)
                 val onDevice = RoutingGraphSelector.resolveGraphFiles(cycleMapDataDir(context), sel.fileName) != null

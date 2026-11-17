@@ -554,6 +554,9 @@ internal fun MapScreen(
             if (recording) state.gpxPointCountState.value = points
         },
         navigationRoute = state.navigationRouteState.value,
+        // 通過済みを保存対象からも外すので、再探索・復元でも戻らない。
+        waypoints = state.waypointsState.value,
+        onWaypointsPassed = { count -> state.waypointsState.value = state.waypointsState.value.drop(count) },
         navigationManeuvers = state.navigationManeuversState.value,
         navigationInstructions = state.navigationInstructionsState.value,
         onNavigationProgressChanged = { state.navigationProgressState.value = it },

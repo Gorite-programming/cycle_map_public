@@ -3,11 +3,19 @@ package com.gorite.cyclemap.ui.cycling
 import com.gorite.cyclemap.contract.RouteOption
 import com.gorite.cyclemap.contract.TravelModeType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteChoicesTest {
-    private fun option(id: String, km: Double, gain: Double, pts: Int, primary: Boolean = false) = RouteOption(
-        id = id, title = id, travelMode = TravelModeType.Bicycle, distanceMeters = km * 1000.0,
+    private fun option(
+        id: String,
+        km: Double,
+        gain: Double,
+        pts: Int,
+        primary: Boolean = false,
+        title: String = id,
+    ) = RouteOption(
+        id = id, title = title, travelMode = TravelModeType.Bicycle, distanceMeters = km * 1000.0,
         durationSeconds = 0.0, elevationGainMeters = gain,
         points = List(pts) { 34.0 + it * 0.001 to 132.0 }, isPrimary = primary,
     )
@@ -72,6 +80,48 @@ class RouteChoicesTest {
     fun outOfRangeSelectionTreatsAllAsAlternatives() {
         val opts = listOf(option("a", 1.0, 0.0, 3), option("b", 1.0, 0.0, 3))
         assertEquals(2, alternativeLinesOf(opts, 5).size)
+    }
+
+    @Test
+    fun formatRouteDistanceRoundsHalfUpConsistently() {
+        assertEquals("0m", formatRouteDistance(0.0))
+        assertEquals("450m", formatRouteDistance(450.4))
+        assertEquals("451m", formatRouteDistance(450.5))
+        assertEquals("1.0km", formatRouteDistance(999.6))
+        assertEquals("11.2km", formatRouteDistance(11_240.0))
+        assertEquals("11.3km", formatRouteDistance(11_250.0))
+        assertEquals("11.3km", formatRouteDistance(11_270.0))
+        assertEquals("--", formatRouteDistance(Double.NaN))
+    }
+
+    @Test
+    fun choicesCompareFeaturesAndElevationDiffWhenAvailable() {
+        val primary = option("route_primary", 10.0, 180.0, 3, primary = true, title = "主要サイクリングルート (推奨)")
+        val alt = option("route_alternative", 10.6, 90.0, 3, primary = false, title = "裏道・平坦優先ルート")
+        val choices = routeChoicesOf(listOf(primary, alt))
+
+        assertEquals("最短", choices[0].featureTag)
+        assertEquals("登り +90m", choices[0].elevationDiffText)
+        assertEquals("10.0km ・ +180m", choices[0].detail)
+
+        assertEquals("坂が少ない", choices[1].featureTag)
+        assertEquals("登り -90m", choices[1].elevationDiffText)
+        assertEquals("10.6km ・ +90m", choices[1].detail)
+    }
+
+    @Test
+    fun choicesHideElevationAndCompareDistanceWhenElevationMissing() {
+        val primary = option("route_primary", 10.0, Double.NaN, 3, primary = true, title = "主要サイクリングルート (推奨)")
+        val alt = option("route_alternative", 10.6, Double.NaN, 3, primary = false, title = "裏道・平坦優先ルート")
+        val choices = routeChoicesOf(listOf(primary, alt))
+
+        assertEquals("最短", choices[0].featureTag)
+        assertNull(choices[0].elevationDiffText)
+        assertEquals("10.0km", choices[0].detail)
+
+        assertEquals("幹線を避ける", choices[1].featureTag)
+        assertNull(choices[1].elevationDiffText)
+        assertEquals("10.6km", choices[1].detail)
     }
 }
 

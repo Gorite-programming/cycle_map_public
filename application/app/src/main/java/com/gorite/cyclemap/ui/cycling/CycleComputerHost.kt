@@ -1,6 +1,5 @@
 package com.gorite.cyclemap.ui.cycling
 
-import android.app.Activity
 import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -14,13 +13,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import com.gorite.cyclemap.routing.RouteProgress
 import com.gorite.cyclemap.tracking.RideSession
 import com.gorite.cyclemap.tracking.RideState
+import com.gorite.cyclemap.ui.effects.KeepScreenOnEffect
+import com.gorite.cyclemap.ui.effects.shouldKeepScreenOnInCycleComputer
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -41,7 +42,6 @@ fun CycleComputerHost(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -61,15 +61,21 @@ fun CycleComputerHost(
             if (rideSession.snapshot(System.currentTimeMillis()).state != RideState.IDLE) store.save(rideSession)
         }
     }
-    // 表示している間だけ画面を点けたままにする。
-    DisposableEffect(context) {
-        val window = (context as? Activity)?.window
-        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    val snapshot = rideSession.snapshot(nowMs)
+    // 一時停止が 60 秒続いたら画面常時点灯を解除し、通常の消灯に任せる。
+    var pausedSinceMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(snapshot.state) {
+        pausedSinceMs = if (snapshot.state == RideState.PAUSED) System.currentTimeMillis() else null
     }
+    KeepScreenOnEffect(
+        enabled = shouldKeepScreenOnInCycleComputer(
+            state = snapshot.state,
+            pausedSinceMs = pausedSinceMs,
+            nowMs = nowMs,
+        ),
+    )
     BackHandler(onBack = onExit)
 
-    val snapshot = rideSession.snapshot(nowMs)
     val clockFormat = remember { SimpleDateFormat("H:mm", Locale.JAPAN) }
     val destination = buildCycleComputerDestination(
         destLat = destLat,
