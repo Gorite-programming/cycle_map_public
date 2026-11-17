@@ -32,7 +32,10 @@ internal fun KeepScreenOnEffect(enabled: Boolean) {
     if (!enabled) return
     val context = LocalContext.current
     DisposableEffect(context) {
-        val window = (context as? Activity)?.window
+        // LocalContext はテーマなどの ContextWrapper のことがあるので、包みをたどって Activity を探す
+        var c: android.content.Context? = context
+        while (c != null && c !is Activity) c = (c as? android.content.ContextWrapper)?.baseContext
+        val window = (c as? Activity)?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

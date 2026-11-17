@@ -168,6 +168,9 @@ fun RouteInfoCardContent(
             ) {
                 routeChoices.forEachIndexed { index, choice ->
                     val isSelected = index == selectedRouteChoice
+                    // 選んでいる候補は、見出しと同じ距離 (出発地・目的地までの線を含む) で出す
+                    val shownDistanceM = if (isSelected && totalDistanceM.isFinite() && totalDistanceM > 0.0) totalDistanceM else choice.distanceMeters
+                    val shownDetail = formatRouteDistance(shownDistanceM) + choice.detail.removePrefix(formatRouteDistance(choice.distanceMeters))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
@@ -216,13 +219,13 @@ fun RouteInfoCardContent(
                                 }
                             }
                             Text(
-                                formatRemainingTime(choice.estimatedDurationSeconds(metrics.averageKmh)),
+                                formatRemainingTime(choice.copy(distanceMeters = shownDistanceM).estimatedDurationSeconds(metrics.averageKmh)),
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                choice.detail,
+                                shownDetail,
                                 fontSize = 12.sp,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

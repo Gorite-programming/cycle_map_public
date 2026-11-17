@@ -101,11 +101,11 @@ class RouteChoicesTest {
         val choices = routeChoicesOf(listOf(primary, alt))
 
         assertEquals("最短", choices[0].featureTag)
-        assertEquals("登り +90m", choices[0].elevationDiffText)
+        assertEquals("登りが90m多い", choices[0].elevationDiffText)
         assertEquals("10.0km ・ +180m", choices[0].detail)
 
         assertEquals("坂が少ない", choices[1].featureTag)
-        assertEquals("登り -90m", choices[1].elevationDiffText)
+        assertEquals("登りが90m少ない", choices[1].elevationDiffText)
         assertEquals("10.6km ・ +90m", choices[1].detail)
     }
 

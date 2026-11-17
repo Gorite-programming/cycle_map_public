@@ -53,8 +53,8 @@ fun routeChoicesOf(options: List<RouteOption>): List<RouteChoice> {
             val otherMin = options.filterIndexed { idx, _ -> idx != i }.minOf { it.elevationGainMeters }
             val diff = (o.elevationGainMeters - otherMin).roundToInt()
             when {
-                diff <= -5 -> "登り ${diff}m"
-                diff >= 5 -> "登り +${diff}m"
+                diff <= -5 -> "登りが${-diff}m少ない"
+                diff >= 5 -> "登りが${diff}m多い"
                 else -> null
             }
         } else {
