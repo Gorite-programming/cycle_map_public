@@ -145,4 +145,25 @@ class GpxParserTest {
         assertEquals(t2, summary.points[2].timestampMillis)
         assertEquals(20L, summary.totalDurationSeconds)
     }
+
+    private fun point(lat: String, lon: String, time: String) = listOf(
+        Token(XmlPullParser.START_TAG, name = "trkpt", attributes = mapOf("lat" to lat, "lon" to lon)),
+        Token(XmlPullParser.START_TAG, name = "time"),
+        Token(XmlPullParser.TEXT, text = time),
+        Token(XmlPullParser.END_TAG, name = "time"),
+        Token(XmlPullParser.END_TAG, name = "trkpt"),
+    )
+
+    @Test
+    fun parse_doesNotCountGapBetweenPausedSegments() {
+        // 区間1: 0.001 度 (約 111m) 北へ 60 秒。一時停止して 1 km 先から区間2: 同じく約 111m を 60 秒
+        val tokens = listOf(Token(XmlPullParser.START_DOCUMENT), Token(XmlPullParser.START_TAG, name = "trkseg")) +
+            point("34.000", "131.0", "2026-02-09T08:00:00Z") + point("34.001", "131.0", "2026-02-09T08:01:00Z") +
+            listOf(Token(XmlPullParser.END_TAG, name = "trkseg"), Token(XmlPullParser.START_TAG, name = "trkseg")) +
+            point("34.010", "131.0", "2026-02-09T09:00:00Z") + point("34.011", "131.0", "2026-02-09T09:01:00Z") +
+            listOf(Token(XmlPullParser.END_TAG, name = "trkseg"), Token(XmlPullParser.END_DOCUMENT))
+        val summary = GpxParser.parse(createFakeParser(tokens), File("paused.gpx"))
+        assertEquals(222.4, summary.totalDistanceMeters, 1.0)
+        assertEquals(120L, summary.totalDurationSeconds)
+    }
 }

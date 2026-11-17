@@ -50,6 +50,7 @@ import org.osmdroid.views.overlay.Polyline
 @Composable
 internal fun MapModalsHost(
     context: Context,
+    navigationRoute: List<com.gorite.cyclemap.routing.RoutePoint> = emptyList(),
     prefs: SharedPreferences,
     lifecycleOwner: LifecycleOwner,
     mapView: MapView?,
@@ -189,6 +190,8 @@ internal fun MapModalsHost(
     )
 
     MapPanelsHost(
+        isNavigationActive = isNavigationActive,
+        navigationRoute = navigationRoute,
         origin = currentLocation?.let { it.latitude to it.longitude },
         showSpotPanel = showSpotPanel,
         onCloseSpotPanel = onCloseSpotPanel,

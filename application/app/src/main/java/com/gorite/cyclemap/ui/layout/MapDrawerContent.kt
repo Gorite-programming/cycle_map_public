@@ -36,6 +36,7 @@ internal fun MapDrawerContent(
     onSavedClick: () -> Unit,
     onRecordHistoryClick: () -> Unit,
     onDownloadClick: () -> Unit,
+    onImportGpxClick: () -> Unit = {},
     on3dSimulationClick: () -> Unit = {},
     onLicenseClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -102,6 +103,12 @@ internal fun MapDrawerContent(
                 iconRes = R.drawable.ic_lucide_download,
                 selected = selectedMenu == "ダウンロード",
                 onClick = onDownloadClick,
+            )
+            DrawerMenuItem(
+                label = "GPXを読み込む",
+                iconRes = R.drawable.ic_lucide_route,
+                selected = selectedMenu == "GPX",
+                onClick = onImportGpxClick,
             )
             DrawerMenuItem(
                 label = "3D地形ビュー",

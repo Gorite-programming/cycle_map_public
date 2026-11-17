@@ -97,13 +97,18 @@ internal fun WaypointOrDestinationDialog(
     onAddWaypoint: () -> Unit,
     onChangeDestination: () -> Unit,
     onDismiss: () -> Unit,
+    spotName: String? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("地点の指定", fontWeight = FontWeight.Bold) },
         text = {
             Text(
-                "現在すでにルートが設定されています。\nこの地点を経由地に追加しますか？それとも新しい目的地にしますか？",
+                if (!spotName.isNullOrBlank()) {
+                    "「$spotName」を経由地に追加しますか？それとも新しい目的地にしますか？"
+                } else {
+                    "現在すでにルートが設定されています。\nこの地点を経由地に追加しますか？それとも新しい目的地にしますか？"
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
         },

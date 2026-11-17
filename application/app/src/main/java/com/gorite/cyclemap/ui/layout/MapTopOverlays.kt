@@ -4,33 +4,59 @@ import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.gorite.cyclemap.net.Link
 import com.gorite.cyclemap.routing.OffRouteDetector
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RouteProgress
-import com.gorite.cyclemap.ui.map.toGuidanceTurnType
 import com.gorite.cyclemap.ui.cycling.QuickSpotType
+import com.gorite.cyclemap.ui.map.DEFAULT_CATEGORY_CHIPS
+import com.gorite.cyclemap.ui.map.NetworkStatusIndicator
+import com.gorite.cyclemap.ui.map.toGuidanceTurnType
 import com.gorite.cyclemap.ui.theme.Motion
 
 @Composable
@@ -85,22 +111,17 @@ internal fun BoxScope.MapTopOverlays(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Google Maps 完全準拠 MapTopBar (≡ + 検索 + 雲/オフライン + 🎙️ + アバター + 通知バナー + カテゴリチップ)
-            com.gorite.cyclemap.ui.map.MapTopBar(
-                queryText = "",
+            SearchTopBar(
                 onSearchClick = onSearchClick,
                 onMenuClick = onMenuClick,
                 networkLink = networkLink,
                 selectedCategory = null,
                 onCategoryClick = onSelectCategory,
-                onMicClick = onSearchClick,
-                onAvatarClick = onAvatarClick,
-                userAvatarText = "",
                 placeholderText = "ここで検索",
                 bannerContent = {
                     notificationBannerGroup(Modifier.fillMaxWidth())
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
             if (roadRuleBadge != null) {
                 Box(
@@ -260,6 +281,134 @@ internal fun BoxScope.MapTopOverlays(
             ) {
                 notificationBannerGroup(Modifier.fillMaxWidth())
                 roadRuleBadge?.invoke()
+            }
+        }
+    }
+}
+
+/**
+ * 地図上部の検索バーとカテゴリチップ列。
+ * 未実装のマイクボタンを省き、メニューボタン・各チップとも 48dp 以上のタップ領域を確保する。
+ */
+@Composable
+private fun SearchTopBar(
+    onSearchClick: () -> Unit,
+    onMenuClick: () -> Unit,
+    networkLink: Link,
+    selectedCategory: String?,
+    onCategoryClick: (String) -> Unit,
+    placeholderText: String,
+    bannerContent: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .clickable(role = Role.Button, onClick = onSearchClick),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 4.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(role = Role.Button, onClick = onMenuClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lucide_menu),
+                        contentDescription = "メニュー",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Text(
+                    text = placeholderText,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+
+                Box(modifier = Modifier.size(1.dp).alpha(0.01f)) {
+                    NetworkStatusIndicator(networkLink)
+                }
+            }
+        }
+
+        if (bannerContent != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            bannerContent()
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DEFAULT_CATEGORY_CHIPS.forEach { chip ->
+                val isSelected = selectedCategory == chip.id
+                val interactionSource = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .height(48.dp)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            role = Role.Button,
+                            onClick = { onCategoryClick(chip.id) },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .indication(interactionSource, LocalIndication.current),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(chip.iconRes),
+                                contentDescription = null,
+                                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = chip.label,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

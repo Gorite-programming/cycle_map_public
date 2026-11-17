@@ -60,6 +60,10 @@ internal fun MapScreen(
     val state = rememberMapScreenState(
         onNavigationStateChanged = onNavigationStateChanged,
     )
+    val arrivalRide = remember { mutableStateOf<com.gorite.cyclemap.tracking.RideSnapshot?>(null) }
+    val waitingDestination = remember { mutableStateOf<GeoPoint?>(null) }
+    val restoredDestination = remember { mutableStateOf<GeoPoint?>(null) }
+    val manualRestoreOrigin = remember { mutableStateOf<GeoPoint?>(null) }
     val routeExecutionGeneration = remember { AtomicLong(0L) }
     val pendingRouteGpx = remember { mutableStateOf<String?>(null) }
     val exportRouteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
@@ -243,25 +247,34 @@ internal fun MapScreen(
     }
 
     val startRouteToDestination: (GeoPoint) -> Unit = { point ->
-        val loc = latestLocation
-        val start = if (loc != null) {
-            GeoPoint(loc.latitude, loc.longitude)
+        val loc = state.currentLocationState.value
+        val start = state.startMarkerState.value?.position ?: loc?.let { GeoPoint(it.latitude, it.longitude) }
+        if (start == null) {
+            waitingDestination.value = point
+            state.destinationState.value = point
+            state.warningMessageState.value = WAITING_FOR_LOCATION
         } else {
-            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
-            GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
+            waitingDestination.value = null
+            runRouteCalculation(start, point, false, null, null)
         }
-        if (BuildConfig.DEBUG) {
-            Log.i(
-                "CycleMapRoute",
-                "DESTINATION_SET dest=${point.latitude},${point.longitude} " +
-                    "currentLocation=${if (loc != null) "${loc.latitude},${loc.longitude} acc=${loc.accuracy}" else "null->FALLBACK $FALLBACK_LATITUDE,$FALLBACK_LONGITUDE"}",
-            )
+    }
+    LaunchedEffect(state.currentLocationState.value, state.startMarkerState.value) {
+        val goal = waitingDestination.value ?: return@LaunchedEffect
+        if (state.currentLocationState.value != null || state.startMarkerState.value != null) {
+            state.warningMessageState.value = null
+            startRouteToDestination(goal)
         }
-        runRouteCalculation(start, point, false, null, null)
     }
 
     val handleSpotSelected: (GeoPoint) -> Unit = { point ->
-        if (state.destinationState.value != null) {
+        val waiting = waitingDestination.value
+        if (restoredDestination.value != null) {
+            manualRestoreOrigin.value = point
+        } else if (waiting != null) {
+            waitingDestination.value = null
+            state.warningMessageState.value = null
+            runRouteCalculation(point, waiting, false, null, null)
+        } else if (state.destinationState.value != null) {
             state.pendingSelectedSpotState.value = point
         } else {
             startRouteToDestination(point)
@@ -472,6 +485,112 @@ internal fun MapScreen(
     }
     val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
     val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
+    val trackingService = remember { mutableStateOf<com.gorite.cyclemap.tracking.LocationTrackingService?>(null) }
+    val showRecovery = remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(state.context) {
+        val connection = com.gorite.cyclemap.tracking.locationServiceConnection { trackingService.value = it }
+        com.gorite.cyclemap.tracking.LocationTrackingService.bind(state.context, connection)
+        onDispose { state.context.unbindService(connection) }
+    }
+    LaunchedEffect(trackingService.value) {
+        while (true) {
+            showRecovery.value = trackingService.value?.recoveryPending == true
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    if (showRecovery.value) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            title = { androidx.compose.material3.Text("前回の走行記録があります") },
+            text = { androidx.compose.material3.Text("前回の記録を続けるか、GPXに保存して終了できます。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    com.gorite.cyclemap.tracking.LocationTrackingService.resumeRecording(state.context)
+                    rideSession.start()
+                    showRecovery.value = false
+                }) { androidx.compose.material3.Text("続ける") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    com.gorite.cyclemap.tracking.LocationTrackingService.stopRecording(state.context)
+                    rideSession.pause()
+                    rideSessionStore.save(rideSession)
+                    showRecovery.value = false
+                }) { androidx.compose.material3.Text("保存して終える") }
+            },
+        )
+    }
+    LaunchedEffect(state.isRecordingState.value) {
+        if (state.isRecordingState.value) rideSession.start()
+        else if (rideSession.snapshot(System.currentTimeMillis()).state != com.gorite.cyclemap.tracking.RideState.IDLE) {
+            rideSession.pause()
+            rideSessionStore.save(rideSession)
+        }
+    }
+    // Restore a viewed position independently of GPS; it must never become a routing origin.
+    val initialMapCenter = remember {
+        val savedLat = state.prefs.getString("view_lat", null)?.toDoubleOrNull()
+        val savedLon = state.prefs.getString("view_lon", null)?.toDoubleOrNull()
+        val graphName = com.gorite.cyclemap.data.RoutingGraphSelector.findFirstAvailableGraph(cycleMapDataDir(state.context))?.first?.name
+        val pref = com.gorite.cyclemap.data.PrefectureData.ALL.firstOrNull {
+            graphName?.substringBefore('.')?.equals(it.id, ignoreCase = true) == true
+        }
+        if (savedLat != null && savedLon != null && savedLat.isFinite() && savedLon.isFinite()) savedLat to savedLon
+        else pref?.bounds?.let { (it.latNorth + it.latSouth) / 2 to (it.lonEast + it.lonWest) / 2 }
+            ?: (36.0 to 138.0)
+    }
+    val viewedCenter = remember { java.util.concurrent.atomic.AtomicReference(initialMapCenter) }
+    val vectorCenterReady = remember(state.vectorMapState.value) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val rasterCenterReady = remember(state.mapViewState.value) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    LaunchedEffect(state.mapViewState.value) {
+        val map = state.mapViewState.value ?: return@LaunchedEffect
+        if (state.currentLocationState.value == null && state.navigationRouteState.value.isEmpty()) {
+            val center = viewedCenter.get()
+            map.controller.setCenter(GeoPoint(center.first, center.second))
+        }
+        rasterCenterReady.set(true)
+    }
+    LaunchedEffect(state.vectorMapState.value) {
+        val map = state.vectorMapState.value ?: return@LaunchedEffect
+        withFrameNanos { }
+        if (state.currentLocationState.value == null && state.navigationRouteState.value.isEmpty()) {
+            val center = viewedCenter.get()
+            map.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLng(
+                org.maplibre.android.geometry.LatLng(center.first, center.second)))
+        }
+        vectorCenterReady.set(true)
+    }
+    androidx.compose.runtime.DisposableEffect(state.vectorMapState.value, state.mapViewState.value) {
+        val vector = state.vectorMapState.value
+        val raster = state.mapViewState.value
+        fun save(lat: Double, lon: Double) {
+            if (lat.isFinite() && lon.isFinite()) {
+                viewedCenter.set(lat to lon)
+                state.prefs.edit().putString("view_lat", lat.toString()).putString("view_lon", lon.toString()).apply()
+            }
+        }
+        val listener = org.maplibre.android.maps.MapLibreMap.OnCameraIdleListener {
+            if (vectorCenterReady.get()) vector?.cameraPosition?.target?.let { save(it.latitude, it.longitude) }
+        }
+        val rasterListener = org.osmdroid.events.DelayedMapListener(object : org.osmdroid.events.MapListener {
+            private fun saveCenter(): Boolean {
+                if (vector == null && rasterCenterReady.get()) raster?.mapCenter?.let { save(it.latitude, it.longitude) }
+                return false
+            }
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?) = saveCenter()
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?) = saveCenter()
+        }, 250L)
+        raster?.addMapListener(rasterListener)
+        vector?.addOnCameraIdleListener(listener)
+        onDispose {
+            runCatching {
+                if (vectorCenterReady.get()) vector?.cameraPosition?.target?.let { save(it.latitude, it.longitude) }
+                if (vector == null && rasterCenterReady.get()) raster?.mapCenter?.let { save(it.latitude, it.longitude) }
+            }
+            raster?.removeMapListener(rasterListener)
+            vector?.removeOnCameraIdleListener(listener)
+        }
+    }
     // 気圧計はサイコン画面を出している間だけ動かす (電池のため)
     val pressureReader = remember { com.gorite.cyclemap.tracking.PressureReader(state.context) }
     androidx.compose.runtime.DisposableEffect(displayModeState.value == com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER) {
@@ -565,7 +684,10 @@ internal fun MapScreen(
         navStartElapsedMs = state.navStartElapsedMsState.value,
         onNavStatsChanged = { state.navStatsState.value = it },
         isArrived = state.isArrivedState.value,
-        onArrivedChanged = { state.isArrivedState.value = it },
+        onArrivedChanged = {
+            if (it && !state.isArrivedState.value) arrivalRide.value = rideSession.snapshot(System.currentTimeMillis())
+            state.isArrivedState.value = it
+        },
         onNavigationActiveChanged = { state.isNavigationActiveState.value = it },
         offRouteDetector = state.offRouteDetector,
         voiceNavigator = state.voiceNavigator,
@@ -675,6 +797,7 @@ internal fun MapScreen(
     }
 
     val startNavigation: () -> Unit = {
+        arrivalRide.value = null
         val loc = state.currentLocationState.value
         val navRoute = state.navigationRouteState.value
         val navInst = state.navigationInstructionsState.value
@@ -737,18 +860,15 @@ internal fun MapScreen(
                 "waypoints=${restore.waypoints.size} pref=${restore.preferenceName} navigating=${restore.wasNavigating}",
         )
         state.selectedRoutePreferenceState.value = restore.preference
-        // 現在地が取れるまで少し待つ (取れなければ startRouteToDestination と同じく代わりの出発地を使う)
-        val loc = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_LOCATION_WAIT_MS) {
-            androidx.compose.runtime.snapshotFlow { state.currentLocationState.value }
-                .filterNotNull()
-                .first()
-        }
-        val start = if (loc != null) {
-            GeoPoint(loc.latitude, loc.longitude)
-        } else {
-            state.warningMessageState.value = "現在地を取得できていないため、山口市役所付近を出発地にして計算します"
-            GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
-        }
+        state.destinationState.value = restore.destination
+        restoredDestination.value = restore.destination
+        state.warningMessageState.value = WAITING_FOR_LOCATION
+        val start = androidx.compose.runtime.snapshotFlow {
+            manualRestoreOrigin.value ?: state.startMarkerState.value?.position ?: state.currentLocationState.value?.let { GeoPoint(it.latitude, it.longitude) }
+        }.filterNotNull().first()
+        restoredDestination.value = null
+        if (state.destinationState.value != restore.destination || state.navigationRouteState.value.isNotEmpty()) return@LaunchedEffect
+        state.warningMessageState.value = null
         runRouteCalculation(start, restore.destination, false, restore.waypoints, restore.preference)
         if (restore.wasNavigating) {
             val routed = kotlinx.coroutines.withTimeoutOrNull(SESSION_RESTORE_ROUTE_WAIT_MS) {
@@ -763,6 +883,8 @@ internal fun MapScreen(
     }
 
     val clearRoute: () -> Unit = {
+        waitingDestination.value = null
+        restoredDestination.value = null
         routeExecutionGeneration.incrementAndGet()
         state.inFlightRouteRef.set(null)
         state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
@@ -881,6 +1003,7 @@ internal fun MapScreen(
     ) {
     MapScreenScaffold(
         state = state,
+        rideSnapshot = arrivalRide.value,
         modifier = modifier,
         systemInsets = systemInsets,
         isDarkTheme = isDarkTheme,
@@ -908,6 +1031,9 @@ internal fun MapScreen(
         com.gorite.cyclemap.ui.cycling.CycleComputerHost(
             rideSession = rideSession,
             store = rideSessionStore,
+            onStartRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.startRecording(state.context) },
+            onPauseRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.pauseRecording(state.context) },
+            onFinishRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.stopRecording(state.context) },
             location = state.currentLocationState.value,
             destLat = state.destinationState.value?.latitude,
             destLon = state.destinationState.value?.longitude,
@@ -918,10 +1044,9 @@ internal fun MapScreen(
     }
 }
 
-/** 開き直したときに前回のルートを戻す処理で、現在地を待つ時間。 */
 /** ルートプレビューで引く下限のズーム。これ未満はタイルが粗い陸地ポリゴンだけになる。 */
 private const val PREVIEW_MIN_ZOOM = 6.0
-private const val SESSION_RESTORE_LOCATION_WAIT_MS = 10_000L
+private const val WAITING_FOR_LOCATION = "現在地を取得中です。地図を長押しして出発地を選ぶこともできます"
 
 /** 案内を再開する前に、ルートの計算が終わるのを待つ時間 (県またぎでも足りる長さ)。 */
 private const val SESSION_RESTORE_ROUTE_WAIT_MS = 60_000L

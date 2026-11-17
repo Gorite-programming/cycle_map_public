@@ -110,6 +110,9 @@ object GpxParser {
 
     fun parse(parser: XmlPullParser, sourceFile: File): RideHistorySummary {
         val rawPoints = ArrayList<GpxTrackPoint>()
+        // 各点が属する trkseg の番号。一時停止で区切られた区間の間 (移動していない間) は距離・時間に数えない
+        val segmentOfPoint = ArrayList<Int>()
+        var segmentIndex = -1
         var eventType = parser.eventType
         var currentLat: Double? = null
         var currentLon: Double? = null
@@ -125,6 +128,7 @@ object GpxParser {
                 XmlPullParser.START_TAG -> {
                     currentTag = parser.name
                     textBuffer.setLength(0)
+                    if (currentTag == "trkseg") segmentIndex++
                     if (currentTag == "trkpt") {
                         insideTrkpt = true
                         currentLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
@@ -171,6 +175,7 @@ object GpxParser {
                                             timestampMillis = timeMs,
                                         ),
                                     )
+                                    segmentOfPoint.add(segmentIndex.coerceAtLeast(0))
                                 }
                                 insideTrkpt = false
                             }
@@ -192,7 +197,7 @@ object GpxParser {
         for (i in rawPoints.indices) {
             val curr = rawPoints[i]
             var spd = 0.0
-            if (i > 0) {
+            if (i > 0 && segmentOfPoint[i] == segmentOfPoint[i - 1]) {
                 val prev = rawPoints[i - 1]
                 val d = haversineMeters(prev.latitude, prev.longitude, curr.latitude, curr.longitude)
                 totalDist += d
@@ -224,7 +229,12 @@ object GpxParser {
         val validTimePoints = computedPoints.filter { it.timestampMillis > 0L }
         val start = validTimePoints.firstOrNull()?.timestampMillis ?: sourceFile.lastModified().takeIf { it > 0L } ?: 0L
         val end = validTimePoints.lastOrNull()?.timestampMillis ?: start
-        val durSec = ((end - start) / 1000L).coerceAtLeast(0L)
+        // 区間ごとの時間を足す (一時停止で区切った間の時間は含めない)。区切りが無ければ従来どおり最初から最後まで
+        val durSec = if (segmentOfPoint.distinct().size <= 1) ((end - start) / 1000L).coerceAtLeast(0L) else
+            computedPoints.indices.groupBy { segmentOfPoint[it] }.values.sumOf { idx ->
+                val ts = idx.map { computedPoints[it].timestampMillis }.filter { it > 0L }
+                if (ts.size < 2) 0L else ((ts.last() - ts.first()) / 1000L).coerceAtLeast(0L)
+            }
         val avgSpd = if (durSec > 0) (totalDist / durSec) * 3.6 else 0.0
 
         return RideHistorySummary(

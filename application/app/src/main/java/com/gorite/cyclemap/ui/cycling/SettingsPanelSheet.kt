@@ -128,259 +128,281 @@ fun SettingsPanelSheet(
                     }
                 }
             }
-            Text("ナビの動作", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            SettingSwitch("ルートを外れたら自動で探し直す", autoReroute, onAutoReroute,
-                subtitle = "コースを外れたとき、現在地から経路を作り直します")
-            SettingSwitch("進行方向を上にする", headingUp, onHeadingUp,
-                subtitle = "走っている向きに合わせて地図を回します。オフのときは北が上です")
+            var navExpanded by remember { mutableStateOf(true) }
+            var displayExpanded by remember { mutableStateOf(false) }
+            var dataAppExpanded by remember { mutableStateOf(false) }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            Text("音声案内", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            SettingDescription("曲がる場所やルートを外れたことを声で知らせます")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                VoiceGuidanceMode.entries.forEach { mode ->
-                    val isSelected = mode == voiceGuidanceMode
-                    val animEnabled = LocalAnimationEnabled.current
-                    val bgColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
-                        label = "VoiceModeBg",
-                    )
-                    val contentColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
-                        label = "VoiceModeContent",
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = bgColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onVoiceGuidanceModeChange(mode) },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                when (mode) {
-                                    VoiceGuidanceMode.VOICEVOX -> "音声あり"
-                                    VoiceGuidanceMode.OFF -> "音声なし"
-                                },
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = contentColor,
-                            )
-                        }
-                    }
-                }
-            }
+            SettingSectionHeader(
+                title = "走行・ナビ",
+                subtitle = "再検索・進行方向・音声案内・道路ルール",
+                expanded = navExpanded,
+                onToggle = { navExpanded = !navExpanded },
+            )
+            if (navExpanded) {
+                SettingSwitch("ルートを外れたら自動で探し直す", autoReroute, onAutoReroute,
+                    subtitle = "コースを外れたとき、現在地から経路を作り直します")
+                SettingSwitch("進行方向を上にする", headingUp, onHeadingUp,
+                    subtitle = "走っている向きに合わせて地図を回します。オフのときは北が上です")
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("地図の表示", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("地図の種類", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            layerLabels.forEachIndexed { index, label ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("音声案内", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                SettingDescription("曲がる場所やルートを外れたことを声で知らせます")
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onLayerSelect(index) },
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    RadioButton(selected = layerIndex == index, onClick = { onLayerSelect(index) })
-                    Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(label)
-                        val description = when {
-                            "ベクター" in label -> "標準。データを入れた県は通信なしで見られます"
-                            "地理院標準" in label || "自転車向け" in label -> "通信するか、事前に保存した範囲で見られます"
-                            "地形起伏" in label -> "通信が必要です"
-                            else -> null
-                        }
-                        description?.let { SettingDescription(it) }
-                    }
-                }
-            }
-            SettingSwitch("施設アイコンを表示", poiVisible, onPoiVisible,
-                subtitle = "拡大の度合いに応じて、駅やコンビニなどを地図に出します")
-            if (poiVisible) {
-                var poiExpanded by remember { mutableStateOf(false) }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { poiExpanded = !poiExpanded }
-                        .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "表示カテゴリ: ${poiSelected.size}/${PoiCategory.entries.size} 件",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        if (poiExpanded) "閉じる" else "変更",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                // グループ分けと「標準に戻す / すべて選択 / すべて解除」付きの選び方 (PoiCategoryPicker.kt)
-                if (poiExpanded) PoiCategoryPicker(
-                    selected = poiSelected,
-                    onToggle = onPoiToggle,
-                    onSetSelection = onPoiSetSelection,
-                )
-            }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("見た目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("テーマ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            SettingDescription("自動は、端末がダーク設定ならダーク、それ以外は日の出・日の入りで切り替えます")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ThemeMode.entries.forEach { mode ->
-                    val isSelected = mode == themeMode
-                    val animEnabled = LocalAnimationEnabled.current
-                    val bgColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
-                        label = "ThemeModeBg",
-                    )
-                    val contentColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
-                        label = "ThemeModeContent",
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = bgColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onThemeModeChange(mode) },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                when (mode) {
-                                    ThemeMode.AUTO -> "自動"
-                                    ThemeMode.LIGHT -> "ライト"
-                                    ThemeMode.DARK -> "ダーク"
-                                },
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = contentColor,
-                            )
-                        }
-                    }
-                }
-            }
-
-            val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
-            if (displayModeController != null) {
-                Text("表示モード", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                SettingDescription("シンプルは地図と操作ボタンだけ、サイコンは地図を出さずに速度・距離・時間を大きく見せます")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(com.gorite.cyclemap.ui.state.DisplayMode.NORMAL, com.gorite.cyclemap.ui.state.DisplayMode.SIMPLE, com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER).forEach { mode ->
-                        val selected = displayModeController.mode.value == mode
+                    VoiceGuidanceMode.entries.forEach { mode ->
+                        val isSelected = mode == voiceGuidanceMode
+                        val animEnabled = LocalAnimationEnabled.current
+                        val bgColor by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
+                            label = "VoiceModeBg",
+                        )
+                        val contentColor by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
+                            label = "VoiceModeContent",
+                        )
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            color = bgColor,
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 48.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { displayModeController.set(mode); onDismiss() },
+                                .clickable { onVoiceGuidanceModeChange(mode) },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(mode.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    when (mode) {
+                                        VoiceGuidanceMode.VOICEVOX -> "音声あり"
+                                        VoiceGuidanceMode.OFF -> "音声なし"
+                                    },
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = contentColor,
+                                )
                             }
                         }
                     }
                 }
+
+                val roadRuleController = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current
+                if (roadRuleController != null) {
+                    SettingSwitch("道路のルールを知らせる", roadRuleController.enabled.value, roadRuleController.setEnabled,
+                        subtitle = "自動車専用道路や、一方通行の逆向きに入ったときなどに、画面に小さく知らせます (地図データに登録があるときだけ)")
+                }
             }
 
-            val handednessController = com.gorite.cyclemap.ui.state.LocalHandednessController.current
-            if (handednessController != null) {
-                Text("利き手", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                SettingDescription("左手を選ぶと、地図の操作ボタン (現在地・拡大縮小・3D・レイヤー・ルート検索) が左側に移ります")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    com.gorite.cyclemap.ui.state.Handedness.entries.forEach { h ->
-                        val selected = handednessController.value.value == h
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            SettingSectionHeader(
+                title = "表示・地図",
+                subtitle = "地図の種類・施設アイコン・テーマ・利き手",
+                expanded = displayExpanded,
+                onToggle = { displayExpanded = !displayExpanded },
+            )
+            if (displayExpanded) {
+                Text("地図の種類", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                layerLabels.forEachIndexed { index, label ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onLayerSelect(index) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = layerIndex == index, onClick = { onLayerSelect(index) })
+                        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                            Text(label)
+                            val description = when {
+                                "ベクター" in label -> "標準。データを入れた県は通信なしで見られます"
+                                "地理院標準" in label || "自転車向け" in label -> "通信するか、事前に保存した範囲で見られます"
+                                "地形起伏" in label -> "通信が必要です"
+                                else -> null
+                            }
+                            description?.let { SettingDescription(it) }
+                        }
+                    }
+                }
+                SettingSwitch("施設アイコンを表示", poiVisible, onPoiVisible,
+                    subtitle = "拡大の度合いに応じて、駅やコンビニなどを地図に出します")
+                if (poiVisible) {
+                    var poiExpanded by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { poiExpanded = !poiExpanded }
+                            .heightIn(min = 48.dp)
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "表示カテゴリ: ${poiSelected.size}/${PoiCategory.entries.size} 件",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            if (poiExpanded) "閉じる" else "変更",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    // グループ分けと「標準に戻す / すべて選択 / すべて解除」付きの選び方 (PoiCategoryPicker.kt)
+                    if (poiExpanded) PoiCategoryPicker(
+                        selected = poiSelected,
+                        onToggle = onPoiToggle,
+                        onSetSelection = onPoiSetSelection,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+                Text("テーマ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                SettingDescription("自動は、端末がダーク設定ならダーク、それ以外は日の出・日の入りで切り替えます")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemeMode.entries.forEach { mode ->
+                        val isSelected = mode == themeMode
+                        val animEnabled = LocalAnimationEnabled.current
+                        val bgColor by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
+                            label = "ThemeModeBg",
+                        )
+                        val contentColor by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
+                            label = "ThemeModeContent",
+                        )
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            color = bgColor,
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 48.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { handednessController.set(h) },
+                                .clickable { onThemeModeChange(mode) },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(h.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.AUTO -> "自動"
+                                        ThemeMode.LIGHT -> "ライト"
+                                        ThemeMode.DARK -> "ダーク"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = contentColor,
+                                )
                             }
                         }
                     }
                 }
-            }
 
-            val roadRuleController = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current
-            if (roadRuleController != null) {
-                SettingSwitch("道路のルールを知らせる", roadRuleController.enabled.value, roadRuleController.setEnabled,
-                    subtitle = "自動車専用道路や、一方通行の逆向きに入ったときなどに、画面に小さく知らせます (地図データに登録があるときだけ)")
-            }
+                val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
+                if (displayModeController != null) {
+                    Text("表示モード", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    SettingDescription("シンプルは地図と操作ボタンだけ、サイコンは地図を出さずに速度・距離・時間を大きく見せます")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(com.gorite.cyclemap.ui.state.DisplayMode.NORMAL, com.gorite.cyclemap.ui.state.DisplayMode.SIMPLE, com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER).forEach { mode ->
+                            val selected = displayModeController.mode.value == mode
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { displayModeController.set(mode); onDismiss() },
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(mode.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
 
-            SettingSwitch("動きの演出", animationEnabled, onAnimationEnabledChange,
-                subtitle = "画面の切り替えや地図の移動をなめらかに見せます。オフにすると電池の減りを少し抑えます")
+                val handednessController = com.gorite.cyclemap.ui.state.LocalHandednessController.current
+                if (handednessController != null) {
+                    Text("利き手", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    SettingDescription("左手を選ぶと、地図の操作ボタン (現在地・拡大縮小・3D・レイヤー・ルート検索) が左側に移ります")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        com.gorite.cyclemap.ui.state.Handedness.entries.forEach { h ->
+                            val selected = handednessController.value.value == h
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { handednessController.set(h) },
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(h.label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingSwitch("動きの演出", animationEnabled, onAnimationEnabledChange,
+                    subtitle = "画面の切り替えや地図の移動をなめらかに見せます。オフにすると電池の減りを少し抑えます")
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("データ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            SettingActionRow(
-                label = "オフラインデータ管理",
-                subtitle = "地図・検索・経路のデータを追加・管理します",
-                iconRes = R.drawable.ic_lucide_download,
-                onClick = onManageData,
+            SettingSectionHeader(
+                title = "データ・アプリ",
+                subtitle = "オフラインデータ・GPX読込・ライセンス・バージョン",
+                expanded = dataAppExpanded,
+                onToggle = { dataAppExpanded = !dataAppExpanded },
             )
-            SettingActionRow(
-                label = "GPXを読み込む",
-                subtitle = "GPXファイルからコースを取り込みます",
-                iconRes = R.drawable.ic_lucide_route,
-                onClick = onImportGpx,
-            )
-            var offlineExpanded by remember { mutableStateOf(false) }
-            SettingActionRow(
-                label = "オフラインで使える機能",
-                iconRes = R.drawable.ic_lucide_cloud_off,
-                trailing = if (offlineExpanded) "閉じる ∧" else "開く ›",
-                onClick = { offlineExpanded = !offlineExpanded },
-            )
-            if (offlineExpanded) {
-                OFFLINE_CAPABILITY_NOTES.forEach { line -> SettingDescription("・$line") }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("アプリ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            SettingActionRow("ライセンス", R.drawable.ic_lucide_scale, onLicense)
-            SettingActionRow(
-                label = "バージョン情報",
-                iconRes = R.drawable.ic_lucide_info,
-                trailing = "${BuildConfig.VERSION_NAME}  ›",
-                onClick = onVersion,
-            )
-            if (BuildConfig.DEBUG) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text("開発用情報", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    "ビルド元コミット: ${BuildConfig.GIT_HASH}\nビルド日時: ${BuildConfig.BUILD_TIME}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (dataAppExpanded) {
+                SettingActionRow(
+                    label = "オフラインデータ管理",
+                    subtitle = "地図・検索・経路のデータを追加・管理します",
+                    iconRes = R.drawable.ic_lucide_download,
+                    onClick = onManageData,
                 )
-                if (onDeveloperOptions != null) {
-                    TextButton(onClick = onDeveloperOptions) { Text("開発者オプション") }
+                SettingActionRow(
+                    label = "GPXを読み込む",
+                    subtitle = "GPXファイルからコースを取り込みます",
+                    iconRes = R.drawable.ic_lucide_route,
+                    onClick = onImportGpx,
+                )
+                var offlineExpanded by remember { mutableStateOf(false) }
+                SettingActionRow(
+                    label = "オフラインで使える機能",
+                    iconRes = R.drawable.ic_lucide_cloud_off,
+                    trailing = if (offlineExpanded) "閉じる ∧" else "開く ›",
+                    onClick = { offlineExpanded = !offlineExpanded },
+                )
+                if (offlineExpanded) {
+                    OFFLINE_CAPABILITY_NOTES.forEach { line -> SettingDescription("・$line") }
+                }
+
+                SettingActionRow("ライセンス", R.drawable.ic_lucide_scale, onLicense)
+                SettingActionRow(
+                    label = "バージョン情報",
+                    iconRes = R.drawable.ic_lucide_info,
+                    trailing = "${BuildConfig.VERSION_NAME}  ›",
+                    onClick = onVersion,
+                )
+                if (BuildConfig.DEBUG) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text("開発用情報", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "ビルド元コミット: ${BuildConfig.GIT_HASH}\nビルド日時: ${BuildConfig.BUILD_TIME}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (onDeveloperOptions != null) {
+                        TextButton(onClick = onDeveloperOptions) { Text("開発者オプション") }
+                    }
                 }
             }
         }
@@ -444,5 +466,41 @@ private fun SettingActionRow(
         }
         Text(trailing, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SettingSectionHeader(
+    title: String,
+    subtitle: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(role = Role.Button, onClick = onToggle)
+            .heightIn(min = 52.dp)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (!expanded) {
+                SettingDescription(subtitle)
+            }
+        }
+        Text(
+            text = if (expanded) "閉じる ▴" else "開く ▾",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 }

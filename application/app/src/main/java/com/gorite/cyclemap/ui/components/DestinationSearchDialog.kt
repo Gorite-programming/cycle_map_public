@@ -140,6 +140,7 @@ internal fun DestinationSearchDialog(
         }
     }
     val searchDb = searchDbInfo.first
+    val searchDatabases = remember(searchDb) { availableSearchDatabases(cycleMapDataDir(context), searchDb) }
     val unsupportedPrefecture = searchDbInfo.second
 
     // FTS5およびsearch_textの対応状況をチェック (旧DBのみセッション1回案内)
@@ -190,7 +191,7 @@ internal fun DestinationSearchDialog(
             results = emptyList()
             message = when {
                 unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
-                searchDb.isFile -> null
+                searchDatabases.isNotEmpty() -> null
                 else -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             }
             return@LaunchedEffect
@@ -212,31 +213,19 @@ internal fun DestinationSearchDialog(
         } else {
             selectedCategory
         }
-        val found = withContext(Dispatchers.IO) {
-            if (genericPrefixes != null) {
-                searchPlaces(
-                    dbFile = searchDb,
-                    query = "",
-                    userLat = uLat,
-                    userLon = uLon,
-                    categoryPrefixesOverride = genericPrefixes,
-                )
-            } else {
-                searchPlaces(
-                    dbFile = searchDb,
-                    query = trimmed,
-                    category = effectiveCategory,
-                    userLat = uLat,
-                    userLon = uLon,
-                )
-            }
-        }
-        // 並び順は searchPlaces が一致度・重要度・距離の総合点で決めている (ここで並べ直さない)
+        val found = searchAcrossPrefectures(
+            databases = searchDatabases,
+            query = if (genericPrefixes != null) "" else trimmed,
+            category = effectiveCategory,
+            userLat = uLat,
+            userLon = uLon,
+            categoryPrefixesOverride = genericPrefixes,
+        )
         val ranked = found
         results = ranked
         message = when {
             unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
-            !searchDb.isFile -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
+            searchDatabases.isEmpty() -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
             ranked.isEmpty() -> "該当する目的地がありません"
             else -> null
         }
@@ -490,6 +479,11 @@ internal fun DestinationSearchDialog(
                         else -> {
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
                                 itemsIndexed(results) { index, result ->
+                                    result.prefectureName?.let { prefecture ->
+                                        Text(prefecture, style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 12.dp))
+                                    }
                                     SearchResultItemCard(
                                         result = result,
                                         isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),

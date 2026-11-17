@@ -5,33 +5,63 @@ import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import com.gorite.cyclemap.navigation.*
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -40,14 +70,12 @@ import androidx.compose.ui.zIndex
 import com.gorite.cyclemap.net.Link
 import com.gorite.cyclemap.ui.cycling.GoogleFloatingActionButton
 import com.gorite.cyclemap.ui.cycling.GoogleGpsButton
-import com.gorite.cyclemap.ui.cycling.GoogleLayerButton
-import com.gorite.cyclemap.ui.cycling.GoogleMapsControlColumn
-import com.gorite.cyclemap.ui.cycling.GoogleZoomButton
-import com.gorite.cyclemap.ui.cycling.GoogleZoomPill
 import com.gorite.cyclemap.ui.cycling.NavStartFAB
-import com.gorite.cyclemap.ui.map.FloatingCircleButton
 import com.gorite.cyclemap.ui.map.MapControls
 import com.gorite.cyclemap.ui.map.NetworkStatusIndicator
+import com.gorite.cyclemap.ui.theme.LocalAnimationEnabled
+import com.gorite.cyclemap.ui.theme.Motion
+import kotlinx.coroutines.delay
 import org.maplibre.android.maps.MapLibreMap
 import org.osmdroid.views.MapView
 
@@ -79,6 +107,8 @@ internal fun BoxScope.MapControlsOverlay(
     navHeaderHeight: Dp = 0.dp,
     /** ルート確認シートの高さ (画面下端からシート上端まで)。0 なら未計測。 */
     routePreviewSheetHeight: Dp = 0.dp,
+    /** ナビ中の「立ち寄り」ボタン押下時にクイック検索シートを開くコールバック。 */
+    onQuickSpotClick: (() -> Unit)? = null,
 ) {
     val canZoomIn = if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
         (vectorMap?.cameraPosition?.zoom ?: 14.0) < 22.0
@@ -152,14 +182,15 @@ internal fun BoxScope.MapControlsOverlay(
     if (isLandscape) {
         // 横画面のナビ中は、案内ヘッダが左上にあり操作ボタンの列と重なるので、左手でも右に残す
         val landscapeLeft = com.gorite.cyclemap.ui.state.isLeftHanded() && !isNavigationActive
-        GoogleMapsControlColumn(
-            headingDegrees = { mapBearing },
+        LandscapeControlRow(
+            mapBearing = mapBearing,
             isHeadingUp = isHeadingUp,
             onCompassClick = onHeadingUpToggle,
             currentTilt = currentVectorTilt,
             onToggleTilt = onToggleTiltAction,
+            selectedLayer = selectedLayer,
             layerLabel = currentLayerLabel,
-            onLayerClick = toggleNextLayer,
+            onFallbackLayerToggle = toggleNextLayer,
             following = followLocation,
             onTargetClick = onTargetClick,
             onZoomIn = onZoomInAction,
@@ -169,8 +200,8 @@ internal fun BoxScope.MapControlsOverlay(
             isNavigationActive = isNavigationActive,
             isAreaSelectMode = isAreaSelectMode,
             onAreaSelectToggle = onAreaSelectToggle,
-            isLandscape = true,
             onNavStartClick = onNavStartClick,
+            onQuickSpotClick = onQuickSpotClick,
             modifier = Modifier
                 .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(landscapeLeft))
                 .padding(
@@ -233,10 +264,10 @@ internal fun BoxScope.MapControlsOverlay(
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
-                FloatingCircleButton(
+                TouchTargetCircleButton48(
                     onClick = onHeadingUpToggle,
                     contentDescription = "北を上に",
-                    modifier = Modifier.size(42.dp),
+                    visualSize = 42.dp,
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_compass),
@@ -250,7 +281,7 @@ internal fun BoxScope.MapControlsOverlay(
             }
             // ルート確認中はシートが高く、右下の現在地ボタンと重なるので出さない (2 本指で拡大縮小できる)
             if (!isRoutePreviewActive) {
-                GoogleZoomPill(
+                ZoomPill48(
                     onZoomIn = onZoomInAction,
                     onZoomOut = onZoomOutAction,
                     canZoomIn = canZoomIn,
@@ -306,10 +337,10 @@ internal fun BoxScope.MapControlsOverlay(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            FloatingCircleButton(
+            TouchTargetCircleButton48(
                 onClick = onHeadingUpToggle,
                 contentDescription = "コンパス・北向き切替",
-                modifier = Modifier.size(42.dp),
+                visualSize = 42.dp,
             ) {
                 val safeBearing = if (mapBearing.isNaN()) 0f else mapBearing
                 Icon(
@@ -319,20 +350,418 @@ internal fun BoxScope.MapControlsOverlay(
                     tint = CycleMapTheme.palette.danger,
                 )
             }
-            GoogleZoomButton(
-                iconRes = R.drawable.ic_ms_add,
-                contentDescription = "拡大",
+            TouchTargetCircleButton48(
                 onClick = onZoomInAction,
-            )
-            GoogleZoomButton(
-                iconRes = R.drawable.ic_lucide_minus,
-                contentDescription = "縮小",
+                contentDescription = "拡大",
+                visualSize = 42.dp,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_ms_add),
+                    contentDescription = null,
+                    tint = CycleMapTheme.palette.mapControlIcon,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            TouchTargetCircleButton48(
                 onClick = onZoomOutAction,
-            )
+                contentDescription = "縮小",
+                visualSize = 42.dp,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_lucide_minus),
+                    contentDescription = null,
+                    tint = CycleMapTheme.palette.mapControlIcon,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             GoogleGpsButton(
                 following = followLocation,
                 onClick = onTargetClick,
             )
+            // ナビ中の立ち寄り先検索ボタン (シンプルモードでは出さない)
+            if (!com.gorite.cyclemap.ui.state.isSimpleMode() && onQuickSpotClick != null) {
+                GoogleFloatingActionButton(
+                    onClick = onQuickSpotClick,
+                    iconRes = R.drawable.ic_lucide_store,
+                    contentDescription = "立ち寄り",
+                    tint = CycleMapTheme.palette.accent,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 見た目の円サイズ (例: 42dp) を維持したまま、タップ領域を 48dp 以上にそろえるボタン。
+ */
+@Composable
+private fun TouchTargetCircleButton48(
+    onClick: () -> Unit,
+    contentDescription: String,
+    visualSize: Dp = 42.dp,
+    shadowElevation: Dp = 5.dp,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { this.contentDescription = contentDescription }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = CycleMapTheme.palette.mapControlSurface,
+            tonalElevation = 0.dp,
+            shadowElevation = shadowElevation,
+            modifier = Modifier
+                .size(visualSize)
+                .clip(CircleShape)
+                .indication(interactionSource, LocalIndication.current),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZoomRepeatButton48(
+    iconRes: Int,
+    contentDescription: String,
+    onAction: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    val currentOnAction by rememberUpdatedState(onAction)
+    val isPressed = remember { mutableStateOf(false) }
+
+    LaunchedEffect(isPressed.value, enabled) {
+        if (isPressed.value && enabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            currentOnAction()
+            delay(400L)
+            while (isPressed.value && enabled) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                currentOnAction()
+                delay(180L)
+            }
+        }
+    }
+
+    val alpha = if (enabled) 1.0f else 0.35f
+    val animEnabled = LocalAnimationEnabled.current
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed.value && enabled) 0.90f else 1.0f,
+        animationSpec = Motion.motionTween(Motion.DURATION_SHORT, enabled = animEnabled),
+        label = "ZoomBtn48Scale",
+    )
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .then(
+                if (isPressed.value && enabled) {
+                    Modifier.background(CycleMapTheme.palette.mapControlDivider)
+                } else {
+                    Modifier
+                }
+            )
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(
+                    onPress = {
+                        isPressed.value = true
+                        try {
+                            awaitRelease()
+                        } finally {
+                            isPressed.value = false
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = CycleMapTheme.palette.mapControlIcon.copy(alpha = alpha),
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+@Composable
+private fun ZoomPill48(
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    canZoomIn: Boolean,
+    canZoomOut: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = CycleMapTheme.palette.mapControlSurface,
+        shadowElevation = 6.dp,
+        modifier = modifier.width(48.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            ZoomRepeatButton48(
+                iconRes = R.drawable.ic_ms_add,
+                contentDescription = "ズームイン",
+                onAction = onZoomIn,
+                enabled = canZoomIn,
+            )
+            HorizontalDivider(
+                color = CycleMapTheme.palette.mapControlDivider,
+                thickness = 1.dp,
+                modifier = Modifier.width(32.dp),
+            )
+            ZoomRepeatButton48(
+                iconRes = R.drawable.ic_ms_remove,
+                contentDescription = "ズームアウト",
+                onAction = onZoomOut,
+                enabled = canZoomOut,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompassDial48(
+    headingDegrees: () -> Float,
+    headingUp: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val measurer = rememberTextMeasurer()
+    val pal = CycleMapTheme.palette
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .semantics { contentDescription = "コンパス・北向き切替" }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = pal.mapControlSurface,
+            shadowElevation = 6.dp,
+            border = if (headingUp) {
+                BorderStroke(2.dp, pal.compassNorth)
+            } else {
+                BorderStroke(1.dp, pal.mapControlDivider)
+            },
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .indication(interactionSource, LocalIndication.current),
+            ) {
+                val rotation = -headingDegrees()
+                rotate(rotation) {
+                    val cx = size.width / 2
+                    val cy = size.height / 2
+                    val r = size.minDimension / 2 - 6.dp.toPx()
+                    val needle = Path().apply {
+                        moveTo(cx, cy - r - 2.dp.toPx())
+                        lineTo(cx - 5.dp.toPx(), cy - 2.dp.toPx())
+                        lineTo(cx + 5.dp.toPx(), cy - 2.dp.toPx())
+                        close()
+                    }
+                    drawPath(needle, pal.compassNorth)
+                    val southNeedle = Path().apply {
+                        moveTo(cx, cy + r + 2.dp.toPx())
+                        lineTo(cx - 5.dp.toPx(), cy + 2.dp.toPx())
+                        lineTo(cx + 5.dp.toPx(), cy + 2.dp.toPx())
+                        close()
+                    }
+                    drawPath(southNeedle, pal.compassSouth)
+                    val label = { text: String, color: Color, dx: Float, dy: Float ->
+                        val layout = measurer.measure(
+                            text,
+                            TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = color,
+                            ),
+                        )
+                        drawText(
+                            measurer,
+                            text,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = color,
+                            ),
+                            topLeft = Offset(
+                                cx + dx - layout.size.width / 2,
+                                cy + dy - layout.size.height / 2,
+                            ),
+                        )
+                    }
+                    label("N", pal.compassNorth, 0f, -r + 8.dp.toPx())
+                    label("E", pal.mapControlIconMuted, r - 8.dp.toPx(), 0f)
+                    label("S", pal.mapControlIconMuted, 0f, r - 8.dp.toPx())
+                    label("W", pal.mapControlIconMuted, -(r - 8.dp.toPx()), 0f)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandscapeControlRow(
+    mapBearing: Float,
+    isHeadingUp: Boolean,
+    onCompassClick: () -> Unit,
+    currentTilt: Double,
+    onToggleTilt: () -> Unit,
+    selectedLayer: MapLayer,
+    layerLabel: String,
+    onFallbackLayerToggle: () -> Unit,
+    following: Boolean,
+    onTargetClick: () -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    canZoomIn: Boolean,
+    canZoomOut: Boolean,
+    isNavigationActive: Boolean,
+    isAreaSelectMode: Boolean,
+    onAreaSelectToggle: () -> Unit,
+    onNavStartClick: () -> Unit,
+    onQuickSpotClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!isNavigationActive && !com.gorite.cyclemap.ui.state.isSimpleMode()) {
+            Surface(
+                shape = if (isAreaSelectMode) RoundedCornerShape(22.dp) else CircleShape,
+                color = if (isAreaSelectMode) MaterialTheme.colorScheme.primary else CycleMapTheme.palette.mapControlSurface,
+                shadowElevation = 6.dp,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onAreaSelectToggle)
+                        .padding(horizontal = if (isAreaSelectMode) 10.dp else 0.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_lucide_square_dashed),
+                            contentDescription = "エリア選択",
+                            tint = if (isAreaSelectMode) MaterialTheme.colorScheme.onPrimary else CycleMapTheme.palette.mapControlIcon,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    if (isAreaSelectMode) {
+                        Text(
+                            text = "選択中",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(end = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        CompassDial48(
+            headingDegrees = { mapBearing },
+            headingUp = isHeadingUp,
+            onClick = onCompassClick,
+        )
+
+        GoogleFloatingActionButton(
+            onClick = onToggleTilt,
+            contentDescription = if (currentTilt > 15.0) "2D表示へ切替" else "3D表示へ切替",
+        ) {
+            Text(
+                text = if (currentTilt > 15.0) "2D" else "3D",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = if (currentTilt > 15.0) CycleMapTheme.palette.accent else CycleMapTheme.palette.mapControlIcon,
+            )
+        }
+
+        LayerPickerButton(
+            selectedLayer = selectedLayer,
+            fallbackLabel = layerLabel,
+            onFallbackToggle = onFallbackLayerToggle,
+        )
+
+        GoogleGpsButton(
+            following = following,
+            onClick = onTargetClick,
+        )
+
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = CycleMapTheme.palette.mapControlSurface,
+            shadowElevation = 6.dp,
+            modifier = Modifier.height(48.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ZoomRepeatButton48(
+                    iconRes = R.drawable.ic_ms_add,
+                    contentDescription = "ズームイン",
+                    onAction = onZoomIn,
+                    enabled = canZoomIn,
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(28.dp)
+                        .background(CycleMapTheme.palette.mapControlDivider),
+                )
+                ZoomRepeatButton48(
+                    iconRes = R.drawable.ic_ms_remove,
+                    contentDescription = "ズームアウト",
+                    onAction = onZoomOut,
+                    enabled = canZoomOut,
+                )
+            }
+        }
+
+        if (isNavigationActive && !com.gorite.cyclemap.ui.state.isSimpleMode() && onQuickSpotClick != null) {
+            GoogleFloatingActionButton(
+                onClick = onQuickSpotClick,
+                iconRes = R.drawable.ic_lucide_store,
+                contentDescription = "立ち寄り",
+                tint = CycleMapTheme.palette.accent,
+            )
+        }
+
+        if (!isNavigationActive) {
+            NavStartFAB(onClick = onNavStartClick)
         }
     }
 }
@@ -354,10 +783,18 @@ private fun LayerPickerButton(
     val selector = LocalLayerSelector.current
     var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Box {
-        GoogleLayerButton(
+        TouchTargetCircleButton48(
             onClick = { if (selector != null) expanded = true else onFallbackToggle() },
-            label = fallbackLabel,
-        )
+            contentDescription = "地図レイヤー切替: $fallbackLabel",
+            visualSize = 42.dp,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_lucide_layers),
+                contentDescription = null,
+                tint = CycleMapTheme.palette.mapControlIcon,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             MapLayer.entries.forEach { layer ->
                 androidx.compose.material3.DropdownMenuItem(

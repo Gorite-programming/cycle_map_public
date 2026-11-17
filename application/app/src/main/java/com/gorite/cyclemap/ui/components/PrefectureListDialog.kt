@@ -1,18 +1,23 @@
 package com.gorite.cyclemap.ui.components
 
+import com.gorite.cyclemap.R
 import com.gorite.cyclemap.data.formatOfflineDataSize
 import android.content.Context
+import android.location.Location
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
@@ -20,15 +25,19 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.TabRow
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
 import com.gorite.cyclemap.data.OfflineDataImporter
+import com.gorite.cyclemap.data.findPrefectureName
 import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -44,7 +53,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.data.DownloadStatusManager
@@ -69,11 +80,17 @@ internal fun PrefectureListDialog(
     onDismiss: () -> Unit,
     onPrefectureSelected: (Prefecture) -> Unit,
     offlineDataUsage: () -> OfflineDataDeleter.Usage = { OfflineDataDeleter.Usage(busy = true) },
+    currentLocation: Location? = null,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var dataLoaded by remember { mutableStateOf(false) }
-    var selectedRegionIndex by remember { mutableIntStateOf(5) } // デフォルト中国地方
+    var selectedRegion by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
     var downloadStatus by remember { mutableStateOf<Map<String, Pair<Boolean, Boolean>>>(emptyMap()) }
+
+    val currentPrefectureName = remember(currentLocation?.latitude, currentLocation?.longitude) {
+        currentLocation?.let { findPrefectureName(it.latitude, it.longitude) }
+    }
 
     var dataStatus by remember { mutableStateOf<List<PrefectureDataStatus>>(emptyList()) }
     var deletionPlan by remember { mutableStateOf<OfflineDataDeleter.Plan?>(null) }
@@ -130,12 +147,25 @@ internal fun PrefectureListDialog(
             Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(16.dp)) {
                 Text("オフラインデータ", style = MaterialTheme.typography.titleLarge)
                 TabRow(selectedTabIndex = selectedTab) {
-                    listOf("端末のデータ", "地図タイルの保存").forEachIndexed { index, label ->
-                        Tab(selected = selectedTab == index, onClick = { selectedTab = index },
-                            text = { Text(label, style = MaterialTheme.typography.labelLarge) })
+                    listOf("端末のデータ", "補助の地図タイル (旧方式)").forEachIndexed { index, label ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 2,
+                                    textAlign = TextAlign.Center,
+                                )
+                            },
+                        )
                     }
                 }
                 if (selectedTab == 0) {
+                    val sortedDataStatus = remember(dataStatus, currentPrefectureName) {
+                        PrefectureFilter.sortInstalledFirst(dataStatus, currentPrefectureName)
+                    }
                     LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
                             Text(
@@ -165,10 +195,15 @@ internal fun PrefectureListDialog(
                         item {
                             deletionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
-                        items(dataStatus, key = { it.id }) { status ->
+                        items(sortedDataStatus, key = { it.id }) { status ->
                             val prefecture = PrefectureData.ALL.first { it.id == status.id }
                             val refusal = OfflineDataDeleter.refusalReason(prefecture, currentUsage)
-                            OfflineDataStatusRow(status, refusal, !importing && !deleting) {
+                            OfflineDataStatusRow(
+                                status = status,
+                                isCurrentLocation = status.name == currentPrefectureName,
+                                refusalReason = refusal,
+                                canDelete = !importing && !deleting,
+                            ) {
                                 deleting = true
                                 scope.launch {
                                     try {
@@ -193,86 +228,164 @@ internal fun PrefectureListDialog(
                 } else {
                     Column(modifier = Modifier.weight(1f)) {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text("地図タイルの保存 (地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        Text("補助の地図タイル (旧方式・地理院/OSM)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Region Tab
-                        ScrollableTabRow(
-                            selectedTabIndex = selectedRegionIndex,
-                            edgePadding = 0.dp,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            PrefectureData.REGIONS.forEachIndexed { index, regionName ->
-                                Tab(
-                                    selected = selectedRegionIndex == index,
-                                    onClick = { selectedRegionIndex = index },
-                                    text = { Text(regionName, fontSize = 12.sp) },
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        // ここで保存するのは表示用の地図タイル (地理院/OSM) だけ。経路探索・検索のデータは別途配置する。
+                        // ここで保存するのは旧来のラスター地図タイル (地理院/OSM) だけ。ベクター地図・経路探索・検索データは含まない。
                         Text(
-                            "県をタップすると、その県の地図タイルを保存できます (ルート探索・検索データは含みません)。",
+                            "旧来のラスター地図タイルを県単位で保存します。通常は「端末のデータ」タブのベクター地図 (.pmtiles) をご利用ください (ルート探索・検索データは含みません)。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Prefecture List in selected region
-                        val currentRegion = PrefectureData.REGIONS[selectedRegionIndex]
-                        val prefectures = remember(currentRegion) {
-                            PrefectureData.ALL.filter { it.region == currentRegion }
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("県名で検索 (例: 広島)") },
+                            leadingIcon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_lucide_search),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_lucide_x),
+                                            contentDescription = "検索をクリア",
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp),
+                        ) {
+                            item(key = "all") {
+                                FilterChip(
+                                    selected = selectedRegion == null,
+                                    onClick = { selectedRegion = null },
+                                    label = { Text("すべて") },
+                                )
+                            }
+                            items(PrefectureFilter.REGIONS, key = { it }) { regionName ->
+                                val isSelected = selectedRegion == regionName
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedRegion = if (isSelected) null else regionName },
+                                    label = { Text(regionName) },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val prefectures = remember(selectedRegion, searchQuery, currentPrefectureName) {
+                            PrefectureFilter.filterAndSort(
+                                region = selectedRegion,
+                                query = searchQuery,
+                                currentPrefectureName = currentPrefectureName,
+                            )
                         }
 
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(prefectures) { pref ->
-                                val status = downloadStatus[pref.id]
-                                val isGsi = status?.first == true
-                                val isOsm = status?.second == true
-                                val tileCount = PrefectureData.calculateTileCount(pref.bounds)
-                                val sizeMb = PrefectureData.estimateSizeMb(tileCount)
+                        if (prefectures.isEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "条件に一致する都道府県が見つかりません",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                TextButton(onClick = { selectedRegion = null; searchQuery = "" }) {
+                                    Text("条件をクリア")
+                                }
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(prefectures, key = { it.id }) { pref ->
+                                    val status = downloadStatus[pref.id]
+                                    val isGsi = status?.first == true
+                                    val isOsm = status?.second == true
+                                    val isCurrent = pref.name == currentPrefectureName
+                                    val tileCount = PrefectureData.calculateTileCount(pref.bounds)
+                                    val sizeMb = PrefectureData.estimateSizeMb(tileCount)
 
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable { onPrefectureSelected(pref) },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                ) {
-                                    Row(
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                            .padding(vertical = 4.dp)
+                                            .clickable { onPrefectureSelected(pref) },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(pref.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                            Text("${tileCount}枚 ・ 約 %.1f MB (概算)".format(Locale.US, sizeMb), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            if (isGsi) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    Text(pref.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                                    if (isCurrent) {
+                                                        Text(
+                                                            "現在地",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                            modifier = Modifier
+                                                                .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(4.dp))
+                                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        )
+                                                    }
+                                                }
                                                 Text(
-                                                    "地理院済",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier
-                                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    "${pref.region} ・ ${tileCount}枚 ・ 約 %.1f MB (概算)".format(Locale.US, sizeMb),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
                                             }
-                                            if (isOsm) {
-                                                Text(
-                                                    "OSM済",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary,
-                                                    modifier = Modifier
-                                                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                                )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                if (isGsi) {
+                                                    Text(
+                                                        "地理院済",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier
+                                                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    )
+                                                }
+                                                if (isOsm) {
+                                                    Text(
+                                                        "OSM済",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.secondary,
+                                                        modifier = Modifier
+                                                            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -336,6 +449,7 @@ internal fun startPrefectureDownload(
 @Composable
 private fun OfflineDataStatusRow(
     status: PrefectureDataStatus,
+    isCurrentLocation: Boolean = false,
     refusalReason: String?,
     canDelete: Boolean,
     onDelete: () -> Unit,
@@ -347,7 +461,24 @@ private fun OfflineDataStatusRow(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(status.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(status.name, fontWeight = FontWeight.Bold)
+                    if (isCurrentLocation) {
+                        Text(
+                            "現在地",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
                 Text(formatOfflineDataSize(status.totalBytes), style = MaterialTheme.typography.bodySmall)
                 TextButton(enabled = canDelete && refusalReason == null, onClick = onDelete) {
                     Text(if (refusalReason != null) "使用中" else "削除",

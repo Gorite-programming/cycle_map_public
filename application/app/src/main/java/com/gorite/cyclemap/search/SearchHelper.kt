@@ -23,6 +23,7 @@ internal data class SearchResult(
     val address: String? = null,
     /** 検索用の別表記 (search_text 列)。読みでの一致を点数に入れるのに使う。 */
     val searchText: String? = null,
+    val prefectureName: String? = null,
 )
 
 /** 住所で検索したときに作る結果のカテゴリ (DB の行ではなく、住所が一致した地点の代表点)。 */
@@ -297,10 +298,12 @@ private val placesColumnsCache = ConcurrentHashMap<String, Set<String>>()
 /** places テーブルの列名 (DB ごとにキャッシュ)。 */
 internal fun placesColumns(db: SQLiteDatabase): Set<String> {
     fun read(): Set<String> = try {
-        db.rawQuery("PRAGMA table_info(places)", null).use { c ->
+        db.searchQuery("PRAGMA table_info(places)", null).use { c ->
             val idx = c.getColumnIndex("name")
             buildSet { while (c.moveToNext()) if (idx >= 0) add(c.getString(idx)) }
         }
+    } catch (e: android.os.OperationCanceledException) {
+        throw e
     } catch (e: Exception) {
         emptySet()
     }
@@ -331,7 +334,7 @@ private fun fetchStrongMatches(
         "(name = ? OR name LIKE ? ESCAPE '\\')" to listOf(q, "${escapeLike(q)}%")
     }
     try {
-        db.rawQuery(
+        db.searchQuery(
             """
             SELECT name, category, lat, lon $extraSelect
             FROM places
@@ -362,7 +365,7 @@ private fun addressResult(db: SQLiteDatabase, query: String): SearchResult? {
     val q = SearchNormalizer.normalize(query).replace(" ", "")
     if (q.length < 2) return null
     val rows: List<Triple<String, Double, Double>> = try {
-        db.rawQuery(
+        db.searchQuery(
             "SELECT address, lat, lon FROM places WHERE replace(address, ' ', '') LIKE ? ESCAPE '\\' LIMIT 60",
             arrayOf("%${escapeLike(q)}%"),
         ).use { c ->
@@ -408,7 +411,7 @@ internal fun hasSearchTextColumn(db: SQLiteDatabase): Boolean {
 
 private fun checkSearchTextColumnDirectly(db: SQLiteDatabase): Boolean {
     return try {
-        db.rawQuery("PRAGMA table_info(places)", null).use { cursor ->
+        db.searchQuery("PRAGMA table_info(places)", null).use { cursor ->
             val nameCol = cursor.getColumnIndex("name")
             while (cursor.moveToNext()) {
                 if (nameCol >= 0 && cursor.getString(nameCol) == "search_text") {
@@ -417,6 +420,8 @@ private fun checkSearchTextColumnDirectly(db: SQLiteDatabase): Boolean {
             }
         }
         false
+    } catch (e: android.os.OperationCanceledException) {
+        throw e
     } catch (e: Exception) {
         Log.w("CycleMap", "Failed to check table_info for places: ${e.message}")
         false
@@ -559,7 +564,7 @@ internal fun searchPlaces(
                 var ftsSucceeded = false
                 if (ftsSupported) {
                     try {
-                        db.rawQuery(
+                        db.searchQuery(
                             """
                             SELECT p.name, p.category, p.lat, p.lon $extraSelectFts
                             FROM places_fts f
@@ -584,7 +589,7 @@ internal fun searchPlaces(
                     val likeQuery = if (hasSearchText) SearchNormalizer.normalize(variant) else variant
                     // FTS5非対応時は複数単語をANDで繋ぎ、各単語の中間一致 (%word%) で検索する。
                     val (textWhereClause, textArgs) = buildLikeTextConditions(likeQuery, targetColumn)
-                    db.rawQuery(
+                    db.searchQuery(
                         """
                         SELECT name, category, lat, lon $extraSelect
                         FROM places
@@ -607,7 +612,7 @@ internal fun searchPlaces(
                 val targetColumn = if (hasSearchText) "search_text" else "name"
                 val stLikeQuery = if (hasSearchText) SearchNormalizer.normalize(stationBase) else stationBase
                 val (stTextWhereClause, stTextArgs) = buildLikeTextConditions(stLikeQuery, targetColumn)
-                db.rawQuery(
+                db.searchQuery(
                     """
                     SELECT name, category, lat, lon $extraSelect
                     FROM places
@@ -641,7 +646,7 @@ internal fun searchPlaces(
                 emptyList()
             }
             val orderBy = if (orderArgs.isNotEmpty()) NEARBY_ORDER_BY else ""
-            db.rawQuery(
+            db.searchQuery(
                 """
                 SELECT name, category, lat, lon
                 FROM places

@@ -94,6 +94,7 @@ internal fun MapDownloadDialogs(
             offlineDataUsage = offlineDataUsage,
             onDismiss = onDismissPrefectureListDialog,
             onPrefectureSelected = onPrefectureSelected,
+            currentLocation = currentLocation,
         )
     }
 

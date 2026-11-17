@@ -62,6 +62,7 @@ internal fun MapContentLayout(
     onMenuSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenDownload: () -> Unit,
+    importPlannedRoute: () -> Unit = {},
     onOpenLicense: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDeveloperOptions: () -> Unit,
@@ -252,6 +253,7 @@ internal fun MapContentLayout(
                 val notificationBanners: @Composable (Modifier) -> Unit = { bannerModifier ->
                     MapNotificationBanners(
                         modifier = bannerModifier,
+                        onOpenOfflineData = onOpenDownload,
                         effectiveAnimationEnabled = effectiveAnimationEnabled,
                         isAreaSelectMode = isAreaSelectMode,
                         onCancelAreaSelect = {
@@ -442,6 +444,8 @@ internal fun MapContentLayout(
 
                     // Right-Side Controls: Google Maps Style
                     MapControlsOverlay(
+                        // ナビ中だけ、立ち寄り先 (コンビニなど) を探すボタンを出す
+                        onQuickSpotClick = if (isNavigationActive) ({ onSelectQuickSpot(com.gorite.cyclemap.ui.cycling.QuickSpotType.CONVENIENCE) }) else null,
                         isLandscape = isLandscape,
                         selectedLayer = selectedLayer,
                         networkLink = networkLink,
@@ -552,6 +556,7 @@ internal fun MapContentLayout(
                 onSettingsClick = { isDrawerOpenState.value = false; onMenuSelect("設定"); onOpenSettings() },
                 onDeveloperOptionsClick = { isDrawerOpenState.value = false; onMenuSelect("開発者"); onOpenDeveloperOptions() },
                 onVersionClick = { isDrawerOpenState.value = false; onMenuSelect("バージョン情報"); onOpenVersion() },
+                onImportGpxClick = { isDrawerOpenState.value = false; onMenuSelect("GPX"); importPlannedRoute() },
             )
         }
     }

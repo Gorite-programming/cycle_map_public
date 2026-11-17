@@ -40,6 +40,9 @@ class LocationTrackingService : Service() {
     private val statusListeners = CopyOnWriteArrayList<(GpsSignalStatus) -> Unit>()
     private val binder = LocalBinder()
     private var recorder: GpxRecorder? = null
+    @Volatile var recoveryPending = false
+        private set
+    private var saving = false
     private var tracking = false
     private var previousLocation: Location? = null
     private var smoothedSpeed = 0.0
@@ -49,6 +52,7 @@ class LocationTrackingService : Service() {
     private val healthCheckRunnable = object : Runnable {
         override fun run() {
             if (tracking) {
+                recorder?.flush()
                 val newStatus = gpsHealthMonitor.tick()
                 if (newStatus != lastStatus) {
                     notifyStatus(newStatus)
@@ -78,6 +82,7 @@ class LocationTrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        restorePendingRecording()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -88,6 +93,14 @@ class LocationTrackingService : Service() {
                 startRecording()
             }
             ACTION_STOP_RECORDING -> stopRecording()
+            ACTION_PAUSE_RECORDING -> { recorder?.pause() }
+            ACTION_RESUME_RECORDING -> {
+                ensureTracking()
+                recoveryPending = false
+                recorder?.resume()
+                recording = recorder != null
+                if (recording) sendBroadcast(Intent(ACTION_RECORDING_STARTED).setPackage(packageName))
+            }
             else -> ensureTracking()
         }
         return START_STICKY
@@ -157,35 +170,61 @@ class LocationTrackingService : Service() {
         }
     }
 
+    private fun restorePendingRecording() {
+        val dir = File(filesDir, "gpx-journals")
+        dir.listFiles()?.filter { it.extension == "journal" }?.sortedBy { it.name }?.forEach { file ->
+            val journal = GpxJournal(file)
+            val recovery = runCatching { journal.restore() }.getOrNull()
+            if (recovery != null) {
+                recorder = GpxRecorder(journal, recovery).also { it.pause() }
+                recoveryPending = true
+                return
+            }
+        }
+    }
+
     private fun startRecording() {
-        if (recording) return
-        recorder = GpxRecorder()
+        if (recoveryPending || saving) return
+        if (recorder != null) {
+            if (recorder?.paused == true) recorder?.resume()
+            return
+        }
+        recorder = GpxRecorder(GpxJournal(File(filesDir, "gpx-journals/${java.util.UUID.randomUUID()}.journal")))
         recording = true
         startForeground(NOTIFICATION_ID, trackingNotification())
         sendBroadcast(Intent(ACTION_RECORDING_STARTED).setPackage(packageName))
     }
 
     private fun stopRecording() {
-        if (!recording) return
-        val snapshot = recorder
-        recorder = null
+        if (saving) return
+        val snapshot = recorder ?: return
+        snapshot.pause()
         recording = false
+        recoveryPending = false
+        saving = true
         val outputDir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), "CycleMap/gpx")
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
             timeZone = TimeZone.getDefault()
         }.format(Date())
-        val points = snapshot?.pointCount ?: 0
+        val points = snapshot.pointCount
 
         if (points == 0) {
+            snapshot.deleteJournal()
+            recorder = null
+            saving = false
+            restorePendingRecording()
             sendBroadcast(Intent(ACTION_RECORDING_EMPTY).setPackage(packageName))
             startForeground(NOTIFICATION_ID, trackingNotification())
             return
         }
 
         Thread {
+            var saved = false
             try {
-                val output = snapshot?.writeToFile(File(outputDir, "cyclemap_$timestamp.gpx"))
-                if (output != null) {
+                val output = snapshot.writeToFile(File(outputDir, "cyclemap_${timestamp}_${snapshot.startedAt}.gpx"))
+                run {
+                    saved = true
+                    snapshot.deleteJournal()
                     getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(KEY_LAST_FILE, output.absolutePath).apply()
                     sendBroadcast(
                         Intent(ACTION_RECORDING_SAVED).setPackage(packageName)
@@ -195,6 +234,20 @@ class LocationTrackingService : Service() {
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("CycleMapTracking", "Failed to save GPX file", t)
+            } finally {
+                healthHandler.post {
+                    // On failure retain the in-memory points as well as the journal.
+                    if (snapshot === recorder) {
+                        if (saved) {
+                            recorder = null
+                            restorePendingRecording()
+                        } else {
+                            recoveryPending = true
+                            sendBroadcast(Intent(ACTION_RECORDING_SAVE_FAILED).setPackage(packageName))
+                        }
+                    }
+                    saving = false
+                }
             }
         }.start()
 
@@ -217,7 +270,7 @@ class LocationTrackingService : Service() {
     }
 
     override fun onDestroy() {
-        stopRecordingIfNeeded()
+        recorder?.flush()
         healthHandler.removeCallbacks(healthCheckRunnable)
         fusedClient.removeLocationUpdates(callback)
         tracking = false
@@ -315,6 +368,16 @@ class LocationTrackingService : Service() {
     }
 
     companion object {
+        const val ACTION_PAUSE_RECORDING = "com.gorite.cyclemap.GPX_PAUSE"
+        const val ACTION_RECORDING_SAVE_FAILED = "com.gorite.cyclemap.GPX_SAVE_FAILED"
+        const val ACTION_RESUME_RECORDING = "com.gorite.cyclemap.GPX_RESUME"
+        fun pauseRecording(context: Context) {
+            context.startService(Intent(context, LocationTrackingService::class.java).setAction(ACTION_PAUSE_RECORDING))
+        }
+        fun resumeRecording(context: Context) {
+            ContextCompat.startForegroundService(context,
+                Intent(context, LocationTrackingService::class.java).setAction(ACTION_RESUME_RECORDING))
+        }
         const val ACTION_START_TRACKING = "com.gorite.cyclemap.LOCATION_START"
         const val ACTION_STOP_TRACKING = "com.gorite.cyclemap.LOCATION_STOP"
         const val ACTION_START_RECORDING = "com.gorite.cyclemap.GPX_START"

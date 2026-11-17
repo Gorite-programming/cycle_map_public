@@ -11,8 +11,49 @@ import java.util.TimeZone
  * Collects timestamped track points and serializes them as GPX 1.1.
  * Pure formatting logic lives in [GpxWriter] so it can be unit-tested on the JVM.
  */
-class GpxRecorder {
+class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.Recovery? = null) {
     private val points = java.util.Collections.synchronizedList(mutableListOf<GpxPoint>())
+    val startedAt: Long = recovery?.startedAt ?: System.currentTimeMillis()
+    private val pending = mutableListOf<String>()
+    var paused: Boolean = recovery?.paused ?: false
+        private set
+    private var nextSegment = recovery != null
+
+    init {
+        if (recovery == null) pending += "START\t$startedAt"
+        else points.addAll(recovery.points)
+        flush()
+    }
+
+    @Synchronized
+    fun flush() {
+        if (journal == null || pending.isEmpty()) return
+        try {
+            journal.append(pending)
+            pending.clear()
+        } catch (_: Exception) {
+            // Keep both the live points and the pending writes; retry on the next fix/timer.
+        }
+    }
+
+    @Synchronized
+    fun pause() {
+        paused = true
+        nextSegment = true
+        pending += "PAUSE"
+        flush()
+    }
+
+    @Synchronized
+    fun resume() {
+        paused = false
+        nextSegment = true
+        pending += "RESUME"
+        flush()
+    }
+
+    fun deleteJournal() { journal?.file?.delete() }
+
 
     val pointCount: Int get() = points.size
 
@@ -27,8 +68,14 @@ class GpxRecorder {
         )
     }
 
+    @Synchronized
     fun addPoint(point: GpxPoint) {
-        points.add(point)
+        if (paused) return
+        val recorded = point.copy(segmentStart = point.segmentStart || nextSegment)
+        nextSegment = false
+        points.add(recorded)
+        pending += GpxJournal.pointLine(recorded)
+        flush()
     }
 
     fun writeToFile(file: File): File {
@@ -37,7 +84,10 @@ class GpxRecorder {
         file.parentFile?.mkdirs()
         val tmpFile = File(file.parentFile, "${file.name}.tmp")
         try {
-            tmpFile.writer().use { it.write(GpxWriter.write(snapshot)) }
+            java.io.FileOutputStream(tmpFile).use {
+                it.write(GpxWriter.write(snapshot).toByteArray(Charsets.UTF_8))
+                it.fd.sync()
+            }
             if (!tmpFile.renameTo(file)) {
                 tmpFile.copyTo(file, overwrite = true)
                 tmpFile.delete()
@@ -55,6 +105,7 @@ data class GpxPoint(
     val longitude: Double,
     val elevationMeters: Double?,
     val timestampMillis: Long,
+    val segmentStart: Boolean = false,
 )
 
 object GpxWriter {
@@ -72,7 +123,8 @@ object GpxWriter {
         append("  <trk><name>CycleMap recording</name><trkseg>")
         append('\n')
         val formatter = checkNotNull(gpxTimeFormat.get())
-        for (p in points) {
+        for ((index, p) in points.withIndex()) {
+            if (index > 0 && p.segmentStart) append("  </trkseg><trkseg>\n")
             append("    <trkpt lat=\"").append(formatCoord(p.latitude))
                 .append("\" lon=\"").append(formatCoord(p.longitude)).append("\">")
             if (p.elevationMeters != null) {

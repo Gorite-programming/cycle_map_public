@@ -31,6 +31,8 @@ import org.osmdroid.views.MapView
 
 @Composable
 internal fun MapPanelsHost(
+    isNavigationActive: Boolean = false,
+    navigationRoute: List<com.gorite.cyclemap.routing.RoutePoint> = emptyList(),
     showSpotPanel: Boolean,
     onCloseSpotPanel: () -> Unit,
     spotCategory: SpotQuickCategory?,
@@ -128,6 +130,8 @@ internal fun MapPanelsHost(
 
     if (showQuickSpotSheet && activeQuickSpotType != null) {
         QuickSpotBottomSheet(
+            isNavigating = isNavigationActive,
+            routePoints = navigationRoute,
             selectedType = activeQuickSpotType,
             onSelectType = onActiveQuickSpotTypeChange,
             spots = quickSpotResults,

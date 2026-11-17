@@ -58,6 +58,7 @@ internal fun MapNotificationBanners(
     isSwitchingGraph: Boolean,
     isCalculatingRoute: Boolean,
     isLocationServiceEnabled: Boolean = true,
+    onOpenOfflineData: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(warningMessage) {
@@ -223,22 +224,50 @@ internal fun MapNotificationBanners(
             modifier = Modifier.fillMaxWidth(),
         ) {
             warningMessage?.let { msg ->
+                val showOpenData = isOfflineDataWarning(msg) && onOpenOfflineData != null
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
                     shape = RoundedCornerShape(12.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            msg,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = onDismissWarning) { Text("閉じる") }
+                    if (showOpenData) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TextButton(onClick = onDismissWarning) { Text("閉じる") }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                FilledTonalButton(onClick = {
+                                    onDismissWarning()
+                                    onOpenOfflineData?.invoke()
+                                }) {
+                                    Text("データ管理を開く")
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onDismissWarning) { Text("閉じる") }
+                        }
                     }
                 }
             }
@@ -339,3 +368,5 @@ internal fun MapNotificationBanners(
         }
     }
 }
+
+internal fun isOfflineDataWarning(message: String): Boolean = "オフラインデータ" in message

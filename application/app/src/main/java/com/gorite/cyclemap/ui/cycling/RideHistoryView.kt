@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -470,6 +471,7 @@ fun RideDetailDialog(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.JAPAN) }
     val elevationColor = if (hasElevationData(ride)) {
         CycleMapTheme.palette.success
@@ -595,7 +597,23 @@ fun RideDetailDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("閉じる") }
+            Column {
+                TextButton(onClick = {
+                    runCatching {
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.gpx", ride.file)
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "application/gpx+xml"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            clipData = android.content.ClipData.newRawUri("GPX", uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(send, "走行記録を共有"))
+                    }.onFailure {
+                        android.widget.Toast.makeText(context, "共有できませんでした", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("共有") }
+                TextButton(onClick = onDismiss) { Text("閉じる") }
+            }
         },
     )
 }

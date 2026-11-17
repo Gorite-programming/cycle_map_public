@@ -44,6 +44,7 @@ internal val LocalPlaceDetailHeightPx = androidx.compose.runtime.compositionLoca
 @Composable
 internal fun MapScreenScaffold(
     state: MapScreenState,
+    rideSnapshot: com.gorite.cyclemap.tracking.RideSnapshot? = null,
     modifier: Modifier = Modifier,
     systemInsets: PaddingValues,
     isDarkTheme: Boolean,
@@ -120,6 +121,8 @@ internal fun MapScreenScaffold(
     ) {
         Box(modifier = modifier.fillMaxSize()) {
             MapContentLayout(
+                rideSnapshot = rideSnapshot,
+                importPlannedRoute = importPlannedRoute,
                 modifier = Modifier.fillMaxSize(),
             isDrawerOpenState = state.isDrawerOpenState,
             selectedMenu = state.selectedMenuState.value,
@@ -313,6 +316,7 @@ internal fun MapScreenScaffold(
 
         MapModalsHost(
         context = context,
+        navigationRoute = state.navigationRouteState.value,
         prefs = state.prefs,
         lifecycleOwner = state.lifecycleOwner,
         mapView = state.mapViewState.value,
@@ -470,13 +474,15 @@ internal fun MapScreenScaffold(
         },
         pendingSelectedSpot = state.pendingSelectedSpotState.value,
         onAddWaypoint = { spot ->
-            val newWaypoints = state.waypointsState.value + spot
+            // ナビ中の立ち寄りは、次に寄る所として先頭に入れ、案内を続けたまま引き直す
+            val navigating = state.isNavigationActiveState.value
+            val newWaypoints = if (navigating) listOf(spot) + state.waypointsState.value else state.waypointsState.value + spot
             state.waypointsState.value = newWaypoints
             state.pendingSelectedSpotState.value = null
             val loc = state.currentLocationState.value
             val start = if (loc != null) GeoPoint(loc.latitude, loc.longitude) else GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
             state.destinationState.value?.let { dest ->
-                runRouteCalculation(start, dest, false, newWaypoints, null)
+                runRouteCalculation(start, dest, navigating, newWaypoints, null)
             }
         },
         onChangeDestination = { spot ->

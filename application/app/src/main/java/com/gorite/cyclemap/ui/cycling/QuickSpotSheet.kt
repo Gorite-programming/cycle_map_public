@@ -54,9 +54,12 @@ import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.R
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.data.FavoritesManager
+import com.gorite.cyclemap.routing.RoutePoint
+import com.gorite.cyclemap.routing.RouteProgressIndex
 import com.gorite.cyclemap.ui.components.DistanceAndDirection
 import com.gorite.cyclemap.ui.components.directionBearingDeg
 import com.gorite.cyclemap.ui.components.formatSpotSubtitle
+import kotlin.math.roundToInt
 
 /**
  * MapScreen上部等に配置するクイックスポットフィルタの水平ピルボタン列。
@@ -131,8 +134,47 @@ fun QuickSpotPill(
 }
 
 /**
+ * ルートからの距離を添えたクイックスポット表示項目。
+ */
+internal data class QuickSpotWithRouteDistance(
+    val spot: NearbySpot,
+    val routeDistanceMeters: Double?,
+)
+
+/**
+ * ナビ中は案内ルートに近い順 (同一距離なら現在地に近い順) に並べ替える。
+ * ルート点が 2 点未満のときは元の順序を保つ。
+ */
+internal fun sortSpotsByRouteProximity(
+    spots: List<NearbySpot>,
+    routePoints: List<RoutePoint>,
+): List<QuickSpotWithRouteDistance> {
+    if (routePoints.size < 2 || spots.isEmpty()) {
+        return spots.map { QuickSpotWithRouteDistance(it, null) }
+    }
+    val index = RouteProgressIndex(routePoints)
+    return spots
+        .map { spot ->
+            val routeDist = index.calculate(RoutePoint(spot.latitude, spot.longitude))?.distanceToRouteMeters
+            QuickSpotWithRouteDistance(spot, routeDist)
+        }
+        .sortedWith(
+            compareBy<QuickSpotWithRouteDistance>(
+                { it.routeDistanceMeters ?: Double.POSITIVE_INFINITY },
+                { it.spot.distanceM },
+            ),
+        )
+}
+
+internal fun formatDistanceFromRoute(meters: Double): String {
+    if (!meters.isFinite() || meters < 0.0) return ""
+    val rounded = meters.roundToInt()
+    return if (rounded < 1000) "ルートから${rounded}m" else "ルートから${"%.1f".format(java.util.Locale.US, meters / 1000.0)}km"
+}
+
+/**
  * 選択された QuickSpotType の周辺スポット一覧を表示するボトムシート。
- * 距離、スポット名、カテゴリバッジ、および「ここへ行く (Route)」ボタンを備える。
+ * 距離、スポット名、カテゴリバッジ、および「ここへ行く / 立ち寄る」ボタンを備える。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,10 +189,17 @@ fun QuickSpotBottomSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     origin: Pair<Double, Double>? = null,
+    isNavigating: Boolean = false,
+    routePoints: List<RoutePoint> = emptyList(),
 ) {
     val context = LocalContext.current
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
     val favorites by favoritesManager.favorites.collectAsState()
+    val sortedByRoute = isNavigating && routePoints.size >= 2
+    val displayItems = remember(spots, sortedByRoute, routePoints) {
+        if (sortedByRoute) sortSpotsByRouteProximity(spots, routePoints)
+        else spots.map { QuickSpotWithRouteDistance(it, null) }
+    }
 
     // ステータスバーより下で止める (端末がダーク設定でアプリがライトのとき、白い時計が明るいシートに溶けるため)
     ModalBottomSheet(
@@ -198,14 +247,14 @@ fun QuickSpotBottomSheet(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            if (spots.isNotEmpty()) {
+                            if (displayItems.isNotEmpty()) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = CycleMapTheme.palette.accentContainer,
                                 ) {
                                     Text(
-                                        text = "${spots.size}件",
+                                        text = "${displayItems.size}件",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = CycleMapTheme.palette.accent,
@@ -215,13 +264,17 @@ fun QuickSpotBottomSheet(
                             }
                         }
                         Text(
-                            text = "最寄りから順に表示・ワンタップでルート案内",
+                            text = when {
+                                sortedByRoute -> "ルートに近い順に表示・経由地や目的地に設定"
+                                isNavigating -> "最寄りから順に表示・経由地や目的地に設定"
+                                else -> "最寄りから順に表示・ワンタップでルート案内"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                     Icon(
                         painter = painterResource(R.drawable.ic_lucide_x),
                         contentDescription = "閉じる",
@@ -282,7 +335,7 @@ fun QuickSpotBottomSheet(
                         )
                     }
                 }
-                spots.isEmpty() -> {
+                displayItems.isEmpty() -> {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -316,9 +369,10 @@ fun QuickSpotBottomSheet(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
-                            spots,
-                            key = { "${it.name}:${it.latitude}:${it.longitude}" },
-                        ) { spot ->
+                            displayItems,
+                            key = { "${it.spot.name}:${it.spot.latitude}:${it.spot.longitude}" },
+                        ) { item ->
+                            val spot = item.spot
                             val isFav = favorites.any {
                                 kotlin.math.abs(it.latitude - spot.latitude) < 0.0001 &&
                                     kotlin.math.abs(it.longitude - spot.longitude) < 0.0001
@@ -341,6 +395,8 @@ fun QuickSpotBottomSheet(
                                 onSpotClick = { onSpotClick(spot) },
                                 onRouteClick = { onRouteClick(spot) },
                                 origin = origin,
+                                routeDistanceMeters = item.routeDistanceMeters,
+                                routeActionLabel = if (isNavigating) "立ち寄る" else "ここへ行く",
                             )
                         }
                     }
@@ -360,6 +416,8 @@ internal fun QuickSpotCard(
     modifier: Modifier = Modifier,
     origin: Pair<Double, Double>? = null,
     distanceMeters: Double? = spot.distanceM,
+    routeDistanceMeters: Double? = null,
+    routeActionLabel: String = "ここへ行く",
 ) {
     val bearingDeg = directionBearingDeg(
         origin = origin,
@@ -406,14 +464,21 @@ internal fun QuickSpotCard(
                 )
             }
 
-            // 下段: 左に短い住所 (あれば) または カテゴリ、右に ☆ (48dp) と「ここへ行く」(40dp)
+            // 下段: 左に短い住所 (あれば) または カテゴリ (+ ルートからの距離)、右に ☆ (48dp) と「ここへ行く / 立ち寄る」
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val baseSubtitle = formatSpotSubtitle(spot.address, spot.category)
+                val routeDistLabel = routeDistanceMeters?.let(::formatDistanceFromRoute).orEmpty()
+                val subtitleText = when {
+                    routeDistLabel.isNotEmpty() && baseSubtitle.isNotEmpty() -> "$routeDistLabel ・ $baseSubtitle"
+                    routeDistLabel.isNotEmpty() -> routeDistLabel
+                    else -> baseSubtitle
+                }
                 Text(
-                    text = formatSpotSubtitle(spot.address, spot.category),
+                    text = subtitleText,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -456,7 +521,7 @@ internal fun QuickSpotCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "ここへ行く",
+                                text = routeActionLabel,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = CycleMapTheme.palette.onAccent,

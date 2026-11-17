@@ -40,6 +40,9 @@ fun CycleComputerHost(
     destLon: Double?,
     progress: RouteProgress?,
     onExit: () -> Unit,
+    onStartRecording: () -> Unit = {},
+    onPauseRecording: () -> Unit = {},
+    onFinishRecording: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -100,10 +103,16 @@ fun CycleComputerHost(
             destination = destination,
             clockText = clockFormat.format(Date(nowMs)),
             onStartPause = {
-                if (rideSession.snapshot(System.currentTimeMillis()).state == RideState.RUNNING) rideSession.pause()
-                else rideSession.start()
+                if (rideSession.snapshot(System.currentTimeMillis()).state == RideState.RUNNING) {
+                    rideSession.pause()
+                    onPauseRecording()
+                } else {
+                    rideSession.start()
+                    onStartRecording()
+                }
+                store.save(rideSession)
             },
-            onResetLongPress = { rideSession.reset(); store.clear() },
+            onResetLongPress = { onFinishRecording(); rideSession.reset(); store.clear() },
             onExitMode = onExit,
         )
     }
