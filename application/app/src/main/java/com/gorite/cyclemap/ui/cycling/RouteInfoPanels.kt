@@ -299,12 +299,29 @@ fun RouteInfoCardContent(
                     )
                 }
             }
+            // サイコン画面で走る: ナビを始めてから、地図の代わりに速度・距離・時間の画面にする。
+            val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
+            if (displayModeController != null) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = {
+                        onStart()
+                        displayModeController.set(com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER)
+                    },
+                    modifier = Modifier.height(48.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                ) {
+                    Text("サイコン", fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
             Button(
                 onClick = onStart,
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp),
                 shape = RoundedCornerShape(24.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) {
                 Icon(
@@ -314,7 +331,7 @@ fun RouteInfoCardContent(
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimary)
+                Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onPrimary)
             }
         }
     }
