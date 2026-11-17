@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.gorite.cyclemap.routing.roadCandidatesNear
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -436,6 +437,27 @@ internal fun MapScreen(
             state.vectorMapState.value = null
         }
     }
+    // 道路のルール (自動車専用・逆走など) の通知。位置の更新のたびに、近くの辺と照合する (分からないときは何も出さない)
+    val roadRuleEnabledState = remember {
+        androidx.compose.runtime.mutableStateOf(state.prefs.getBoolean(com.gorite.cyclemap.ui.state.PREF_ROAD_RULE_ENABLED, true))
+    }
+    val roadRuleKindState = remember { androidx.compose.runtime.mutableStateOf<com.gorite.cyclemap.routing.RoadRuleKind?>(null) }
+    val roadRuleMatcher = remember { com.gorite.cyclemap.routing.RoadRuleMatcher() }
+    val roadRuleController = remember {
+        com.gorite.cyclemap.ui.state.RoadRuleController(
+            enabled = roadRuleEnabledState,
+            setEnabled = { on ->
+                roadRuleEnabledState.value = on
+                state.prefs.edit().putBoolean(com.gorite.cyclemap.ui.state.PREF_ROAD_RULE_ENABLED, on).apply()
+                if (!on) { roadRuleMatcher.reset(); roadRuleKindState.value = null }
+            },
+            kind = roadRuleKindState,
+        )
+    }
+    LaunchedEffect(state.mappedGraphState.value) {
+        roadRuleMatcher.reset()
+        roadRuleKindState.value = null
+    }
     val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
     val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
     // 気圧計はサイコン画面を出している間だけ動かす (電池のため)
@@ -477,6 +499,29 @@ internal fun MapScreen(
                 altitudeM = if (loc.hasAltitude()) loc.altitude else null,
                 pressureHpa = pressureReader.latestHpa,
             )
+            if (roadRuleEnabledState.value) {
+                val graph = state.mappedGraphState.value
+                val lock = state.graphLock.readLock()
+                // 経路計算や県の切り替えで graph が使われている間は待たない (今回は通知を更新しない)
+                if (graph != null && lock.tryLock()) {
+                    try {
+                        val moving = loc.hasSpeed() && loc.speed >= 1.5f
+                        val candidates = if (moving) graph.roadCandidatesNear(loc.latitude, loc.longitude) else emptyList()
+                        val match = roadRuleMatcher.update(
+                            timeMs = loc.time,
+                            lat = loc.latitude,
+                            lon = loc.longitude,
+                            accuracyM = if (loc.hasAccuracy()) loc.accuracy else 100f,
+                            speedMps = if (loc.hasSpeed()) loc.speed else null,
+                            bearingDeg = if (loc.hasBearing()) loc.bearing else null,
+                            candidates = candidates,
+                        )
+                        roadRuleKindState.value = match?.kind
+                    } finally {
+                        lock.unlock()
+                    }
+                }
+            }
         },
         lastValidLocation = state.lastValidLocationState.value,
         onLastValidLocationChanged = { state.lastValidLocationState.value = it },
@@ -814,6 +859,7 @@ internal fun MapScreen(
     androidx.compose.runtime.CompositionLocalProvider(
         com.gorite.cyclemap.ui.state.LocalDisplayModeController provides displayModeController,
         com.gorite.cyclemap.ui.state.LocalHandednessController provides handednessController,
+        com.gorite.cyclemap.ui.state.LocalRoadRuleController provides roadRuleController,
     ) {
     MapScreenScaffold(
         state = state,

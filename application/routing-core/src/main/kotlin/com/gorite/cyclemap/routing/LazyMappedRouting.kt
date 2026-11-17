@@ -415,6 +415,8 @@ class LazyMappedRoadGraph private constructor(
         val roadName: String? = null,
         /** この辺の進行方向の車線 (OSM の turn:lanes)。graph が車線区間を持つときだけ。 */
         val turnLanes: String? = null,
+        val ordinal: Int = -1,
+        val bicycleInfo: BicycleRoadInfo? = null,
     )
 
     fun outgoingBranchCount(index: Int): Int {
@@ -432,7 +434,7 @@ class LazyMappedRoadGraph private constructor(
             position = record.nextOffset
             val target = edgeTargets[ordinal]
             if (target >= 0) {
-                result += JunctionBranch(target, record.typeName, record.distance, record.grade, roadNameOfEdge(ordinal), turnLanesOfEdge(ordinal))
+                result += JunctionBranch(target, record.typeName, record.distance, record.grade, roadNameOfEdge(ordinal), turnLanesOfEdge(ordinal), ordinal, bicycleInfoOfEdge(ordinal))
             }
             ordinal++
         }

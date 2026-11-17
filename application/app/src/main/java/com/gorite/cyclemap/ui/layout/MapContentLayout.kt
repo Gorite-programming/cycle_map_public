@@ -273,6 +273,25 @@ internal fun MapContentLayout(
                     )
                 }
 
+                // 道路のルールの通知 (自動車専用・逆走など)。ナビ中は案内ヘッダの下、シンプルでは上端、通常は検索欄の下
+                com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value?.let { ruleKind ->
+                    com.gorite.cyclemap.ui.cycling.RoadRuleBadge(
+                        kind = ruleKind,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(
+                                top = effectiveTopPadding + when {
+                                    isNavigationActive -> if (isLandscape) 64.dp else (navHeaderHeight + 20.dp)
+                                    simple -> 20.dp
+                                    else -> 52.dp
+                                },
+                                start = 84.dp,
+                                end = 84.dp,
+                            )
+                            .zIndex(3f),
+                    )
+                }
+
                 if (homeVisible) {
                     StatusBarScrim(
                         topInset = effectiveTopPadding,

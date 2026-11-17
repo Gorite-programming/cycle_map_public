@@ -58,3 +58,11 @@ Claude・Codex・Antigravity が、同じ依頼文 (`work/codex/lane_detect_desi
   - 通行条件: 車道 ALLOWED 71.7%、UNKNOWN 28.2% (`path` などの判断材料不足)、FORBIDDEN 0.06% (自動車専用など 2,380 本)、CONDITIONAL 0.01%。歩行者と共有のフラグ (`PEDESTRIAN_SHARED`) 1.14%。
   - **国道2号 (`ref=2`、8,352 本)**: 車道 ALLOWED 91.1%、FORBIDDEN 8.9% (740 本、`motorroad=yes` の自動車専用区間 = 広島バイパスなど。正しく検出できている)。`sidewalk` タグは 2.5% (206 本、すべて `sidewalk=separate`: 歩道は別の way)、`cycleway` タグは 0%、`bicycle` タグは 1.1%。
 - 読み取れること: 国道2号沿いで OSM から出せるのは、**「車道は通れる (左側通行が原則)」「ここは自動車専用で自転車は不可」「歩道は別の way で描かれている」**まで。「歩道を自転車で通れるか」「自転車レーンがあるか」は、タグが無くて、ほぼ出せない。
+
+## 7. 表示の実装 (2026-11-17)
+
+- `RoadRuleKind` (7 種: 警告は 自動車専用・逆走・自転車通行不可・押し歩き、情報は 歩行者と共有・自転車通行帯の登録・一方通行で自転車は逆向き可) と `roadRuleKindOf`。
+- `RoadRuleMatcher` (Codex。精度 20 m 超・速度 1.5 m/s 未満・方位なしは無効、候補が 5 m 以内で info が違うときは曖昧で null、同じ線分に 3 回連続で確定、確定後は 5 秒保持)。`LazyMappedRoadGraph.roadCandidatesNear`、`JunctionBranch` に `ordinal`・`bicycleInfo`。
+- `RoadRuleBadge` と文言 (Antigravity。「違法」「禁止」と断定しない)。`MapScreen` が位置の更新ごとに照合 (`graphLock` は `tryLock`、待たない)、`LocalRoadRuleController` で `MapContentLayout` とサイコン画面に渡す。設定の「道路のルールを知らせる」(既定でオン)。
+- 実機 (S26) で、広島の一方通行の住宅街の道 (OSM の実際の形) を、逆向きに走ると「一方通行の逆向きです」が出て、順方向では出ないことを確認した。
+- 未: 自動車専用 (MOTOR_ONLY)・歩行者共有などの実機確認、ナビ中・シンプル・サイコンでのバッジの位置、広島以外の索引の作り直し (`reindexBikeInfo` を各県に)、配布用 ZIP への組み込み (今は `.win` の広島だけに手で置いた)、横位置の実験。

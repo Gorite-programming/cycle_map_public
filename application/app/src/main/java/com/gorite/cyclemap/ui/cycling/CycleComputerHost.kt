@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -78,6 +80,15 @@ fun CycleComputerHost(
         progress = progress,
     )
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        // 道路のルールの通知 (自動車専用・逆走など)。サイコン画面でも出す
+        com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value?.let { ruleKind ->
+            RoadRuleBadge(
+                kind = ruleKind,
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.TopCenter)
+                    .padding(top = 98.dp, start = 16.dp, end = 16.dp),
+            )
+        }
         CycleComputerScreen(
             snapshot = snapshot,
             destination = destination,

@@ -328,6 +328,12 @@ fun SettingsPanelSheet(
                 }
             }
 
+            val roadRuleController = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current
+            if (roadRuleController != null) {
+                SettingSwitch("道路のルールを知らせる", roadRuleController.enabled.value, roadRuleController.setEnabled,
+                    subtitle = "自動車専用道路や、一方通行の逆向きに入ったときなどに、画面に小さく知らせます (地図データに登録があるときだけ)")
+            }
+
             SettingSwitch("動きの演出", animationEnabled, onAnimationEnabledChange,
                 subtitle = "画面の切り替えや地図の移動をなめらかに見せます。オフにすると電池の減りを少し抑えます")
 
