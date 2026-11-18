@@ -338,9 +338,10 @@ object VoiceTriggerEvaluator {
         instructions: List<RouteInstruction>,
         isOffRoute: Boolean,
         spokenKeys: Set<String>,
+        arrivalConfirmed: Boolean = false,
     ): VoiceCue? {
-        // 1. 目的地到着の判定 (MED-05: 逸脱中であっても到着圏内到達時は到着案内を最優先)
-        if (remainingMeters != null && remainingMeters <= VoiceGuidanceThresholds.ARRIVAL_DISTANCE_METERS) {
+        // 1. 実測位置・精度・連続測位で確定した到着だけを案内する。
+        if (arrivalConfirmed) {
             val key = "ARRIVED"
             if (!spokenKeys.contains(key)) {
                 val phrase = VoicePhraseCatalog.PHRASES["arrived"]
@@ -468,6 +469,7 @@ class VoiceGuidanceNavigator(
         remainingMeters: Double?,
         instructions: List<RouteInstruction>,
         isOffRoute: Boolean = false,
+        arrivalConfirmed: Boolean = false,
     ) {
         // MED-05: ルート復帰時は "REROUTE" をクリアして次回逸脱時に再警告できるようにする
         if (!isOffRoute) {
@@ -480,6 +482,7 @@ class VoiceGuidanceNavigator(
             instructions = instructions,
             isOffRoute = isOffRoute,
             spokenKeys = spokenKeys,
+            arrivalConfirmed = arrivalConfirmed,
         ) ?: return
 
         spokenKeys.add(VoiceTriggerEvaluator.makeKey(cue))

@@ -34,13 +34,17 @@ internal fun searchNearbyPlaces(
     centerLon: Double,
     radiusMeters: Double,
     limit: Int = 40,
+    categoryPrefixes: List<String>? = null,
 ): List<NearbySpot> {
-    if (!dbFile.isFile || radiusMeters <= 0) return emptyList()
+    if (categoryPrefixes?.isEmpty() == true) return emptyList()
+    if (!dbFile.isFile || radiusMeters <= 0 || limit <= 0) return emptyList()
     // 緯度経度のおおまかなbbox (余裕を持たせ、厳密距離はKotlin側で判定)
     val latDelta = radiusMeters / 111_320.0
     val lonDelta = radiusMeters / (111_320.0 * kotlin.math.cos(Math.toRadians(centerLat)).coerceAtLeast(0.2))
     val found = ArrayList<NearbySpot>(limit * 2)
     // LIMIT前にSQL側で近似距離順に並べ、真の最近傍の切り捨てを防ぐ (厳密な半径・ソートはKotlin側)。
+    val categoryWhere = categoryPrefixes?.joinToString(" OR ") { "category LIKE ? ESCAPE '\\'" }
+        ?.let { "AND ($it)" }.orEmpty()
     val orderNearby = NEARBY_ORDER_BY
     SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
         val selectCols = nearbySpotSelectColumns(placesColumns(db))
@@ -65,6 +69,7 @@ internal fun searchNearbyPlaces(
                 category LIKE 'shop:bicycle%' OR category LIKE 'shop:bakery%' OR
                 category LIKE 'amenity:public_bath%'
               )
+            $categoryWhere
             $orderNearby
             LIMIT ?
             """.trimIndent(),
@@ -73,6 +78,7 @@ internal fun searchNearbyPlaces(
                 (centerLat + latDelta).toString(),
                 (centerLon - lonDelta).toString(),
                 (centerLon + lonDelta).toString(),
+                *(categoryPrefixes.orEmpty().map { "${escapeLike(it)}%" }.toTypedArray()),
                 *(nearbyOrderArgs(centerLat, centerLon).toTypedArray()),
                 (limit * 3).toString(),
             ),

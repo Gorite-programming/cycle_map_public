@@ -324,9 +324,10 @@ internal fun MetricTile(
     modifier: Modifier = Modifier,
     unit: String? = null,
     compact: Boolean = false,
+    valueSizeSp: Int = 36,
 ) {
     val palette = CycleMapTheme.palette
-    val valueSize = 36.sp
+    val valueSize = valueSizeSp.sp
     val verticalPadding = if (compact) 6.dp else 8.dp
 
     Surface(
@@ -387,6 +388,23 @@ internal fun StatsGrid(
     modifier: Modifier = Modifier,
 ) {
     val gap = if (compact) 6.dp else 8.dp
+    if (compact) {
+        // 横画面 (高さ約 360dp): 2 列 x 3 行だと、開始・リセット・通常へ戻るの操作ボタンが下で切れる (S26 実機)。
+        // 3 列 x 2 行に詰めて、ボタンの高さを確保する
+        Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                MetricTile("走行距離", RideFormat.distance(snapshot.distanceM), Modifier.weight(1f), compact = true, valueSizeSp = 28)
+                MetricTile("走行時間", RideFormat.duration(snapshot.movingTimeS), Modifier.weight(1f), compact = true, valueSizeSp = 28)
+                MetricTile("獲得標高", RideFormat.elevationGain(snapshot.elevationGainM), Modifier.weight(1f), compact = true, valueSizeSp = 28)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                MetricTile("平均速度", RideFormat.speed(snapshot.averageKmh), Modifier.weight(1f), unit = "km/h", compact = true, valueSizeSp = 28)
+                MetricTile("最高速度", RideFormat.speed(snapshot.maxKmh), Modifier.weight(1f), unit = "km/h", compact = true, valueSizeSp = 28)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+        return
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(gap),

@@ -101,12 +101,6 @@ internal fun executeRouteCalculation(
     val requestStartedAt = SystemClock.elapsedRealtime()
     val executionGeneration = env.routeExecutionGeneration.incrementAndGet()
     env.routeJobRef.getAndSet(null)?.cancel()
-    if (!isReroute) {
-        env.onDestinationChanged(goal)
-    }
-    if (waypointsOverride != null) {
-        env.onWaypointsChanged(waypointsOverride)
-    }
     val startPrefecture = findPrefectureName(start.latitude, start.longitude)
     val goalPrefecture = findPrefectureName(goal.latitude, goal.longitude)
     val straightDistanceMeters = haversineMeters(
@@ -181,6 +175,13 @@ internal fun executeRouteCalculation(
                 return
             }
         }
+    }
+
+    if (!isReroute) {
+        env.onDestinationChanged(goal)
+    }
+    if (waypointsOverride != null) {
+        env.onWaypointsChanged(waypointsOverride)
     }
 
     val currentWaypoints = waypointsOverride ?: env.getWaypoints()

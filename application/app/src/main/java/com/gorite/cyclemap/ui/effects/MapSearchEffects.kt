@@ -14,6 +14,7 @@ import com.gorite.cyclemap.search.searchNearbyQuickSpots
 import com.gorite.cyclemap.ui.cycling.NearbySpot
 import com.gorite.cyclemap.ui.cycling.QuickSpotType
 import com.gorite.cyclemap.ui.cycling.SpotQuickCategory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.MapLibreMap
@@ -66,19 +67,28 @@ internal fun MapSearchEffects(
                 "POI_DB panel prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} exists=${dbFile?.isFile}",
             )
         }
-        val found = if (dbFile != null && dbFile.isFile) {
-            withContext(Dispatchers.IO) {
-                searchNearbyPlaces(dbFile, center.first, center.second, 3000.0, limit = 60)
-                    .filter { spot -> prefixes.any { spot.category.startsWith(it) } }
-                    .take(30)
+        var readFailed = false
+        val found = try {
+            if (dbFile != null && dbFile.isFile) {
+                withContext(Dispatchers.IO) {
+                    searchNearbyPlaces(dbFile, center.first, center.second, 3000.0, limit = 30, categoryPrefixes = prefixes)
+                }
+            } else {
+                emptyList()
             }
-        } else {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("CycleMap", "Spot search DB read failed", e)
+            readFailed = true
             emptyList()
         }
         onSpotResultsChange(found)
         onSpotLoadingChange(false)
         onSpotMessageChange(
-            if (dbFile == null || !dbFile.isFile) {
+            if (readFailed) {
+                "検索DBを読めません"
+            } else if (dbFile == null || !dbFile.isFile) {
                 "検索DBが見つかりません"
             } else if (found.isEmpty()) {
                 "周辺に${cat.label}が見つかりませんでした"
@@ -115,25 +125,36 @@ internal fun MapSearchEffects(
                 "QUICK_SPOT_DB prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} type=${type.name}",
             )
         }
-        val found = if (dbFile != null && dbFile.isFile) {
-            withContext(Dispatchers.IO) {
-                searchNearbyQuickSpots(
-                    dbFile = dbFile,
-                    centerLat = center.first,
-                    centerLon = center.second,
-                    radiusMeters = 8000.0,
-                    categoryKeys = type.categoryKeys,
-                    nameFilter = type.nameFilter,
-                    limit = 30,
-                )
+        var readFailed = false
+        val found = try {
+            if (dbFile != null && dbFile.isFile) {
+                withContext(Dispatchers.IO) {
+                    searchNearbyQuickSpots(
+                        dbFile = dbFile,
+                        centerLat = center.first,
+                        centerLon = center.second,
+                        radiusMeters = 8000.0,
+                        categoryKeys = type.categoryKeys,
+                        nameFilter = type.nameFilter,
+                        limit = 30,
+                    )
+                }
+            } else {
+                emptyList()
             }
-        } else {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("CycleMap", "Quick spot search DB read failed", e)
+            readFailed = true
             emptyList()
         }
         onQuickSpotResultsChange(found)
         onQuickSpotLoadingChange(false)
         onQuickSpotMessageChange(
-            if (dbFile == null || !dbFile.isFile) {
+            if (readFailed) {
+                "検索DBを読めません"
+            } else if (dbFile == null || !dbFile.isFile) {
                 "検索DBが見つかりません"
             } else if (found.isEmpty()) {
                 "周辺に${type.label}が見つかりませんでした"

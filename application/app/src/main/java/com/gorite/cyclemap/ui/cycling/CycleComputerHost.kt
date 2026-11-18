@@ -5,8 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -16,6 +14,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
 import com.gorite.cyclemap.routing.RouteProgress
 import com.gorite.cyclemap.tracking.RideSession
@@ -88,26 +90,30 @@ fun CycleComputerHost(
         courseDegrees = location?.takeIf { it.hasBearing() && it.hasSpeed() && it.speed >= 1f }?.bearing?.toDouble(),
         progress = progress,
     )
+    val ruleKind = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // 道路のルールの通知 (自動車専用・逆走など)。サイコン画面でも出す
-        com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value?.let { ruleKind ->
-            RoadRuleBadge(
-                kind = ruleKind,
-                modifier = Modifier
-                    .align(androidx.compose.ui.Alignment.TopCenter)
-                    .padding(top = 98.dp, start = 16.dp, end = 16.dp),
-            )
-        }
         CycleComputerScreen(
             snapshot = snapshot,
+            // 警告が無いときは null にする (画面側が、警告の分だけ縦の余白を空ける判断に使う)
+            roadRuleContent = ruleKind?.let { kind ->
+                {
+                    RoadRuleBadge(
+                        kind = kind,
+                        modifier = Modifier.clearAndSetSemantics {
+                            contentDescription = roadRuleText(kind)
+                            liveRegion = LiveRegionMode.Polite
+                        },
+                    )
+                }
+            },
             destination = destination,
             clockText = clockFormat.format(Date(nowMs)),
             onStartPause = {
                 if (rideSession.snapshot(System.currentTimeMillis()).state == RideState.RUNNING) {
-                    rideSession.pause()
+                    rideSession.pause(System.currentTimeMillis())
                     onPauseRecording()
                 } else {
-                    rideSession.start()
+                    rideSession.start(System.currentTimeMillis())
                     onStartRecording()
                 }
                 store.save(rideSession)

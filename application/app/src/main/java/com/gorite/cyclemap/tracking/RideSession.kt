@@ -44,7 +44,6 @@ class RideSession {
         val old = previous
         // 遅延・重複した位置で距離や平滑化の履歴を巻き戻さない。
         if (old != null && timeMs <= old.timeMs) return
-        if (clockMs != null && timeMs < clockMs!!) return
         val dtMs = old?.let { timeMs - it.timeMs }
         val stepM = old?.let { haversineMeters(it.lat, it.lon, lat, lon) }
         // 位置の飛び (GPS の誤差・別の測位源への切り替え): 時間の割に離れすぎた点は、距離にも速度にも使わない。
@@ -141,21 +140,25 @@ class RideSession {
 
     @Synchronized
     fun snapshot(nowMs: Long): RideSnapshot {
-        advance(nowMs)
+        val displayMs = maxOf(nowMs, clockMs ?: nowMs)
+        val displayedMovingTimeS = movingTimeS + if (state == RideState.RUNNING) {
+            clockMs?.let { (displayMs - it) / 1000.0 } ?: 0.0
+        } else 0.0
         return RideSnapshot(
             state = state,
             speedKmh = if (state == RideState.RUNNING && speeds.isNotEmpty()) speeds.average() * 3.6 else 0.0,
             distanceM = distanceM,
-            movingTimeS = movingTimeS,
-            elapsedS = startedMs?.let { ((clockMs ?: it) - it).coerceAtLeast(0) / 1000.0 } ?: 0.0,
-            averageKmh = if (movingTimeS > 0.0) distanceM / movingTimeS * 3.6 else 0.0,
+            movingTimeS = displayedMovingTimeS,
+            elapsedS = startedMs?.let { (displayMs - it).coerceAtLeast(0) / 1000.0 } ?: 0.0,
+            averageKmh = if (displayedMovingTimeS > 0.0) distanceM / displayedMovingTimeS * 3.6 else 0.0,
             maxKmh = maxKmh,
             elevationGainM = elevationGainM,
         )
     }
 
     @Synchronized
-    fun start() {
+    fun start(nowMs: Long? = clockMs) {
+        nowMs?.let { advance(it) }
         if (state == RideState.RUNNING) return
         state = RideState.RUNNING
         manualPause = false
@@ -167,7 +170,8 @@ class RideSession {
     }
 
     @Synchronized
-    fun pause() {
+    fun pause(nowMs: Long? = clockMs) {
+        nowMs?.let { advance(it) }
         state = RideState.PAUSED
         manualPause = true
         lowSinceMs = null

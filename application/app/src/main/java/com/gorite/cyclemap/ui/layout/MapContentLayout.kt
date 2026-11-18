@@ -197,6 +197,8 @@ internal fun MapContentLayout(
         val placeDetailHeight = with(density) { measuredDetailHeightPx.toDp() }
         var navHeaderHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
+        var topOverlayHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val topOverlayHeight = with(density) { topOverlayHeightPx.toDp() }
         var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val routePreviewSheetHeight = with(density) { routePreviewSheetHeightPx.toDp() }
         androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle) { mapExpanded = false }
@@ -428,6 +430,7 @@ internal fun MapContentLayout(
                             onStopNavigation = onStopNavigation,
                             isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                             onNavHeaderHeightChanged = { navHeaderHeightPx = it },
+                            onTopOverlayHeightChanged = { topOverlayHeightPx = it },
                             roadRuleBadge = roadRuleBadgeSlot,
                         )
                     }
@@ -472,6 +475,7 @@ internal fun MapContentLayout(
                         bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
                         isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                         navHeaderHeight = navHeaderHeight,
+                        topOverlayHeight = topOverlayHeight,
                         routePreviewSheetHeight = routePreviewSheetHeight,
                     )
 

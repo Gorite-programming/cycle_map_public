@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,6 +85,8 @@ internal fun BoxScope.MapTopOverlays(
     isRoutePreviewActive: Boolean = false,
     /** 案内中の上部カードの高さ (px)。右側の地図ボタンをその下に置くために使う。 */
     onNavHeaderHeightChanged: (Int) -> Unit = {},
+    /** 上部オーバーレイ全体のコンテンツ高さ (px、effectiveTopPadding + 8.dp は含まない)。横画面の操作列をその下に置くために使う。 */
+    onTopOverlayHeightChanged: (Int) -> Unit = {},
     roadRuleBadge: (@Composable () -> Unit)? = null,
 ) {
     val isSimple = com.gorite.cyclemap.ui.state.isSimpleMode()
@@ -92,8 +95,27 @@ internal fun BoxScope.MapTopOverlays(
         isNavigationActive,
     ).topBar
 
+    var topBarHeightPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var simpleBannerHeightPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var navOverlayHeightPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
     LaunchedEffect(isNavigationActive) {
-        if (!isNavigationActive) onNavHeaderHeightChanged(0)
+        if (!isNavigationActive) {
+            onNavHeaderHeightChanged(0)
+            navOverlayHeightPx = 0
+        }
+    }
+    LaunchedEffect(showTopBar, isNavigationActive) {
+        if (!showTopBar) topBarHeightPx = 0
+        if (isNavigationActive || showTopBar) simpleBannerHeightPx = 0
+    }
+    LaunchedEffect(showTopBar, isNavigationActive, topBarHeightPx, simpleBannerHeightPx, navOverlayHeightPx) {
+        val activeHeightPx = when {
+            isNavigationActive -> navOverlayHeightPx
+            showTopBar -> topBarHeightPx
+            else -> simpleBannerHeightPx
+        }
+        onTopOverlayHeightChanged(activeHeightPx)
     }
 
     // Normal Top Bar (ルートプレビュー中は検索バーとチップを隠し、地図を広く使う)
@@ -107,7 +129,9 @@ internal fun BoxScope.MapTopOverlays(
             .zIndex(2f),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (showTopBar) topBarHeightPx = it.height },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -143,6 +167,7 @@ internal fun BoxScope.MapTopOverlays(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .padding(top = effectiveTopPadding + 8.dp, start = 74.dp, end = 74.dp)
+                .onSizeChanged { simpleBannerHeightPx = it.height }
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -170,6 +195,7 @@ internal fun BoxScope.MapTopOverlays(
         exit = Motion.topBarExit(effectiveAnimationEnabled),
         modifier = Modifier
             .align(if (isLandscape) Alignment.TopStart else Alignment.TopCenter)
+            .padding(top = effectiveTopPadding + 8.dp)
             .zIndex(2f),
     ) {
         val progress = navigationProgress
@@ -213,7 +239,9 @@ internal fun BoxScope.MapTopOverlays(
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (isNavigationActive) navOverlayHeightPx = it.height },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
@@ -222,13 +250,12 @@ internal fun BoxScope.MapTopOverlays(
                         if (isLandscape) {
                             Modifier.padding(
                                 start = systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp,
-                                top = effectiveTopPadding + 8.dp,
+                                end = systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
                             )
                         } else {
                             Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 10.dp)
-                                .padding(top = effectiveTopPadding + 8.dp)
                         },
                     )
                     // padding より後ろなので、カード自体の高さ (上の余白を含まない) が届く
@@ -274,7 +301,7 @@ internal fun BoxScope.MapTopOverlays(
                     .fillMaxWidth()
                     .padding(
                         start = if (isLandscape) systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp else 74.dp,
-                        end = 74.dp,
+                        end = if (isLandscape) systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp else 74.dp,
                     ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

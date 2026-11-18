@@ -22,7 +22,12 @@ PREAMBLE='あなたは Claude (親) から委譲された実装担当です。AG
 --- 以下が指示 ---
 '
 
-{ printf '%s' "$PREAMBLE"; cat "$SRC"; } | codex exec \
+# CODEX_MODEL (例: gpt-6.1-sol) を指定すると、~/.codex/config.toml の model を上書きする。
+# 既定のモデルが ChatGPT アカウントで使えないとき (model_not_found) のフォールバック用。
+MODEL_ARGS=()
+[[ -n "${CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$CODEX_MODEL")
+
+{ printf '%s' "$PREAMBLE"; cat "$SRC"; } | codex exec "${MODEL_ARGS[@]}" \
   --cd "$ROOT" \
   --sandbox "$SANDBOX" \
   -c sandbox_workspace_write.network_access=true \

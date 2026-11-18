@@ -164,14 +164,15 @@ class VoiceGuidanceTriggerTest {
     }
 
     @Test
-    fun triggerEvaluator_triggersArrivalWhenWithinRadius() {
+    fun triggerEvaluator_triggersArrivalOnlyWhenConfirmed() {
         val instruction = createInstruction(InstructionType.STRAIGHT, 100.0)
         val instructions = listOf(instruction)
         val spokenKeys = mutableSetOf<String>()
 
         val cue = VoiceTriggerEvaluator.evaluate(
             traveledMeters = 95.0,
-            remainingMeters = 15.0, // <= 30m
+            arrivalConfirmed = true,
+            remainingMeters = 15.0, // 実測で到着確定
             instructions = instructions,
             isOffRoute = false,
             spokenKeys = spokenKeys,
@@ -235,4 +236,23 @@ class VoiceGuidanceTriggerTest {
             assertTrue("rawResId must be valid (> 0)", entry.rawResId > 0)
         }
     }
+    @Test
+    fun zeroRouteRemainingWithoutConfirmedRealFixDoesNotAnnounceArrival() {
+        // 実目的地が200m先の場合や、推測位置しかない場合は確定フラグを渡さない。
+        assertNull(VoiceTriggerEvaluator.evaluate(100.0, 0.0, emptyList(), false, emptySet()))
+    }
+
+    @Test
+    fun confirmedArrivalIsAnnouncedOnceEvenIfRouteRemainingIsInaccurate() {
+        val spoken = mutableSetOf<String>()
+        val cue = requireNotNull(VoiceTriggerEvaluator.evaluate(
+            100.0, 200.0, emptyList(), false, spoken, arrivalConfirmed = true,
+        ))
+        assertEquals(VoiceGuidanceStage.ARRIVED, cue.stage)
+        spoken.add(VoiceTriggerEvaluator.makeKey(cue))
+        assertNull(VoiceTriggerEvaluator.evaluate(
+            100.0, 0.0, emptyList(), false, spoken, arrivalConfirmed = true,
+        ))
+    }
+
 }

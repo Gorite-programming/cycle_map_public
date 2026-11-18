@@ -105,7 +105,7 @@ class RideSessionTest {
         assertEquals(1.0, paused.movingTimeS, 0.0)
         assertEquals(7.0, paused.elapsedS, 0.0)
         assertEquals(5.0, paused.distanceM, 0.001)
-        session.start()
+        session.start(7000)
         assertEquals(RideState.RUNNING, session.snapshot(8000).state)
         assertEquals(2.0, session.snapshot(8000).movingTimeS, 0.0)
     }
@@ -114,7 +114,8 @@ class RideSessionTest {
     fun manualStartBeforeFirstTimestampUsesNextSuppliedTime() {
         val session = RideSession()
         session.start()
-        assertEquals(0.0, session.snapshot(100_000).elapsedS, 0.0)
+        assertEquals(0.0, session.snapshot(99_000).elapsedS, 0.0)
+        point(session, 100_000)
         assertEquals(1.0, session.snapshot(101_000).movingTimeS, 0.0)
     }
 
@@ -273,4 +274,35 @@ class RideSessionTest {
         point(session, 11_000, 0.0, pressure = 1000.0)
         assertEquals(clean.snapshot(11_000), session.snapshot(11_000))
     }
+    @Test
+    fun displayClockDoesNotDiscardDelayedFixOrMutateStoredTime() {
+        val session = RideSession()
+        point(session, 1000)
+        val stored = session.toState()
+        repeat(5) { session.snapshot(2000 + it * 1000L) }
+        assertEquals(stored, session.toState())
+        point(session, 1500, 5.0)
+        val snapshot = session.snapshot(2000)
+        assertEquals(5.0, snapshot.distanceM, 0.001)
+        assertEquals(1.0, snapshot.movingTimeS, 0.0)
+        val accepted = session.toState()
+        point(session, 1499, 10.0)
+        point(session, 1500, 10.0)
+        assertEquals(accepted, session.toState())
+        assertEquals(snapshot, session.snapshot(2000))
+    }
+
+    @Test
+    fun explicitPauseFreezesMovingTimeWhileElapsedKeepsAdvancing() {
+        val session = RideSession()
+        point(session, 1000)
+        session.pause(2000)
+        val stored = session.toState()
+        assertEquals(1.0, session.snapshot(5000).movingTimeS, 0.0)
+        assertEquals(4.0, session.snapshot(5000).elapsedS, 0.0)
+        assertEquals(stored, session.toState())
+        session.start(6000)
+        assertEquals(2.0, session.snapshot(7000).movingTimeS, 0.0)
+    }
+
 }

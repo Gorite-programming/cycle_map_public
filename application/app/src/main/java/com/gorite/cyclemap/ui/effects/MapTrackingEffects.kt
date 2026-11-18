@@ -209,6 +209,7 @@ internal fun MapTrackingEffects(
                     offRouteDetector.reset()
                     voiceNavigator.onLocationUpdated(
                         traveledMeters = progress?.distanceFromStartMeters ?: 0.0,
+                        arrivalConfirmed = true,
                         remainingMeters = 0.0,
                         instructions = navigationInstructions,
                         isOffRoute = false,
@@ -377,13 +378,7 @@ internal fun MapTrackingEffects(
                             arrivalRadiusMeters = ARRIVAL_RADIUS_METERS,
                         )
                         onNavStatsChanged(stats)
-                        val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
-                        voiceNavigator.onLocationUpdated(
-                            traveledMeters = progress.distanceFromStartMeters,
-                            remainingMeters = remaining,
-                            instructions = navigationInstructions,
-                            isOffRoute = false,
-                        )
+                        // 推測位置は表示にだけ使い、音声案内は実測で更新する。
                     }
                 }
             }

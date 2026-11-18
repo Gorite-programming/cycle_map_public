@@ -66,6 +66,7 @@ internal fun MapScreenScaffold(
     selectRouteOption: (Int) -> Unit = {},
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
+    onWaitingForStartPoint: ((GeoPoint) -> Unit)? = null,
 ) {
     val scope = state.scope
     val context = state.context
@@ -75,15 +76,26 @@ internal fun MapScreenScaffold(
     )
     val batteryStatus by state.batteryMonitor.status.collectAsState()
     val isLowPowerMode = batteryStatus.isLowPower
+    val recalculateOrWaitForStartPoint: (GeoPoint, Boolean, List<GeoPoint>?, RoutePreference?) -> Unit =
+        { dest, isReroute, waypointsOverride, preferenceOverride ->
+            val start = resolveStartPointFromLocation(
+                startMarkerPosition = state.startMarkerState.value?.position,
+                currentLocation = state.currentLocationState.value,
+            )
+            if (start != null) {
+                runRouteCalculation(start, dest, isReroute, waypointsOverride, preferenceOverride)
+            } else if (onWaitingForStartPoint != null) {
+                onWaitingForStartPoint(dest)
+            } else {
+                state.warningMessageState.value = WAITING_FOR_START_POINT_MESSAGE
+            }
+        }
     val applyWaypointEdit: (List<GeoPoint>) -> Unit = { newWaypoints ->
         if (!state.isCalculatingRouteState.value && !state.isSwitchingGraphState.value) {
             val destination = state.destinationState.value
             if (destination != null) {
                 state.waypointsState.value = newWaypoints
-                val location = state.currentLocationState.value
-                val start = if (location != null) GeoPoint(location.latitude, location.longitude)
-                else GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
-                runRouteCalculation(start, destination, false, newWaypoints, null)
+                recalculateOrWaitForStartPoint(destination, false, newWaypoints, null)
             }
         }
     }
@@ -211,12 +223,16 @@ internal fun MapScreenScaffold(
                 }
             },
             onSelectQuickSpot = { type ->
+                state.showFavoritesOnlyInSheetState.value = false
+                state.googleNavTabState.value = GoogleNavTab.EXPLORE
                 state.activeQuickSpotTypeState.value = type
                 state.showQuickSpotSheetState.value = true
             },
             onSelectCategory = { categoryId ->
                 state.selectedPoiSpotState.value = null
                 state.spotCategoryState.value = com.gorite.cyclemap.ui.cycling.mapCategoryChipIdToQuickCategory(categoryId)
+                state.showFavoritesOnlyInSheetState.value = false
+                state.googleNavTabState.value = GoogleNavTab.EXPLORE
                 state.showSpotPanelState.value = true
             },
             navigationProgress = state.navigationProgressState.value,
@@ -274,10 +290,8 @@ internal fun MapScreenScaffold(
             onSelectRouteChoice = selectRouteOption,
             onRoutePreferenceChange = { pref ->
                 state.selectedRoutePreferenceState.value = pref
-                val loc = state.currentLocationState.value
-                val start = if (loc != null) GeoPoint(loc.latitude, loc.longitude) else GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
                 state.destinationState.value?.let { dest ->
-                    runRouteCalculation(start, dest, false, null, pref)
+                    recalculateOrWaitForStartPoint(dest, false, null, pref)
                 }
             },
             isArrived = state.isArrivedState.value,
@@ -287,10 +301,12 @@ internal fun MapScreenScaffold(
             onTabSelected = { state.googleNavTabState.value = it },
             onExploreClick = {
                 state.showFavoritesOnlyInSheetState.value = false
+                state.googleNavTabState.value = GoogleNavTab.EXPLORE
                 state.showSpotPanelState.value = true
             },
             onSavedClick = {
                 state.showFavoritesOnlyInSheetState.value = true
+                state.googleNavTabState.value = GoogleNavTab.SAVED
                 state.showSpotPanelState.value = true
             },
             onRecordHistoryClick = {
@@ -325,6 +341,8 @@ internal fun MapScreenScaffold(
         showSpotPanel = state.showSpotPanelState.value,
         onCloseSpotPanel = {
             state.showSpotPanelState.value = false
+            state.showFavoritesOnlyInSheetState.value = false
+            state.googleNavTabState.value = GoogleNavTab.EXPLORE
             state.bottomTabState.value = CyclingTab.MAP
         },
         onSpotCategoryChange = { state.spotCategoryState.value = it },
@@ -469,6 +487,8 @@ internal fun MapScreenScaffold(
             // Google マップと同じく、検索結果はまず場所の詳細を開く (経路はシートの「ここへ行く」から)
             state.showDestinationSearchState.value = false
             state.followLocationState.value = false
+            state.showFavoritesOnlyInSheetState.value = false
+            state.googleNavTabState.value = GoogleNavTab.EXPLORE
             state.selectedPoiSpotState.value = spot
             state.showSpotPanelState.value = true
         },
@@ -479,10 +499,8 @@ internal fun MapScreenScaffold(
             val newWaypoints = if (navigating) listOf(spot) + state.waypointsState.value else state.waypointsState.value + spot
             state.waypointsState.value = newWaypoints
             state.pendingSelectedSpotState.value = null
-            val loc = state.currentLocationState.value
-            val start = if (loc != null) GeoPoint(loc.latitude, loc.longitude) else GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
             state.destinationState.value?.let { dest ->
-                runRouteCalculation(start, dest, navigating, newWaypoints, null)
+                recalculateOrWaitForStartPoint(dest, navigating, newWaypoints, null)
             }
         },
         onChangeDestination = { spot ->

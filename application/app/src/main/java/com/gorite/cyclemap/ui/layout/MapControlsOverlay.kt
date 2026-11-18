@@ -105,6 +105,8 @@ internal fun BoxScope.MapControlsOverlay(
     isRoutePreviewActive: Boolean = false,
     /** 案内中の上部カードの高さ。0 なら未計測で、従来の固定位置 (104dp) を使う。 */
     navHeaderHeight: Dp = 0.dp,
+    /** 上部オーバーレイ全体の高さ (effectiveTopPadding + 8.dp は含まない)。0 なら非表示または未計測。 */
+    topOverlayHeight: Dp = 0.dp,
     /** ルート確認シートの高さ (画面下端からシート上端まで)。0 なら未計測。 */
     routePreviewSheetHeight: Dp = 0.dp,
     /** ナビ中の「立ち寄り」ボタン押下時にクイック検索シートを開くコールバック。 */
@@ -181,7 +183,15 @@ internal fun BoxScope.MapControlsOverlay(
     }
     if (isLandscape) {
         // 横画面のナビ中は、案内ヘッダが左上にあり操作ボタンの列と重なるので、左手でも右に残す
+        val isSimple = com.gorite.cyclemap.ui.state.isSimpleMode()
+        val showTopBar = !isNavigationActive && !isRoutePreviewActive && !isSimple
         val landscapeLeft = com.gorite.cyclemap.ui.state.isLeftHanded() && !isNavigationActive
+        val landscapeTopPadding = resolveLandscapeControlsTopPadding(
+            effectiveTopPadding = effectiveTopPadding,
+            topOverlayHeight = topOverlayHeight,
+            isNavigationActive = isNavigationActive,
+            showTopBar = showTopBar,
+        )
         LandscapeControlRow(
             mapBearing = mapBearing,
             isHeadingUp = isHeadingUp,
@@ -207,7 +217,7 @@ internal fun BoxScope.MapControlsOverlay(
                 .padding(
                     start = if (landscapeLeft) systemInsets.calculateStartPadding(LayoutDirection.Ltr) + 12.dp else 0.dp,
                     end = if (landscapeLeft) 0.dp else systemInsets.calculateEndPadding(LayoutDirection.Ltr) + 12.dp,
-                    top = effectiveTopPadding + (if (isNavigationActive) 12.dp else 68.dp),
+                    top = landscapeTopPadding,
                 )
                 .zIndex(2f),
         )
@@ -823,4 +833,24 @@ private fun LayerPickerButton(
             }
         }
     }
+}
+
+/**
+ * 横画面の上部操作列の top padding を決める。
+ * [topOverlayHeight] (effectiveTopPadding + 8.dp より下にある検索バー・バナー・チップ・ナビヘッダの実測高さ)
+ * があるときは必ずその 8.dp 下に置き、互いに重ならないようにする。
+ */
+internal fun resolveLandscapeControlsTopPadding(
+    effectiveTopPadding: Dp,
+    topOverlayHeight: Dp,
+    isNavigationActive: Boolean,
+    showTopBar: Boolean,
+): Dp {
+    val contentOffset = when {
+        topOverlayHeight > 0.dp -> 8.dp + topOverlayHeight + 8.dp
+        isNavigationActive -> 104.dp
+        showTopBar -> 132.dp
+        else -> 12.dp
+    }
+    return effectiveTopPadding + contentOffset
 }

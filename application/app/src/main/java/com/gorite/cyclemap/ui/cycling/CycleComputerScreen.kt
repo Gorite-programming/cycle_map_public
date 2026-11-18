@@ -37,6 +37,7 @@ fun CycleComputerScreen(
     onResetLongPress: () -> Unit,             // 長押しでリセット (誤操作防止)
     onExitMode: () -> Unit,                   // 長押しで通常モードへ戻る
     modifier: Modifier = Modifier,
+    roadRuleContent: (@Composable () -> Unit)? = null,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -47,6 +48,7 @@ fun CycleComputerScreen(
         if (isLandscape) {
             CycleComputerLandscapeContent(
                 snapshot = snapshot,
+                roadRuleContent = roadRuleContent,
                 destination = destination,
                 clockText = clockText,
                 onStartPause = onStartPause,
@@ -56,6 +58,7 @@ fun CycleComputerScreen(
         } else {
             CycleComputerPortraitContent(
                 snapshot = snapshot,
+                roadRuleContent = roadRuleContent,
                 destination = destination,
                 clockText = clockText,
                 onStartPause = onStartPause,
@@ -69,6 +72,7 @@ fun CycleComputerScreen(
 @Composable
 private fun CycleComputerPortraitContent(
     snapshot: RideSnapshot,
+    roadRuleContent: (@Composable () -> Unit)?,
     destination: CycleComputerDestination?,
     clockText: String,
     onStartPause: () -> Unit,
@@ -82,10 +86,11 @@ private fun CycleComputerPortraitContent(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        CycleComputerStatusBar(
-            clockText = clockText,
-            state = snapshot.state,
-        )
+        // 時計行の下に警告の実寸を確保し、大きな速度表示と重ねない。
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+            roadRuleContent?.invoke()
+        }
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -94,7 +99,9 @@ private fun CycleComputerPortraitContent(
             SpeedHeroDisplay(
                 speedKmh = snapshot.speedKmh,
                 isPaused = snapshot.state == RideState.PAUSED,
-                speedFontSize = 124.sp,
+                // 警告の行 (約 44dp) を足しても、下の操作ボタンがつぶれないよう、警告が出ている間は速度の数字を小さくする
+                // (S26 の実機で、124sp のままだと「リセット」「通常モードへ戻る」が高さ約 13dp につぶれた)
+                speedFontSize = if (roadRuleContent != null) 76.sp else 124.sp,
             )
             Spacer(modifier = Modifier.height(8.dp))
             DestinationBand(
@@ -121,6 +128,7 @@ private fun CycleComputerPortraitContent(
 @Composable
 private fun CycleComputerLandscapeContent(
     snapshot: RideSnapshot,
+    roadRuleContent: (@Composable () -> Unit)?,
     destination: CycleComputerDestination?,
     clockText: String,
     onStartPause: () -> Unit,
@@ -141,10 +149,11 @@ private fun CycleComputerLandscapeContent(
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            CycleComputerStatusBar(
-                clockText = clockText,
-                state = snapshot.state,
-            )
+            // 時計行の下に警告の実寸を確保し、大きな速度表示と重ねない。
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+                roadRuleContent?.invoke()
+            }
             SpeedHeroDisplay(
                 speedKmh = snapshot.speedKmh,
                 isPaused = snapshot.state == RideState.PAUSED,

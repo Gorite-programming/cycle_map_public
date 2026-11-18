@@ -60,6 +60,12 @@ internal fun MapScreen(
     val state = rememberMapScreenState(
         onNavigationStateChanged = onNavigationStateChanged,
     )
+    LaunchedEffect(state.voiceGuidanceModeState.value) {
+        val muted = state.voiceGuidanceModeState.value == com.gorite.cyclemap.speech.VoiceGuidanceMode.OFF
+        if (state.viewModel.uiState.value.isMuted != muted) {
+            state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.ToggleMute)
+        }
+    }
     val arrivalRide = remember { mutableStateOf<com.gorite.cyclemap.tracking.RideSnapshot?>(null) }
     val waitingDestination = remember { mutableStateOf<GeoPoint?>(null) }
     val restoredDestination = remember { mutableStateOf<GeoPoint?>(null) }
@@ -688,7 +694,10 @@ internal fun MapScreen(
             if (it && !state.isArrivedState.value) arrivalRide.value = rideSession.snapshot(System.currentTimeMillis())
             state.isArrivedState.value = it
         },
-        onNavigationActiveChanged = { state.isNavigationActiveState.value = it },
+        onNavigationActiveChanged = {
+            state.isNavigationActiveState.value = it
+            if (!it) state.viewModel.onIntent(com.gorite.cyclemap.ui.map.MapUiIntent.StopNavigation)
+        },
         offRouteDetector = state.offRouteDetector,
         voiceNavigator = state.voiceNavigator,
         isRerouting = state.isReroutingState.value,
@@ -1003,6 +1012,12 @@ internal fun MapScreen(
     ) {
     MapScreenScaffold(
         state = state,
+        // 出発地が決まらない (現在地が無く、出発地の印も無い) とき、目的地を覚えて待つ。位置が取れるか出発地を長押しで選ぶと、続きを計算する
+        onWaitingForStartPoint = { dest ->
+            waitingDestination.value = dest
+            state.destinationState.value = dest
+            state.warningMessageState.value = WAITING_FOR_LOCATION
+        },
         rideSnapshot = arrivalRide.value,
         modifier = modifier,
         systemInsets = systemInsets,
@@ -1046,7 +1061,7 @@ internal fun MapScreen(
 
 /** ルートプレビューで引く下限のズーム。これ未満はタイルが粗い陸地ポリゴンだけになる。 */
 private const val PREVIEW_MIN_ZOOM = 6.0
-private const val WAITING_FOR_LOCATION = "現在地を取得中です。地図を長押しして出発地を選ぶこともできます"
+private const val WAITING_FOR_LOCATION = com.gorite.cyclemap.navigation.WAITING_FOR_START_POINT_MESSAGE
 
 /** 案内を再開する前に、ルートの計算が終わるのを待つ時間 (県またぎでも足りる長さ)。 */
 private const val SESSION_RESTORE_ROUTE_WAIT_MS = 60_000L
