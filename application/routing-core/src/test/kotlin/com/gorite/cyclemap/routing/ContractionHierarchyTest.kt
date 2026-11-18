@@ -13,6 +13,40 @@ import kotlin.test.assertTrue
 import kotlin.math.abs
 
 class ContractionHierarchyTest {
+    @Test fun addedRoadTypesUseSharedCostsAndCHMatchesAStar() {
+        val types = listOf("cycleway", "trunk", "trunk_link", "primary_link", "secondary_link", "tertiary_link",
+            "living_street", "footway", "pedestrian", "road")
+        val walk = listOf(0.90, 1.30, 1.30, 1.30, 1.20, 1.10, 0.95, 0.90, 0.90, 1.00)
+        val car = listOf(null, 0.90, 0.95, 0.95, 1.00, 1.10, 1.35, null, null, 1.20)
+        for ((i, type) in types.withIndex()) {
+            graphFrom(listOf(listOf(E(1, 100.0, type)), emptyList())).use { graph ->
+                val a = graph.route(0, 1)
+                val ch = ContractionHierarchyBuilder().build(graph, GraphFingerprint.UNKNOWN).hierarchy.route(0, 1, graph)
+                val expected = CyclingCostModel.cost(GraphEdge(0, 1, 100.0, type, gradePercent = 0.0))!!
+                assertEquals(expected, a.totalCost, 1e-9, type)
+                assertEquals(expected, ch.totalCost, 1e-9, type)
+                assertEquals(a.nodeIndices, ch.nodeIndices.toList(), type)
+                assertEquals(100.0 * walk[i], graph.route(0, 1, costMode = RouteCostMode.WALK).totalCost, 1e-9, type)
+                val driving = graph.route(0, 1, costMode = RouteCostMode.CAR)
+                assertEquals(car[i] != null, driving.isReachable, type)
+                car[i]?.let { assertEquals(100.0 * it, driving.totalCost, 1e-9, type) }
+            }
+        }
+        // The new cycleway cost must beat a shorter residential alternative.
+        graphFrom(listOf(listOf(E(1, 120.0, "cycleway"), E(2, 100.0, "residential")), emptyList(), listOf(E(1, 1.0)))).use { graph ->
+            val a = graph.route(0, 1)
+            val ch = ContractionHierarchyBuilder().build(graph, GraphFingerprint.UNKNOWN).hierarchy.route(0, 1, graph)
+            assertEquals(listOf(0, 1), a.nodeIndices)
+            assertEquals(a.nodeIndices, ch.nodeIndices.toList())
+            assertEquals(a.totalCost, ch.totalCost, 1e-9)
+        }
+        // A trunk in the middle of a route must survive arterial-only filtering.
+        graphFrom(listOf(listOf(E(1, 10.0)), listOf(E(2, 10.0, "trunk")), listOf(E(3, 10.0)), emptyList())).use { graph ->
+            assertTrue(graph.route(0, 3, arterialOnly = true).isReachable)
+            assertEquals(42.0, graph.route(0, 3, arterialPenaltyMultiplier = 2.0).totalCost, 1e-9)
+        }
+    }
+
     private data class E(val to: Int, val meters: Double, val type: String = "residential", val grade: Double? = 0.0)
     private fun fixture(): LazyMappedRoadGraph {
         // Directed arcs model one-way roads; node 6 is disconnected. The motorway arc is forbidden.

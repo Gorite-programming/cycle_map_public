@@ -17,6 +17,8 @@
 #   - <Prefecture>.graph     (OSM routing graph)
 #   - <Prefecture>.graph.idx (Routing graph node index)
 #   - <Prefecture>.graph.ch  (Contraction Hierarchies sidecar; optional, app falls back to A*)
+#   - <Prefecture>.bikerules (Sidecar of roads left out of the graph, e.g. car-only roads; optional, built by build_prefectures.py;
+#                             without it the app just shows no "bicycles not allowed" notice for those roads)
 #   - <prefecture>.pmtiles   (Offline vector map tiles; built by scripts/build_tiles.py)
 # Files deployed once (not per prefecture):
 #   - <A>__<B>.portals       (Precomputed cross-prefecture portals; built by scripts/build_portals.py; optional)
@@ -390,6 +392,12 @@ for pref in "${PREFS[@]}"; do
                 cp -f "$ch_src" "$ch_staged"
             fi
         done
+        # 自動車専用などで graph から除外した道のサイドカー (任意: 無ければ、その道の通行警告が出ないだけ)
+        bikerules_src="${ROOT_DIR}/packages/${pref}.bikerules"
+        if [[ -s "$bikerules_src" ]]; then
+            files_to_push+=("$bikerules_src")
+        fi
+
         if [[ -s "$ch_staged" ]]; then
             files_to_push+=("$ch_staged")
         else

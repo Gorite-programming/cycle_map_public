@@ -109,15 +109,17 @@ internal fun buildRouteInstructions(
         )
     }
     for (instruction in instructions) {
-        Log.d(
-            "CycleMapInstruction",
-            instruction.debugLine(
-                currentEdge = nodeIds.getOrNull(instruction.routeIndex - 1)?.toString() ?: "-",
-                nextEdge = instruction.nodeId.toString(),
-                junctionType = "deg${instruction.junctionBranches}",
-                icon = IconResolver.materialIconName(instruction.type),
-            ),
-        )
+        runCatching {
+            Log.d(
+                "CycleMapInstruction",
+                instruction.debugLine(
+                    currentEdge = nodeIds.getOrNull(instruction.routeIndex - 1)?.toString() ?: "-",
+                    nextEdge = instruction.nodeId.toString(),
+                    junctionType = "deg${instruction.junctionBranches}",
+                    icon = IconResolver.materialIconName(instruction.type),
+                ),
+            )
+        }
     }
     return instructions
 }

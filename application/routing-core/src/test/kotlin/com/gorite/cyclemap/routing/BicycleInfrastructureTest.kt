@@ -315,7 +315,8 @@ class BicycleInfrastructureTest {
                 info(BikeAccess.FORBIDDEN), reverse)
         }
         cases += Case(mapOf("oneway" to "yes", "cycleway:right" to "lane", "cycleway:right:oneway" to "-1"),
-            info(flags = BicycleRoadInfo.FLAG_ONEWAY))
+            // 対向設備は順方向の辺には表示しないが、自転車が双方向に通れる印は付ける。
+            info(flags = BicycleRoadInfo.FLAG_ONEWAY or BicycleRoadInfo.FLAG_CONTRAFLOW_ALLOWED))
         check(cases)
     }
 

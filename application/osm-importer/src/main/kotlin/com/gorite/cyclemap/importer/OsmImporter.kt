@@ -1,5 +1,7 @@
 package com.gorite.cyclemap.importer
 
+import com.gorite.cyclemap.routing.BicycleDirection
+import com.gorite.cyclemap.routing.resolveBicycleDirection
 import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.GraphBinaryReader
 import com.gorite.cyclemap.routing.GraphNode
@@ -314,9 +316,9 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
         for (way in bicycleWays) {
             if (!BicycleAccessFilter.isAllowed(way.tags)) continue // redundant but safe
             val roadType = way.tags["highway"] ?: "unknown"
-            val onewayTag = way.tags["oneway"]
-            val oneway = onewayTag in setOf("yes", "true", "1", "-1")
-            val reverseOnly = onewayTag == "-1"
+            val direction = resolveBicycleDirection(way.tags)
+            val oneway = direction != BicycleDirection.BOTH
+            val reverseOnly = direction == BicycleDirection.REVERSE_ONLY
             val roadName = roadDisplayName(way.tags)
             val (forwardLanes, backwardLanes) = turnLanesByDirection(way.tags)
 
@@ -344,12 +346,8 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
                         .add(GraphEdge(fromId, toId, distance, roadType, oneway, roadName = roadName, turnLanes = forwardLanes))
                 }
                 if (!oneway || reverseOnly) {
-                    // oneway="-1": the to→from direction is the only permitted direction;
-                    // mark it as a regular (non-one-way) edge so future routers don't
-                    // treat it as forward-only.
-                    val reverseEdgeOneWay = oneway && !reverseOnly
                     outgoing.getOrPut(toId) { mutableListOf() }
-                        .add(GraphEdge(toId, fromId, distance, roadType, reverseEdgeOneWay, roadName = roadName,
+                        .add(GraphEdge(toId, fromId, distance, roadType, oneway, roadName = roadName,
                             turnLanes = backwardLanes))
                 }
             }
@@ -373,8 +371,9 @@ class OsmGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
         for (way in ways) {
             if (!BicycleAccessFilter.isAllowed(way.tags)) continue
             val roadType = way.tags["highway"] ?: "unknown"
-            val oneway = way.tags["oneway"] in setOf("yes", "true", "1", "-1")
-            val reverseOnly = way.tags["oneway"] == "-1"
+            val direction = resolveBicycleDirection(way.tags)
+            val oneway = direction != BicycleDirection.BOTH
+            val reverseOnly = direction == BicycleDirection.REVERSE_ONLY
             for (index in 0 until way.nodeIds.size - 1) {
                 val fromId = way.nodeIds[index]
                 val toId = way.nodeIds[index + 1]
@@ -386,8 +385,7 @@ class OsmGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
                 graphNodes[toId] = to
                 if (!reverseOnly) addEdge(outgoing, GraphEdge(fromId, toId, distance, roadType, oneway))
                 if (!oneway || reverseOnly) {
-                    val reverseEdgeOneWay = oneway && !reverseOnly
-                    addEdge(outgoing, GraphEdge(toId, fromId, distance, roadType, reverseEdgeOneWay))
+                    addEdge(outgoing, GraphEdge(toId, fromId, distance, roadType, oneway))
                 }
             }
         }
@@ -613,7 +611,7 @@ fun collectBicycleNetworkStats(file: File): BicycleNetworkStats {
             val ids = entity.wayNodes
             for (node in ids) nodeIds.add(node.nodeId)
             val segments = (ids.size - 1).coerceAtLeast(0).toLong()
-            val oneway = tags["oneway"] in setOf("yes", "true", "1", "-1")
+            val oneway = resolveBicycleDirection(tags) != BicycleDirection.BOTH
             directedEdges += if (oneway) segments else segments * 2L
         }
     }

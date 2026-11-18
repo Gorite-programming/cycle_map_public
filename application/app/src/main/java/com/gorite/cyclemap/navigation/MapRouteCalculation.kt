@@ -11,11 +11,6 @@ import androidx.core.content.ContextCompat
 import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
 import com.gorite.cyclemap.data.findPrefectureName
-import com.gorite.cyclemap.routing.routeWithSnapFallback
-import com.gorite.cyclemap.routing.portalsBetween
-import com.gorite.cyclemap.routing.routeAcrossGraphs
-import com.gorite.cyclemap.routing.segmentGradesAlongIndices
-import com.gorite.cyclemap.routing.nodeElevationsAt
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.Maneuver
 import com.gorite.cyclemap.routing.OffRouteDetector
@@ -244,24 +239,21 @@ internal fun executeRouteCalculation(
                 addAll(currentWaypoints)
                 add(goal)
             }
-            val allNodeIds = ArrayList<Long>()
-            val allNodeIndices = ArrayList<Int>()
-            val allCoordinates = ArrayList<Pair<Double, Double>>()
-            var totalDist = 0.0
-            var totalCostVal = 0.0
-            var isAllReachable = true
+            val stopCoords = stops.map { it.latitude to it.longitude }
             var isAnyTruncated = false
             var firstStartIndex = -1
             var lastGoalIndex = -1
             var usedCrossRoute = false
+            var crossOutcome: CrossPlanningOutcome = CrossPlanningOutcome.NotNeeded
             var crossInstructions: List<RouteInstruction>? = null
             var crossElevation: CrossRouteElevationData? = null
             var crossLoadMs = 0L
-            var crossPortalMs = 0L
-            var crossAMs = 0L
-            var crossBMs = 0L
             var crossTotalMs = 0L
             val legEngines = LinkedHashSet<String>()
+            var plannedCrossRoute: com.gorite.cyclemap.routing.MappedRouteResult? = null
+            var singleGraphResult: com.gorite.cyclemap.routing.MappedRouteResult? = null
+            var singleGraphWaypointFailure: Int? = null
+            var waypointNodeIds: List<Long> = emptyList()
 
             val pref = currentPreference
 
@@ -271,102 +263,97 @@ internal fun executeRouteCalculation(
             if (needsCrossPlanning && !routeJob.isCancelled()) {
                 val crossStarted = SystemClock.elapsedRealtime()
                 try {
-                    val planned = jobGraph?.let { graphForJob -> calculateMultiLegCrossRoute(
-                        env.context, env.graphLock, graphForJob, jobGraphName, stops, pref,
-                        isCancelled = { routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration },
-                    ) }
-                    if (planned != null) {
-                        usedCrossRoute = true
-                        crossLoadMs = planned.loadMs
-                        crossInstructions = planned.instructions
-                        crossElevation = planned.elevation
-                        totalDist = planned.route.totalDistanceMeters
-                        totalCostVal = planned.route.totalCost
-                        allNodeIds.addAll(planned.route.nodeIds)
-                        allCoordinates.addAll(planned.route.coordinates)
-                        isAnyTruncated = planned.route.wasTruncated
-                        crossTotalMs = SystemClock.elapsedRealtime() - crossStarted
-                        if (currentWaypoints.isEmpty() && planned.chain.split('>').size == 2) {
-                            Log.i("CycleMapRoute", "ROUTE_TIMING cross loadMs=$crossLoadMs portalMs=${planned.portalMs} aMs=${planned.aMs} bMs=${planned.bMs} totalMs=$crossTotalMs")
-                        } else {
-                            Log.i("CycleMapRoute", "ROUTE_TIMING cross legs=${stops.size - 1} chain=${planned.chain} loadMs=$crossLoadMs totalMs=$crossTotalMs")
+                    val outcome = jobGraph?.let { graphForJob ->
+                        calculateMultiLegCrossRoute(
+                            env.context, env.graphLock, graphForJob, jobGraphName, stops, pref,
+                            isCancelled = { routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration },
+                        )
+                    } ?: MultiLegCrossOutcome.Failed
+                    when (outcome) {
+                        is MultiLegCrossOutcome.Success -> {
+                            val planned = outcome.result
+                            usedCrossRoute = true
+                            crossOutcome = CrossPlanningOutcome.Succeeded
+                            crossLoadMs = planned.loadMs
+                            crossInstructions = planned.instructions
+                            crossElevation = planned.elevation
+                            plannedCrossRoute = planned.route
+                            isAnyTruncated = planned.route.wasTruncated
+                            crossTotalMs = SystemClock.elapsedRealtime() - crossStarted
+                            if (currentWaypoints.isEmpty() && planned.chain.split('>').size == 2) {
+                                Log.i("CycleMapRoute", "ROUTE_TIMING cross loadMs=$crossLoadMs portalMs=${planned.portalMs} aMs=${planned.aMs} bMs=${planned.bMs} totalMs=$crossTotalMs")
+                            } else {
+                                Log.i("CycleMapRoute", "ROUTE_TIMING cross legs=${stops.size - 1} chain=${planned.chain} loadMs=$crossLoadMs totalMs=$crossTotalMs")
+                            }
+                            Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_used from=$startPrefecture to=$goalPrefecture via=${planned.chain}")
                         }
-                        Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_used from=$startPrefecture to=$goalPrefecture via=${planned.chain}")
+                        is MultiLegCrossOutcome.Cancelled -> return@launch
+                        is MultiLegCrossOutcome.MissingPrefectureData -> {
+                            crossOutcome = CrossPlanningOutcome.MissingPrefectureData(outcome.missingPrefectures)
+                            Log.w("CycleMapRoute", "CROSS_PREFECTURE missing=${outcome.missingPrefectures.joinToString(",")}")
+                        }
+                        is MultiLegCrossOutcome.WaypointUnreachable -> {
+                            crossOutcome = CrossPlanningOutcome.WaypointUnreachable(outcome.waypointNumber)
+                            Log.w("CycleMapRoute", "CROSS_PREFECTURE waypoint_unreachable=${outcome.waypointNumber}")
+                        }
+                        is MultiLegCrossOutcome.NotCrossPrefecture -> {
+                            crossOutcome = CrossPlanningOutcome.NotNeeded
+                        }
+                        is MultiLegCrossOutcome.Failed -> {
+                            crossOutcome = CrossPlanningOutcome.Failed
+                        }
                     }
                 } catch (t: Throwable) {
                     if (routeJob.isCancelled()) return@launch
+                    crossOutcome = CrossPlanningOutcome.Failed
                     Log.w("CycleMapRoute", "CROSS_PREFECTURE fallback reason=${t::class.java.simpleName}:${t.message}")
                 }
             }
-            for (i in 0 until stops.size - 1) {
-                if (usedCrossRoute) break
+
+            if (shouldAttemptSingleGraphFallback(isReroute, usedCrossRoute, crossOutcome, needsCrossPlanning)) {
                 if (routeJob.isCancelled()) return@launch
-                val legStart = stops[i]
-                val legGoal = stops[i + 1]
-                val legResult = env.graphLock.read {
-                    if (routeJob.isCancelled()) return@launch
+                val plan = env.graphLock.read {
+                    if (routeJob.isCancelled()) return@read SingleGraphRoutePlan.Cancelled
                     val t0 = SystemClock.elapsedRealtime()
-                    // 最寄りのノードで引けない (公園内などの孤立した道に当たった) ときだけ、次に近い候補で引き直す
-                    val outcome = graph.routeWithSnapFallback(
-                        legStart.latitude, legStart.longitude,
-                        legGoal.latitude, legGoal.longitude,
+                    val planned = planSingleGraphRoute(
+                        graph = graph,
+                        stops = stopCoords,
+                        preference = pref,
                         isCancelled = { routeJob.isCancelled() },
                         maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
-                        preference = pref,
                     )
-                    if (i == 0) firstStartIndex = outcome.startIndex
-                    if (i == stops.size - 2) lastGoalIndex = outcome.goalIndex
-                    Log.i(
-                        "CycleMapRoute",
-                        "ROUTE_SNAP leg=$i startNode=${outcome.startIndex} goalNode=${outcome.goalIndex} pref=$pref " +
-                            "fallback=${outcome.usedFallbackSnap} attempts=${outcome.attempts}",
-                    )
-                    Log.i("CycleMapRoute", "ROUTE_TIMING leg=$i searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes} engine=${graph.lastEngine} chQueryMs=${graph.lastChQueryMillis}")
-                    legEngines += graph.lastEngine
-                    outcome.result
+                    Log.i("CycleMapRoute", "ROUTE_TIMING single_graph legs=${stops.size - 1} searchMs=${SystemClock.elapsedRealtime() - t0} expanded=${graph.lastExpandedNodes} engine=${graph.lastEngine} chQueryMs=${graph.lastChQueryMillis}")
+                    planned
                 }
-                if (routeJob.isCancelled() || legResult.wasCancelled) return@launch
-                if (!legResult.isReachable) {
-                    isAllReachable = false
-                    break
-                }
-                if (legResult.wasTruncated) isAnyTruncated = true
-                totalDist += legResult.totalDistanceMeters
-                totalCostVal += legResult.totalCost
-
-                if (allCoordinates.isEmpty()) {
-                    allCoordinates.addAll(legResult.coordinates)
-                    allNodeIds.addAll(legResult.nodeIds)
-                    allNodeIndices.addAll(legResult.nodeIndices)
-                } else {
-                    if (legResult.coordinates.isNotEmpty()) {
-                        allCoordinates.addAll(legResult.coordinates.drop(1))
-                    }
-                    if (legResult.nodeIds.isNotEmpty()) {
-                        allNodeIds.addAll(legResult.nodeIds.drop(1))
-                        allNodeIndices.addAll(legResult.nodeIndices.drop(1))
+                when (plan) {
+                    is SingleGraphRoutePlan.Cancelled -> return@launch
+                    is SingleGraphRoutePlan.Truncated -> isAnyTruncated = true
+                    is SingleGraphRoutePlan.WaypointUnreachable -> singleGraphWaypointFailure = plan.waypointNumber
+                    is SingleGraphRoutePlan.Unreachable -> Unit
+                    is SingleGraphRoutePlan.Success -> {
+                        singleGraphResult = plan.result
+                        firstStartIndex = plan.firstStartIndex
+                        lastGoalIndex = plan.lastGoalIndex
+                        legEngines += plan.legEngines
+                        waypointNodeIds = plan.waypointNodeIds
+                        if (plan.result.wasTruncated) isAnyTruncated = true
                     }
                 }
             }
 
-            val rawResult = com.gorite.cyclemap.routing.MappedRouteResult(
-                nodeIds = if (isAllReachable) allNodeIds else emptyList(),
-                totalDistanceMeters = totalDist,
-                totalCost = totalCostVal,
-                coordinates = if (isAllReachable) allCoordinates else emptyList(),
+            val rawResult = plannedCrossRoute ?: singleGraphResult ?: com.gorite.cyclemap.routing.MappedRouteResult(
+                nodeIds = emptyList(),
+                totalDistanceMeters = 0.0,
+                totalCost = 0.0,
+                coordinates = emptyList(),
                 wasCancelled = false,
                 wasTruncated = isAnyTruncated,
-                // 番号の列は全区間そろっているときだけ渡す (欠けていれば座標から引く従来の処理になる)
-                nodeIndices = if (isAllReachable && allNodeIndices.size == allNodeIds.size) allNodeIndices else emptyList(),
+                nodeIndices = emptyList(),
             )
             // 起点・終点を最寄りのノードではなく最初・最後の辺に射影して、端まで行って戻る遠回りを除く。
             // 県またぎの経路は案内 (routeIndex) を別に組み立てているので対象外。
             val endTrim = if (!usedCrossRoute && rawResult.isReachable && stops.size >= 2) {
-                com.gorite.cyclemap.routing.trimRouteEnds(
-                    rawResult,
-                    stops.first().latitude, stops.first().longitude,
-                    stops.last().latitude, stops.last().longitude,
-                )
+                trimSingleGraphRouteSafe(rawResult, stopCoords, waypointNodeIds)
             } else null
             val result = endTrim?.result ?: rawResult
             if (endTrim != null && endTrim.result !== rawResult) {
@@ -374,6 +361,19 @@ internal fun executeRouteCalculation(
             }
             if (routeJob.isCancelled()) return@launch
             if (result.wasCancelled) return@launch
+
+            val completeness = classifyRouteCompleteness(
+                needsCrossPlanning = needsCrossPlanning,
+                usedCrossRoute = usedCrossRoute,
+                singleGraphReachable = singleGraphResult?.isReachable == true,
+            )
+            val decision = decideRouteApplication(
+                isReroute = isReroute,
+                completeness = completeness,
+                crossOutcome = crossOutcome,
+                wasTruncated = result.wasTruncated,
+                singleGraphWaypointFailure = singleGraphWaypointFailure,
+            )
 
             Log.i(
                 "CycleMapRoute",
@@ -383,13 +383,17 @@ internal fun executeRouteCalculation(
                     "goal=${stops.last().latitude},${stops.last().longitude} " +
                     "engine=${if (usedCrossRoute) "astar" else legEngines.joinToString("+").ifEmpty { "astar" }}",
             )
-            val richInstructions = crossInstructions ?: env.graphLock.read {
-                if (routeJob.isCancelled()) return@read emptyList<RouteInstruction>()
-                try {
-                    buildRouteInstructions(graph, result.nodeIds, result.coordinates)
-                } catch (t: Throwable) {
-                    Log.w("CycleMapInstruction", "rich instruction build failed, using maneuvers", t)
-                    emptyList()
+            val richInstructions = when {
+                !decision.shouldReplaceRoute -> emptyList()
+                crossInstructions != null -> crossInstructions
+                else -> env.graphLock.read {
+                    if (routeJob.isCancelled()) return@read emptyList<RouteInstruction>()
+                    try {
+                        buildRouteInstructions(graph, result.nodeIds, result.coordinates)
+                    } catch (t: Throwable) {
+                        Log.w("CycleMapInstruction", "rich instruction build failed, using maneuvers", t)
+                        emptyList()
+                    }
                 }
             }
             // 表示・追従用の線は、射影点 (起点側・終点側) を端に足したもの。案内は最初のノードからの距離で
@@ -436,24 +440,16 @@ internal fun executeRouteCalculation(
                     primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
-                if (result.wasTruncated) {
-                    Log.e("CycleMapRoute", "ROUTE_FAILURE reason=truncated-expanded-nodes")
-                    env.onWarningMessageChanged("探索範囲が大きすぎて打ち切りました。近めの目的地でお試しください")
-                    env.onCalculatingRouteChanged(false)
-                    env.onReroutingChanged(false)
-                    env.routeJobRef.compareAndSet(routeJob, null)
-                    primaryDisplayed.complete(false)
-                    return@runOnUiThread
-                }
-                if (!result.isReachable) {
-                    Log.e("CycleMapRoute", "ROUTE_FAILURE reason=unreachable isReroute=$isReroute")
-                    env.onWarningMessageChanged(
-                        if (isReroute) {
-                            "再探索で有効なルートが見つかりませんでした。元のルートを維持します"
-                        } else {
-                            "有効な自転車ルートが見つかりませんでした。出発地や目的地が道路から離れている、または地図データの範囲外の可能性があります"
-                        },
-                    )
+                if (!decision.shouldReplaceRoute) {
+                    val reason = when {
+                        result.wasTruncated -> "truncated-expanded-nodes"
+                        crossOutcome is CrossPlanningOutcome.WaypointUnreachable || singleGraphWaypointFailure != null -> "waypoint-unreachable"
+                        crossOutcome is CrossPlanningOutcome.MissingPrefectureData -> "missing-prefecture-data"
+                        completeness == RouteCompleteness.PARTIAL -> "partial-route-rejected"
+                        else -> "unreachable"
+                    }
+                    Log.e("CycleMapRoute", "ROUTE_FAILURE reason=$reason isReroute=$isReroute")
+                    decision.warningMessage?.let { env.onWarningMessageChanged(it) }
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
                     env.routeJobRef.compareAndSet(routeJob, null)
@@ -509,12 +505,14 @@ internal fun executeRouteCalculation(
                     if (usedCrossRoute) crossElevation else null,
                 )
 
-                if (usedCrossRoute) {
-                    env.onWarningMessageChanged(CROSS_PREFECTURE_ROUTE_MESSAGE)
-                    Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_route_guidance")
-                } else if (notice.showUnsupportedWarning) {
-                    env.onWarningMessageChanged(CROSS_PREFECTURE_UNSUPPORTED_MESSAGE)
-                    Log.i("CycleMapRoute", "ROUTE_NOTICE kind=cross_prefecture_unsupported")
+                decision.warningMessage?.let { warning ->
+                    env.onWarningMessageChanged(warning)
+                    val kind = when {
+                        usedCrossRoute -> "cross_route_guidance"
+                        completeness == RouteCompleteness.PARTIAL -> "cross_prefecture_unsupported"
+                        else -> "route_notice"
+                    }
+                    Log.i("CycleMapRoute", "ROUTE_NOTICE kind=$kind")
                 }
 
                 Log.i(
@@ -538,7 +536,7 @@ internal fun executeRouteCalculation(
 
             // UIへの主経路反映をrunOnUiThreadに登録した後、同じIOコルーチンで候補を計算する。
             // 世代は新規要求・reroute・clearで変わるため、表示後にrouteJobRefがnullでも古い候補を止められる。
-            if (!usedCrossRoute && !isReroute && result.isReachable && !routeJob.isCancelled() &&
+            if (completeness == RouteCompleteness.COMPLETE && !usedCrossRoute && !isReroute && result.isReachable && !routeJob.isCancelled() &&
                 env.routeExecutionGeneration.get() == executionGeneration
             ) {
                 val optionsStartedAt = SystemClock.elapsedRealtime()

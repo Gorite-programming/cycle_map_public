@@ -12,6 +12,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SnapFallbackRoutingTest {
+    @Test fun outOfRadiusEndpointsDoNotSnapToDistantRoads() {
+        graph(longArrayOf(10, 20, 30, 99), coords, edges).use { graph ->
+            for ((startLon, goalLon) in listOf(132.0 to 133.0, 133.0 to 132.0)) {
+                val outcome = graph.routeWithSnapFallback(34.0, startLon, 34.0, goalLon)
+                assertFalse(outcome.result.isReachable)
+                assertEquals(0, outcome.attempts)
+                assertEquals(-1, outcome.startIndex)
+                assertEquals(-1, outcome.goalIndex)
+            }
+            assertEquals(-1, graph.nearestWellConnectedNodeIndex(34.0, 133.0))
+        }
+    }
+
     private data class Edge(val to: Long, val distance: Double, val grade: Double = Double.NaN)
 
     private fun graph(ids: LongArray, coords: Map<Long, Pair<Double, Double>>, edges: Map<Long, List<Edge>>): LazyMappedRoadGraph {

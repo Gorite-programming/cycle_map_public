@@ -19,6 +19,8 @@ class CyclingCostModelTest {
     @Test
     fun everySupportedAndUnknownRoadTypeRespectsMinimumMultiplierForAllGrades() {
         val roadTypes = listOf(
+            "cycleway", "trunk", "trunk_link", "primary_link", "secondary_link", "tertiary_link",
+            "living_street", "footway", "pedestrian",
             "primary",
             "secondary",
             "tertiary",
@@ -58,6 +60,9 @@ class CyclingCostModelTest {
     fun sharedBicycleCostTableKeepsItsValues() {
         // CyclingCostModel と LazyMappedRoadGraph が共有する表 (BicycleCost)。値が変わると CH の作り直しが要るので固定する。
         val expected = mapOf(
+            "cycleway" to 0.90, "trunk" to 0.90, "trunk_link" to 0.95, "primary_link" to 0.95,
+            "secondary_link" to 1.00, "tertiary_link" to 1.05, "living_street" to 1.20,
+            "footway" to 1.60, "pedestrian" to 1.60,
             "primary" to 0.90, "secondary" to 0.95, "tertiary" to 1.00, "residential" to 1.20,
             "unclassified" to 1.25, "service" to 1.35, "track" to 1.60, "path" to 1.80, "foo" to 1.15,
         )

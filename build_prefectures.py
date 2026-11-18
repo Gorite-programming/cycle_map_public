@@ -44,6 +44,11 @@ else:
     _importer_candidates = _importer_unix_candidates
 OSM_IMPORTER = next((p for p in _importer_candidates if p.exists()), _importer_candidates[0])
 
+# 道路ルール (通行方向・自転車通行不可の印) を索引に追記し、除外した道のサイドカー (<県>.bikerules) を作る。
+# installDist の lib/ をそのままクラスパスに使う。
+BIKE_INFO_MAIN_CLASS = "com.gorite.cyclemap.importer.BikeInfoReindexMain"
+BIKE_INFO_JAVA_OPTS = "-Xmx4g"
+
 # BUILD_SEARCH_DB: 正系統 application/osm-importer/build_search_db.py の実体を直接参照。
 _search_db_candidates = [
     Path("application/osm-importer/build_search_db.py"),
@@ -487,6 +492,36 @@ def valid_zip(path: Path, name: str) -> bool:
         return False
 
 
+def build_bike_rules(name: str, extract: Path, graph: Path, idx: Path, work: Path, pref_log: Path,
+                     env: Dict[str, str]) -> None:
+    """idx に道路ルールの区間を追記して置き換え、除外した道のサイドカーを OUTPUT_DIR に置く。"""
+    lib_dir = OSM_IMPORTER.parent.parent / "lib"
+    if not lib_dir.is_dir():
+        raise FileNotFoundError(f"importer の lib が見つかりません: {lib_dir}")
+    jdk_java = Path(env.get("JAVA_HOME", "")) / "bin" / ("java.exe" if os.name == "nt" else "java")
+    java = str(jdk_java) if jdk_java.is_file() else "java"
+    new_idx = work / f"{name}.graph.bike.idx"
+    sidecar = work / f"{name}.bikerules"
+    new_idx.unlink(missing_ok=True)
+    sidecar.unlink(missing_ok=True)
+    cp = str(lib_dir / "*")
+    rc = run_live(
+        [java, BIKE_INFO_JAVA_OPTS, "-cp", cp, BIKE_INFO_MAIN_CLASS,
+         str(graph), str(idx), str(extract), str(new_idx), "--sidecar", str(sidecar)],
+        pref_log, env=env,
+    )
+    if rc != 0 or not new_idx.is_file() or new_idx.stat().st_size <= idx.stat().st_size:
+        raise RuntimeError(f"BikeInfoReindexMain failed (exit {rc})")
+    os.replace(new_idx, idx)
+    LOG.info("[%s] idx (道路ルール付き): %s", name, psize(idx))
+    if sidecar.is_file() and sidecar.stat().st_size > 0:
+        dest = OUTPUT_DIR / f"{name}.bikerules"
+        shutil.copy2(sidecar, dest)
+        LOG.info("[%s] 道路ルールのサイドカー: %s (%s)", name, dest, psize(dest))
+    else:
+        LOG.warning("[%s] サイドカー (.bikerules) が作られませんでした", name)
+
+
 def make_zip(
     name: str,
     db: Path,
@@ -613,6 +648,14 @@ def process(
             LOG.info("[%s] importer counts: %s", name, ", ".join(f"{k}={v:,}" for k, v in counts.items()))
         else:
             LOG.info("[%s] importer counts: not parseable from stdout/stderr", name)
+
+        # 3b) 道路ルールの索引 (CYCLEMAP_BIKEINFO_V1) と、除外した道のサイドカー (.bikerules) を作る。
+        #     索引は同じ名前で置き換える (ZIP の 5 ファイル構成は変えない)。サイドカーは CH・ポータルと同じ「任意の成果物」で、
+        #     出力先 (OUTPUT_DIR) に <県>.bikerules として置く。失敗しても県全体の作成は止めない (通知が出ないだけ。警告を出す)。
+        try:
+            build_bike_rules(name, extract, graph, idx, work, pref_log, importer_env)
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("[%s] 道路ルールの索引を作れませんでした (通行警告は出ません): %s", name, exc)
 
         # 4) Read-only lookup of build_tiles.py's optional sidecar; ZIP still has five files.
         pmtiles_path = expected_pmtiles_path(name)

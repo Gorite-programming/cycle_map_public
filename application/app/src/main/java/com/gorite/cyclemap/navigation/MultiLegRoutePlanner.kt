@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.gorite.cyclemap.data.PrefectureData
-import com.gorite.cyclemap.data.RoutingGraphSelection
 import com.gorite.cyclemap.data.RoutingGraphSelector
 import com.gorite.cyclemap.data.findPrefectureName
 import com.gorite.cyclemap.routing.*
@@ -26,6 +25,23 @@ internal data class MultiLegRouteResult(
     val bMs: Long,
 )
 
+internal sealed interface MultiLegCrossOutcome {
+    data object NotCrossPrefecture : MultiLegCrossOutcome
+    data class Success(val result: MultiLegRouteResult) : MultiLegCrossOutcome
+    data class MissingPrefectureData(val missingPrefectures: List<String>) : MultiLegCrossOutcome
+    data class WaypointUnreachable(val waypointNumber: Int) : MultiLegCrossOutcome
+    data object Cancelled : MultiLegCrossOutcome
+    data object Failed : MultiLegCrossOutcome
+}
+
+private data class SolvedCrossLeg(
+    val chain: List<String>,
+    val parts: List<CrossRoutePart>,
+    val distanceMeters: Double,
+    val cost: Double,
+    val chainLabel: String,
+)
+
 /** Cross-prefecture path. Same-prefecture-only requests stay on the legacy path. */
 internal fun calculateMultiLegCrossRoute(
     context: Context,
@@ -35,212 +51,444 @@ internal fun calculateMultiLegCrossRoute(
     stops: List<GeoPoint>,
     preference: RoutePreference,
     isCancelled: () -> Boolean,
-): MultiLegRouteResult? {
-    val prefectures = stops.map { findPrefectureName(it.latitude, it.longitude) }
-    if (prefectures.zipWithNext().none { classifyLeg(it.first, it.second) != CrossLegKind.SAME }) return null
-    val dataDir = cycleMapDataDir(context)
-    // 47 県すべてを候補にし、端末にグラフのある県だけを経路のチェーンに使う。
-    val namesByPref: Map<String, String> = PrefectureData.ALL.associate { it.name to RoutingGraphSelector.SUPPORTED_FILES.getValue(it.id) }
-    val available = namesByPref.filterValues { RoutingGraphSelector.resolveGraphFiles(dataDir, it) != null }.keys
+): MultiLegCrossOutcome {
     val centers = PrefectureData.ALL.associate { pref ->
         val b = pref.bounds
         pref.name to CrossGeoPoint((b.latNorth + b.latSouth) / 2.0, (b.lonEast + b.lonWest) / 2.0)
     }
+    val namesByPref = PrefectureData.ALL.associate {
+        it.name to RoutingGraphSelector.SUPPORTED_FILES.getValue(it.id)
+    }
+    return calculateMultiLegCrossRouteWithEnv(
+        dataDir = cycleMapDataDir(context),
+        graphLock = graphLock,
+        jobGraph = jobGraph,
+        jobGraphName = jobGraphName,
+        stops = stops.map { CrossGeoPoint(it.latitude, it.longitude) },
+        preference = preference,
+        isCancelled = isCancelled,
+        namesByPref = namesByPref,
+        centers = centers,
+    )
+}
+
+internal fun calculateMultiLegCrossRouteWithEnv(
+    dataDir: File,
+    graphLock: ReentrantReadWriteLock,
+    jobGraph: LazyMappedRoadGraph?,
+    jobGraphName: String?,
+    stops: List<CrossGeoPoint>,
+    preference: RoutePreference,
+    isCancelled: () -> Boolean,
+    namesByPref: Map<String, String>,
+    centers: Map<String, CrossGeoPoint>,
+    prefectureLookup: (Double, Double) -> String? = ::findPrefectureName,
+    nowMs: () -> Long = { SystemClock.elapsedRealtime() },
+    logGraphInfo: (String) -> Unit = { Log.i("CycleMapGraph", it) },
+    logRouteInfo: (String) -> Unit = { Log.i("CycleMapRoute", it) },
+    logRouteWarn: (String) -> Unit = { Log.w("CycleMapRoute", it) },
+    logRouteError: (String) -> Unit = { Log.e("CycleMapRoute", it) },
+    attachCh: (LazyMappedRoadGraph, File) -> Unit = { g, f -> loadContractionHierarchy(g, f) },
+    enablePrefetch: Boolean = true,
+): MultiLegCrossOutcome {
+    if (stops.size < 2) return MultiLegCrossOutcome.NotCrossPrefecture
+    val prefectures = stops.map { prefectureLookup(it.latitude, it.longitude) }
+    if (prefectures.zipWithNext().none { classifyLeg(it.first, it.second) == CrossLegKind.CROSS }) {
+        return MultiLegCrossOutcome.NotCrossPrefecture
+    }
+
+    // 全県候補から端末にグラフのある県だけを抽出し、不足県があれば早期に特定して返す。
+    val available = namesByPref.filterValues { RoutingGraphSelector.resolveGraphFiles(dataDir, it) != null }.keys
+    val missing = findMissingPrefecturesForRoute(prefectures, available, namesByPref.keys, centers)
+    if (missing.isNotEmpty()) {
+        return MultiLegCrossOutcome.MissingPrefectureData(missing)
+    }
+    if (prefectures.any { it == null }) {
+        return MultiLegCrossOutcome.Failed
+    }
+
     val routeParts = ArrayList<CrossRoutePathPart>()
     val instructionParts = ArrayList<CrossInstructionPart>()
     val elevationParts = ArrayList<CrossElevationPart>()
-    var totalDistance = 0.0
-    var totalCost = 0.0
     var totalLoadMs = 0L
     var portalMs = 0L
     var aMs = 0L
     var bMs = 0L
     var endpointSnapMs = 0L
     var guidanceElevationMs = 0L
-    val usedChains = ArrayList<String>()
-    /** 通り口ファイルの照合に使う graph の識別。1 回の経路計算の中で同じ graph を読み直さない。 */
     val graphFingerprints = HashMap<File, GraphFingerprint>()
 
-    fun open(pref: String): LazyMappedRoadGraph? {
+    fun openOwned(pref: String): LazyMappedRoadGraph? {
         val fileName = namesByPref[pref] ?: return null
-        if (fileName == jobGraphName) return jobGraph
         val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
-        val started = SystemClock.elapsedRealtime()
-        loadTimingSink = { Log.i("CycleMapGraph", it) }
+        val started = nowMs()
+        loadTimingSink = logGraphInfo
         val graph = LazyMappedRoadGraph.load(files.first, files.second)
-        loadContractionHierarchy(graph, files.first)
-        totalLoadMs += SystemClock.elapsedRealtime() - started
+        attachCh(graph, files.first)
+        totalLoadMs += nowMs() - started
         return graph
     }
-    fun withGraph(pref: String, block: (LazyMappedRoadGraph) -> Unit): Boolean {
-        if (namesByPref[pref] == jobGraphName) {
-            graphLock.read { block(jobGraph) }
-            return true
+
+    fun <T> withGraph(pref: String, block: (LazyMappedRoadGraph) -> T): T? {
+        if (namesByPref[pref] == jobGraphName && jobGraph != null) {
+            return graphLock.read { block(jobGraph) }
         }
-        val graph = open(pref) ?: return false
-        try { block(graph) } finally { graph.close() }
-        return true
+        val graph = openOwned(pref) ?: return null
+        return try {
+            block(graph)
+        } finally {
+            graph.close()
+        }
     }
+
     fun addPart(graph: LazyMappedRoadGraph, indices: List<Int>, ids: List<Long>, coords: List<Pair<Double, Double>>, distance: Double, cost: Double) {
-        val started = SystemClock.elapsedRealtime()
+        val started = nowMs()
         val grades = graph.segmentGradesAlongIndices(indices)
         val elevations = graph.nodeElevationsAt(indices)
         val actualDistance = if (grades.isNotEmpty()) grades.sumOf { it.distanceMeters } else distance
         routeParts += CrossRoutePathPart(ids, coords, actualDistance, cost, indices)
         instructionParts += CrossInstructionPart(buildRouteInstructions(graph, ids, coords), ids.size, actualDistance)
         elevationParts += CrossElevationPart(grades, elevations)
-        guidanceElevationMs += SystemClock.elapsedRealtime() - started
+        guidanceElevationMs += nowMs() - started
     }
 
-    for (leg in 0 until stops.lastIndex) {
-        if (isCancelled()) return null
-        val fromPref = prefectures[leg]; val toPref = prefectures[leg + 1]
-        val kind = classifyLeg(fromPref, toPref)
-        val from = stops[leg]; val to = stops[leg + 1]
-        if (kind == CrossLegKind.UNKNOWN || fromPref == null || toPref == null) return null
-        if (kind == CrossLegKind.SAME) {
-            var success = false
-            val ok = withGraph(fromPref) { graph ->
-                val outcome = graph.routeWithSnapFallback(from.latitude, from.longitude, to.latitude, to.longitude,
-                    isCancelled = isCancelled, maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES, preference = preference)
-                if (outcome.result.isReachable && !outcome.result.wasTruncated) {
-                    val r = outcome.result
-                    addPart(graph, r.nodeIndices, r.nodeIds, r.coordinates, r.totalDistanceMeters, r.totalCost)
-                    totalDistance += r.totalDistanceMeters; totalCost += r.totalCost; success = true
+    fun solveSameLeg(pref: String, startIdx: Int, goalIdx: Int): SolvedCrossLeg? {
+        var solved: SolvedCrossLeg? = null
+        val ok = withGraph(pref) { graph ->
+            val r = graph.route(
+                startIdx,
+                goalIdx,
+                isCancelled = isCancelled,
+                maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
+                preference = preference,
+            )
+            if (r.isReachable && !r.wasTruncated) {
+                solved = SolvedCrossLeg(
+                    chain = listOf(pref),
+                    parts = listOf(CrossRoutePart(r.nodeIds, r.coordinates, r.nodeIndices)),
+                    distanceMeters = r.totalDistanceMeters,
+                    cost = r.totalCost,
+                    chainLabel = pref,
+                )
+            }
+        }
+        return if (ok != null) solved else null
+    }
+
+    fun solveCrossLeg(fromPref: String, toPref: String, startIdx: Int, goalIdx: Int): SolvedCrossLeg? {
+        val chains = planPrefectureChains(fromPref, toPref, available, centers)
+        for (chain in chains) {
+            if (isCancelled()) return null
+            val sources = chain.mapIndexed { stage, pref ->
+                val fileName = namesByPref[pref] ?: return null
+                val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
+                val nextGraphFile = chain.getOrNull(stage + 1)?.let { next ->
+                    namesByPref[next]?.let { RoutingGraphSelector.resolveGraphFiles(dataDir, it)?.first }
+                }
+                val portalsToNext: (() -> CrossPortals?)? = nextGraphFile?.let { nextFile ->
+                    { loadCrossPortals(files.first, nextFile, dataDir) { f -> graphFingerprints.getOrPut(f) { GraphFingerprint.fromFile(f) } } }
+                }
+                if (fileName == jobGraphName && jobGraph != null) {
+                    ChainGraph(
+                        open = { jobGraph },
+                        borrowed = true,
+                        openIdIndex = { jobGraph.sortedNodeIdIndex() },
+                        stageName = pref,
+                        portalsToNext = portalsToNext,
+                    )
+                } else {
+                    ChainGraph(
+                        open = {
+                            val loadStarted = nowMs()
+                            loadTimingSink = logGraphInfo
+                            LazyMappedRoadGraph.load(files.first, files.second, readRichSections = false).also {
+                                attachCh(it, files.first)
+                                totalLoadMs += nowMs() - loadStarted
+                            }
+                        },
+                        openIdIndex = {
+                            loadTimingSink = logGraphInfo
+                            LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
+                        },
+                        stageName = pref,
+                        portalsToNext = portalsToNext,
+                    )
                 }
             }
-            if (!ok || !success) return null
-            usedChains.add(fromPref)
-        } else {
-            val chains = planPrefectureChains(fromPref, toPref, available, centers)
-            var reached = false
-            for (chain in chains) {
-                if (isCancelled()) return null
-                val sources = chain.mapIndexed { stage, pref ->
-                    val fileName = namesByPref[pref] ?: return null
-                    val files = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName) ?: return null
-                    // 事前計算した通り口 (<A>__<B>.portals)。無い・古い・壊れているときは null で、従来の ID 照合になる。
-                    val nextGraphFile = chain.getOrNull(stage + 1)?.let { next ->
-                        namesByPref[next]?.let { RoutingGraphSelector.resolveGraphFiles(dataDir, it)?.first }
-                    }
-                    val portalsToNext: (() -> CrossPortals?)? = nextGraphFile?.let { nextFile ->
-                        { loadCrossPortals(files.first, nextFile, dataDir) { f -> graphFingerprints.getOrPut(f) { GraphFingerprint.fromFile(f) } } }
-                    }
-                    if (fileName == jobGraphName) ChainGraph(open = { jobGraph }, borrowed = true,
-                        openIdIndex = { jobGraph.sortedNodeIdIndex() }, stageName = pref, portalsToNext = portalsToNext)
-                    else ChainGraph(open = {
-                        val loadStarted = SystemClock.elapsedRealtime()
-                        loadTimingSink = { Log.i("CycleMapGraph", it) }
-                        LazyMappedRoadGraph.load(files.first, files.second, readRichSections = false).also {
-                            loadContractionHierarchy(it, files.first)
-                            totalLoadMs += SystemClock.elapsedRealtime() - loadStarted
-                        }
-                    }, openIdIndex = {
-                        loadTimingSink = { Log.i("CycleMapGraph", it) }
-                        LazyMappedRoadGraph.loadSortedNodeIdIndex(files.first)
-                    }, stageName = pref, portalsToNext = portalsToNext)
+            if (enablePrefetch && preference == RoutePreference.RECOMMENDED) {
+                val prefetch = ArrayList<File>()
+                for (pref in chain) {
+                    val fileName = namesByPref[pref] ?: continue
+                    if (fileName == jobGraphName) continue
+                    val gf = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName)?.first ?: continue
+                    findContractionHierarchyFile(gf)?.let { prefetch += it }
+                    prefetch += gf
                 }
-                if (preference == RoutePreference.RECOMMENDED) {
-                    // 県またぎの復元で CH とグラフを冷たいまま読まないよう、裏で順に先読みする。
-                    val prefetch = ArrayList<java.io.File>()
-                    for (pref in chain) {
-                        val fileName = namesByPref[pref] ?: continue
-                        if (fileName == jobGraphName) continue
-                        val gf = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName)?.first ?: continue
-                        com.gorite.cyclemap.routing.findContractionHierarchyFile(gf)?.let { prefetch += it }
-                        prefetch += gf
-                    }
-                    if (prefetch.isNotEmpty()) prefetchFilesInBackground(prefetch)
-                }
-                val indices = IntArray(chain.size)
-                val crossParts: List<CrossRoutePart>
-                val routeDistance: Double
-                val routeCost: Double
-                try {
-                    val firstPref = chain.first(); val lastPref = chain.last()
-                    val endpointSnapStarted = SystemClock.elapsedRealtime()
-                    val startIdx = if (namesByPref[firstPref] == jobGraphName) graphLock.read { jobGraph.nearestWellConnectedNodeIndex(from.latitude, from.longitude) }
-                        else sources.first().open().let { g -> try { g.nearestWellConnectedNodeIndex(from.latitude, from.longitude) } finally { sources.first().close(g) } }
-                    val goalIdx = if (namesByPref[lastPref] == jobGraphName) graphLock.read { jobGraph.nearestWellConnectedNodeIndex(to.latitude, to.longitude) }
-                        else sources.last().open().let { g -> try { g.nearestWellConnectedNodeIndex(to.latitude, to.longitude) } finally { sources.last().close(g) } }
-                    endpointSnapMs += SystemClock.elapsedRealtime() - endpointSnapStarted
-                    if (startIdx < 0 || goalIdx < 0) continue
-                    chain.forEachIndexed { i, pref ->
-                        if (namesByPref[pref] == jobGraphName) indices[i] = if (i == 0) startIdx else goalIdx
-                    }
-                    // CH (自転車×おすすめ) で通り口までを一括探索。CH の無い県がある・好みが違うときは null で従来の A* へ。
-                    val chCross = if (preference == RoutePreference.RECOMMENDED) {
-                        if (sources.any { it.borrowed }) graphLock.read {
-                            routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
-                        } else routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = { Log.i("CycleMapGraph", it) })
-                    } else null
-                    if (chCross != null) {
-                        if (!chCross.isReachable) continue
-                        crossParts = chCross.parts; routeDistance = chCross.totalDistanceMeters; routeCost = chCross.totalCost
-                        Log.i("CycleMapRoute", "CROSS_ENGINE ch graphs=${chain.size}")
-                    } else if (chain.size == 2) {
-                        var ga: LazyMappedRoadGraph? = null
-                        var gb: LazyMappedRoadGraph? = null
-                        try {
-                            val graphA = sources[0].open().also { ga = it }
-                            val graphB = sources[1].open().also { gb = it }
-                            val portalStarted = SystemClock.elapsedRealtime()
-                            val portals = if (sources.any { it.borrowed }) graphLock.read { portalsBetween(graphA, graphB) }
-                                else portalsBetween(graphA, graphB)
-                            portalMs += SystemClock.elapsedRealtime() - portalStarted
-                            val cross = if (sources.any { it.borrowed }) graphLock.read { routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES) }
-                                else routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
-                            if (!cross.isReachable) continue
-                            aMs += cross.aSearchMs; bMs += cross.bSearchMs
-                            crossParts = listOf(cross.aPart, cross.bPart); routeDistance = cross.totalDistanceMeters; routeCost = cross.totalCost
-                        } finally {
-                            if (gb != null && !sources[1].borrowed) sources[1].close(gb)
-                            if (ga != null && !sources[0].borrowed) sources[0].close(ga)
+                if (prefetch.isNotEmpty()) prefetchFilesInBackground(prefetch)
+            }
+
+            try {
+                val chCross = if (preference == RoutePreference.RECOMMENDED) {
+                    if (sources.any { it.borrowed }) {
+                        graphLock.read {
+                            routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = logGraphInfo)
                         }
                     } else {
-                        val cross = if (sources.any { it.borrowed }) graphLock.read {
-                            routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
-                                stageTimingSink = { Log.i("CycleMapGraph", it) })
-                        } else routeAcrossChain(sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
-                            stageTimingSink = { Log.i("CycleMapGraph", it) })
+                        routeAcrossChainCh(sources, startIdx, goalIdx, isCancelled, stageTimingSink = logGraphInfo)
+                    }
+                } else null
+                if (chCross != null) {
+                    if (!chCross.isReachable) continue
+                    logRouteInfo("CROSS_ENGINE ch graphs=${chain.size}")
+                    return SolvedCrossLeg(
+                        chain = chain,
+                        parts = chCross.parts,
+                        distanceMeters = chCross.totalDistanceMeters,
+                        cost = chCross.totalCost,
+                        chainLabel = chain.joinToString(">"),
+                    )
+                } else if (chain.size == 2) {
+                    var ga: LazyMappedRoadGraph? = null
+                    var gb: LazyMappedRoadGraph? = null
+                    try {
+                        val graphA = sources[0].open().also { ga = it }
+                        val graphB = sources[1].open().also { gb = it }
+                        val portalStarted = nowMs()
+                        val portals = if (sources.any { it.borrowed }) {
+                            graphLock.read { portalsBetween(graphA, graphB) }
+                        } else {
+                            portalsBetween(graphA, graphB)
+                        }
+                        portalMs += nowMs() - portalStarted
+                        val cross = if (sources.any { it.borrowed }) {
+                            graphLock.read {
+                                routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
+                            }
+                        } else {
+                            routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
+                        }
                         if (!cross.isReachable) continue
-                        crossParts = cross.parts; routeDistance = cross.totalDistanceMeters; routeCost = cross.totalCost
+                        aMs += cross.aSearchMs
+                        bMs += cross.bSearchMs
+                        return SolvedCrossLeg(
+                            chain = chain,
+                            parts = listOf(cross.aPart, cross.bPart),
+                            distanceMeters = cross.totalDistanceMeters,
+                            cost = cross.totalCost,
+                            chainLabel = chain.joinToString(">"),
+                        )
+                    } finally {
+                        if (gb != null && !sources[1].borrowed) sources[1].close(gb)
+                        if (ga != null && !sources[0].borrowed) sources[0].close(ga)
                     }
-                } catch (t: Throwable) {
-                    if (isCancelled()) return null
-                    if (t is OutOfMemoryError) {
-                        Log.e("CycleMapRoute", "ROUTE_FAILURE reason=out_of_memory")
-                        throw t
+                } else {
+                    val cross = if (sources.any { it.borrowed }) {
+                        graphLock.read {
+                            routeAcrossChain(
+                                sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                                stageTimingSink = logGraphInfo,
+                            )
+                        }
+                    } else {
+                        routeAcrossChain(
+                            sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                            stageTimingSink = logGraphInfo,
+                        )
                     }
-                    Log.w("CycleMapRoute", "CROSS_PREFECTURE chain failed ${chain.joinToString(">")}: ${t.message}")
-                    continue
-                } finally { /* Each owned graph is closed by routeAcrossChain or the pair block. */ }
-                // Reopen each graph one at a time to materialize rich data while its local indices are valid.
-                var partOk = true
-                crossParts.forEachIndexed { i, part ->
-                    if (part.nodeIndices.isEmpty()) { partOk = false; return@forEachIndexed }
-                    val ok = withGraph(chain[i]) { graph ->
-                        addPart(graph, part.nodeIndices, part.nodeIds, part.coordinates,
-                            graph.segmentGradesAlongIndices(part.nodeIndices).sumOf { it.distanceMeters }, 0.0)
-                    }
-                    if (!ok) partOk = false
+                    if (!cross.isReachable) continue
+                    return SolvedCrossLeg(
+                        chain = chain,
+                        parts = cross.parts,
+                        distanceMeters = cross.totalDistanceMeters,
+                        cost = cross.totalCost,
+                        chainLabel = chain.joinToString(">"),
+                    )
                 }
-                if (!partOk) return null
-                totalDistance += routeDistance; totalCost += routeCost
-                usedChains += chain.joinToString(">")
-                reached = true
+            } catch (t: Throwable) {
+                if (isCancelled()) return null
+                if (t is OutOfMemoryError) {
+                    logRouteError("ROUTE_FAILURE reason=out_of_memory")
+                    throw t
+                }
+                logRouteWarn("CROSS_PREFECTURE chain failed ${chain.joinToString(">")}: ${t.message}")
+                continue
+            }
+        }
+        return null
+    }
+
+    val solvedLegs: List<SolvedCrossLeg> = if (stops.size == 2) {
+        val fromPref = prefectures[0]!!
+        val toPref = prefectures[1]!!
+        val snapStarted = nowMs()
+        val startIdx = withGraph(fromPref) { it.nearestWellConnectedNodeIndex(stops[0].latitude, stops[0].longitude) } ?: -1
+        val goalIdx = withGraph(toPref) { it.nearestWellConnectedNodeIndex(stops[1].latitude, stops[1].longitude) } ?: -1
+        endpointSnapMs += nowMs() - snapStarted
+        if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+        if (startIdx < 0 || goalIdx < 0) return MultiLegCrossOutcome.Failed
+        val solved = solveCrossLeg(fromPref, toPref, startIdx, goalIdx)
+        if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+        if (solved == null) return MultiLegCrossOutcome.Failed
+        listOf(solved)
+    } else {
+        // 経由地ごとに候補ノード列を 1 度だけ解決し、前区間の終端ノードを次区間の始端ノードとしてそのまま使う。
+        val stopCandidates = arrayOfNulls<IntArray>(stops.size)
+        val snapStarted = nowMs()
+        val indicesByPref = (0 until stops.size).groupBy { prefectures[it]!! }
+        for ((pref, indices) in indicesByPref) {
+            if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            val ok = withGraph(pref) { graph ->
+                for (k in indices) {
+                    val stop = stops[k]
+                    val touchesCross = (k > 0 && classifyLeg(prefectures[k - 1], prefectures[k]) == CrossLegKind.CROSS) ||
+                        (k < stops.lastIndex && classifyLeg(prefectures[k], prefectures[k + 1]) == CrossLegKind.CROSS)
+                    stopCandidates[k] = if (k == 0 || k == stops.lastIndex) {
+                        val endpoint = graph.nearestWellConnectedNodeIndex(stop.latitude, stop.longitude)
+                        if (endpoint >= 0) intArrayOf(endpoint) else IntArray(0)
+                    } else {
+                        val raw = graph.nearestNodeCandidates(stop.latitude, stop.longitude, radiusMeters = 400.0, maxCount = 24)
+                        val filtered = filterWaypointCandidates(graph, stop.latitude, stop.longitude, raw)
+                        if (touchesCross && filtered.isNotEmpty()) {
+                            val well = graph.nearestWellConnectedNodeIndex(stop.latitude, stop.longitude)
+                            val pos = filtered.indexOf(well)
+                            if (pos > 0) filtered.copyOfRange(pos, filtered.size) else filtered
+                        } else {
+                            filtered
+                        }
+                    }
+                }
+            }
+            if (ok == null) return MultiLegCrossOutcome.Failed
+        }
+        endpointSnapMs += nowMs() - snapStarted
+        if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+
+        val cands = stopCandidates.map { it ?: IntArray(0) }
+        for (i in 1 until stops.lastIndex) {
+            if (cands[i].isEmpty()) return MultiLegCrossOutcome.WaypointUnreachable(i)
+        }
+        if (cands.first().isEmpty() || cands.last().isEmpty()) return MultiLegCrossOutcome.Failed
+
+        val legSolutions = arrayOfNulls<SolvedCrossLeg>(stops.size - 1)
+        val failedFrom = Array(stops.size) { HashSet<Int>() }
+        val reachedAtLeg = Array(stops.size) { LinkedHashSet<Int>() }
+        var maxReachedLeg = -1
+
+        fun solveDirect(fromIdx: Int, toIdx: Int): SolvedCrossLeg? {
+            val fromPref = prefectures.first()!!
+            val toPref = prefectures.last()!!
+            return if (classifyLeg(fromPref, toPref) == CrossLegKind.SAME) {
+                solveSameLeg(fromPref, fromIdx, toIdx)
+            } else {
+                solveCrossLeg(fromPref, toPref, fromIdx, toIdx)
+            }
+        }
+
+        fun searchFrom(leg: Int, startNode: Int): Int {
+            if (isCancelled()) return 1
+            if (startNode in failedFrom[leg]) return -1
+            val nextStop = leg + 1
+            val fromPref = prefectures[leg]!!
+            val toPref = prefectures[nextStop]!!
+            val kind = classifyLeg(fromPref, toPref)
+            for (nextNode in cands[nextStop]) {
+                if (isCancelled()) return 1
+                if (nextStop < stops.lastIndex && nextNode in failedFrom[nextStop]) continue
+                val solved = if (kind == CrossLegKind.SAME) {
+                    solveSameLeg(fromPref, startNode, nextNode)
+                } else {
+                    solveCrossLeg(fromPref, toPref, startNode, nextNode)
+                }
+                if (isCancelled()) return 1
+                if (solved == null) continue
+                legSolutions[leg] = solved
+                reachedAtLeg[nextStop].add(nextNode)
+                if (leg > maxReachedLeg) maxReachedLeg = leg
+                if (nextStop == stops.lastIndex) return 0
+                val sub = searchFrom(leg + 1, nextNode)
+                if (sub != -1) return sub
+            }
+            failedFrom[leg].add(startNode)
+            return -1
+        }
+
+        var found = false
+        for (startNode in cands[0]) {
+            if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            val status = searchFrom(0, startNode)
+            if (status == 1) return MultiLegCrossOutcome.Cancelled
+            if (status == 0) {
+                found = true
                 break
             }
-            if (!reached) return null
         }
+        if (!found) {
+            if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            val directSolved = solveDirect(cands.first().first(), cands.last().first()) != null
+            if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            if (!directSolved) return MultiLegCrossOutcome.Failed
+            if (maxReachedLeg < 0) return MultiLegCrossOutcome.WaypointUnreachable(1)
+            val stalledWaypoint = maxReachedLeg + 1
+            if (stalledWaypoint >= stops.lastIndex - 1) {
+                return MultiLegCrossOutcome.WaypointUnreachable(stalledWaypoint)
+            }
+            val stalledPref = prefectures[stalledWaypoint]!!
+            val goalPref = prefectures.last()!!
+            val canLeaveStalled = reachedAtLeg[stalledWaypoint].any { wIdx ->
+                if (classifyLeg(stalledPref, goalPref) == CrossLegKind.SAME) {
+                    solveSameLeg(stalledPref, wIdx, cands.last().first()) != null
+                } else {
+                    solveCrossLeg(stalledPref, goalPref, wIdx, cands.last().first()) != null
+                }
+            }
+            if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            return MultiLegCrossOutcome.WaypointUnreachable(
+                if (canLeaveStalled) stalledWaypoint + 1 else stalledWaypoint,
+            )
+        }
+        legSolutions.map { it!! }
     }
-    if (isCancelled()) return null
-    Log.i("CycleMapGraph", "CHAIN_STAGE name=endpoint_snap ms=$endpointSnapMs")
-    Log.i("CycleMapGraph", "CHAIN_STAGE name=guidance_elevation ms=$guidanceElevationMs")
+
+    var totalDistance = 0.0
+    var totalCost = 0.0
+    val usedChains = ArrayList<String>(solvedLegs.size)
+    for (leg in solvedLegs) {
+        if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+        for (i in leg.parts.indices) {
+            val part = leg.parts[i]
+            if (part.nodeIndices.isEmpty()) return MultiLegCrossOutcome.Failed
+            val pref = leg.chain[i]
+            val ok = withGraph(pref) { graph ->
+                addPart(
+                    graph,
+                    part.nodeIndices,
+                    part.nodeIds,
+                    part.coordinates,
+                    graph.segmentGradesAlongIndices(part.nodeIndices).sumOf { it.distanceMeters },
+                    0.0,
+                )
+            }
+            if (ok == null) return MultiLegCrossOutcome.Failed
+        }
+        totalDistance += leg.distanceMeters
+        totalCost += leg.cost
+        usedChains += leg.chainLabel
+    }
+
+    if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+    logGraphInfo("CHAIN_STAGE name=endpoint_snap ms=$endpointSnapMs")
+    logGraphInfo("CHAIN_STAGE name=guidance_elevation ms=$guidanceElevationMs")
     val merged = mergeRoutePathParts(routeParts)
-    return MultiLegRouteResult(
-        MappedRouteResult(merged.nodeIds, totalDistance, totalCost, merged.coordinates, nodeIndices = emptyList()),
-        mergeInstructionParts(instructionParts), mergeElevationParts(elevationParts), totalLoadMs,
-        usedChains.joinToString("|"), portalMs, aMs, bMs
+    return MultiLegCrossOutcome.Success(
+        MultiLegRouteResult(
+            MappedRouteResult(merged.nodeIds, totalDistance, totalCost, merged.coordinates, nodeIndices = emptyList()),
+            mergeInstructionParts(instructionParts),
+            mergeElevationParts(elevationParts),
+            totalLoadMs,
+            usedChains.joinToString("|"),
+            portalMs,
+            aMs,
+            bMs,
+        ),
     )
 }

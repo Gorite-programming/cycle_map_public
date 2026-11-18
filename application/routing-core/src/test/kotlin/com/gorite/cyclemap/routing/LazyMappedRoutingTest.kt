@@ -13,6 +13,28 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class LazyMappedRoutingTest {
+    @Test fun boundedNearestNeverReturnsNodesOutsideRadius() {
+        // Exercise both the linear scan and spatial grid paths.
+        for (count in listOf(3, 80)) {
+            graphWith(DoubleArray(count) { 34.0 + it * 0.0001 }, DoubleArray(count) { 132.0 }).use { graph ->
+                assertTrue(graph.nearestNodeCandidates(34.0, 133.0, 400.0).isEmpty())
+                assertEquals(-1, graph.nearestNodeIndex(34.0, 133.0, 400.0))
+                assertTrue(graph.nearestNodeIndex(34.0, 133.0) >= 0) // unrestricted API is unchanged
+                val nearest = graph.nearestNodeIndex(34.00001, 132.0)
+                val candidates = graph.nearestNodeCandidates(34.00001, 132.0, 20.0, count)
+                assertEquals(nearest, candidates.first())
+                assertEquals(nearest, graph.nearestNodeIndex(34.00001, 132.0, 20.0))
+                assertTrue(candidates.all {
+                    val node = graph.nodeAt(it)
+                    haversineMeters(34.00001, 132.0, node.latitude, node.longitude) <= 20.0
+                })
+                assertTrue(graph.nearestNodeCandidates(34.0, 132.0, 400.0, 0).isEmpty())
+                assertTrue(graph.nearestNodeCandidates(34.00001, 132.0, 0.0).isEmpty())
+                assertEquals(0, graph.nearestNodeIndex(34.0, 132.0, 0.0))
+            }
+        }
+    }
+
     private data class FixtureEdge(val target: Int, val distanceMeters: Double, val gradePercent: Double)
 
     private fun graphWith(lats: DoubleArray, lons: DoubleArray): LazyMappedRoadGraph {

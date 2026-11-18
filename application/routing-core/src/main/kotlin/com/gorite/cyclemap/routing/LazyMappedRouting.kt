@@ -336,12 +336,15 @@ class LazyMappedRoadGraph private constructor(
     }
 
     /**
-     * 指定地点に近いノードの候補を、近い順に返す (先頭は [nearestNodeIndex] と同じ)。
+     * 指定半径内のノードの候補を、近い順に返す (候補があれば先頭は [nearestNodeIndex] と同じ)。
+     * 半径内にノードがない場合は空配列を返す。
      * 最寄りのノードが公園内の孤立した道などに当たったとき、次の候補で経路を引き直すために使う。
      */
     fun nearestNodeCandidates(latitude: Double, longitude: Double, radiusMeters: Double = 250.0, maxCount: Int = 6): IntArray {
+        if (maxCount <= 0 || radiusMeters < 0.0 || radiusMeters.isNaN()) return IntArray(0)
         val first = nearestNodeIndex(latitude, longitude)
         if (first < 0) return IntArray(0)
+        if (haversineMeters(latitude, longitude, latitudes[first], longitudes[first]) > radiusMeters) return IntArray(0)
         val grid = spatialGrid
         val near = if (grid != null) {
             grid.findWithin(latitude, longitude, radiusMeters, maxCount + 1, latitudes, longitudes)
@@ -362,6 +365,10 @@ class LazyMappedRoadGraph private constructor(
         }
         return result.toIntArray()
     }
+
+    /** Returns -1 when there is no node within the requested radius. */
+    fun nearestNodeIndex(latitude: Double, longitude: Double, radiusMeters: Double): Int =
+        nearestNodeCandidates(latitude, longitude, radiusMeters, maxCount = 1).firstOrNull() ?: -1
 
     internal fun nearestNodeIndexLinear(latitude: Double, longitude: Double): Int {
         if (nodeCount == 0) return -1
@@ -854,27 +861,35 @@ class LazyMappedRoadGraph private constructor(
         // 自転車の係数は BicycleCost (CyclingCostModel と共有)。探索の内側で呼ぶので文字列ではなく種類の番号で引く。
         RouteCostMode.BICYCLE -> when (type) {
             TYPE_MOTORWAY, TYPE_MOTORWAY_LINK -> null
+            TYPE_CYCLEWAY -> BicycleCost.CYCLEWAY; TYPE_TRUNK -> BicycleCost.TRUNK
+            TYPE_TRUNK_LINK -> BicycleCost.TRUNK_LINK; TYPE_PRIMARY_LINK -> BicycleCost.PRIMARY_LINK
+            TYPE_SECONDARY_LINK -> BicycleCost.SECONDARY_LINK; TYPE_TERTIARY_LINK -> BicycleCost.TERTIARY_LINK
+            TYPE_LIVING_STREET -> BicycleCost.LIVING_STREET
+            TYPE_FOOTWAY -> BicycleCost.FOOTWAY; TYPE_PEDESTRIAN -> BicycleCost.PEDESTRIAN
             TYPE_PRIMARY -> BicycleCost.PRIMARY; TYPE_SECONDARY -> BicycleCost.SECONDARY; TYPE_TERTIARY -> BicycleCost.TERTIARY
             TYPE_RESIDENTIAL -> BicycleCost.RESIDENTIAL; TYPE_UNCLASSIFIED -> BicycleCost.UNCLASSIFIED; TYPE_SERVICE -> BicycleCost.SERVICE
             TYPE_TRACK -> BicycleCost.TRACK; TYPE_PATH -> BicycleCost.PATH; else -> BicycleCost.OTHER
         }
         RouteCostMode.WALK -> when (type) {
             TYPE_MOTORWAY, TYPE_MOTORWAY_LINK -> null
-            TYPE_PATH -> 0.90; TYPE_RESIDENTIAL -> 0.95; TYPE_SERVICE -> 1.00
+            TYPE_PATH, TYPE_CYCLEWAY, TYPE_FOOTWAY, TYPE_PEDESTRIAN -> 0.90
+            TYPE_RESIDENTIAL, TYPE_LIVING_STREET -> 0.95; TYPE_SERVICE -> 1.00
             TYPE_UNCLASSIFIED -> 1.05; TYPE_TERTIARY -> 1.10; TYPE_SECONDARY -> 1.20
-            TYPE_PRIMARY -> 1.30; TYPE_TRACK -> 1.10; else -> 1.00
+            TYPE_PRIMARY, TYPE_PRIMARY_LINK, TYPE_TRUNK, TYPE_TRUNK_LINK -> 1.30
+            TYPE_SECONDARY_LINK -> 1.20; TYPE_TERTIARY_LINK, TYPE_TRACK -> 1.10; else -> 1.00
         }
         RouteCostMode.CAR -> when (type) {
-            TYPE_PATH, TYPE_TRACK -> null
-            TYPE_MOTORWAY, TYPE_MOTORWAY_LINK, TYPE_PRIMARY -> 0.90
+            TYPE_PATH, TYPE_TRACK, TYPE_CYCLEWAY, TYPE_FOOTWAY, TYPE_PEDESTRIAN -> null
+            TYPE_MOTORWAY, TYPE_MOTORWAY_LINK, TYPE_PRIMARY, TYPE_TRUNK -> 0.90
+            TYPE_TRUNK_LINK, TYPE_PRIMARY_LINK -> 0.95; TYPE_SECONDARY_LINK -> 1.00; TYPE_TERTIARY_LINK -> 1.10
             TYPE_SECONDARY -> 0.95; TYPE_TERTIARY -> 1.05
-            TYPE_UNCLASSIFIED -> 1.25; TYPE_RESIDENTIAL -> 1.35; TYPE_SERVICE -> 1.50
+            TYPE_UNCLASSIFIED -> 1.25; TYPE_RESIDENTIAL, TYPE_LIVING_STREET -> 1.35; TYPE_SERVICE -> 1.50
             else -> 1.20
         }
     }
 
     private fun isArterial(type: Int): Boolean =
-        type == TYPE_PRIMARY || type == TYPE_SECONDARY || type == TYPE_TERTIARY
+        type == TYPE_TRUNK || type == TYPE_PRIMARY || type == TYPE_SECONDARY || type == TYPE_TERTIARY
 
     override fun close() { attachedHierarchy?.close(); graphChannel.close(); indexChannel.close() }
 
@@ -1103,15 +1118,25 @@ class LazyMappedRoadGraph private constructor(
             }
         }
 
-        private const val TYPE_CODE_COUNT = 11
+        private const val TYPE_CYCLEWAY = 11; private const val TYPE_TRUNK = 12
+        private const val TYPE_TRUNK_LINK = 13; private const val TYPE_PRIMARY_LINK = 14
+        private const val TYPE_SECONDARY_LINK = 15; private const val TYPE_TERTIARY_LINK = 16
+        private const val TYPE_LIVING_STREET = 17; private const val TYPE_FOOTWAY = 18; private const val TYPE_PEDESTRIAN = 19
+        private const val TYPE_CODE_COUNT = 20
         private val TYPE_NAME_BYTES: List<Pair<Int, ByteArray>> = listOf(
             TYPE_MOTORWAY to "motorway", TYPE_MOTORWAY_LINK to "motorway_link", TYPE_PRIMARY to "primary",
             TYPE_SECONDARY to "secondary", TYPE_TERTIARY to "tertiary", TYPE_RESIDENTIAL to "residential",
             TYPE_UNCLASSIFIED to "unclassified", TYPE_SERVICE to "service", TYPE_TRACK to "track", TYPE_PATH to "path",
+            TYPE_CYCLEWAY to "cycleway", TYPE_TRUNK to "trunk", TYPE_TRUNK_LINK to "trunk_link",
+            TYPE_PRIMARY_LINK to "primary_link", TYPE_SECONDARY_LINK to "secondary_link", TYPE_TERTIARY_LINK to "tertiary_link",
+            TYPE_LIVING_STREET to "living_street", TYPE_FOOTWAY to "footway", TYPE_PEDESTRIAN to "pedestrian",
         ).map { (code, name) -> code to name.toByteArray(Charsets.UTF_8) }
         private val MULTIPLIER_TABLES = java.util.concurrent.ConcurrentHashMap<RouteCostMode, DoubleArray>()
 
         private fun roadTypeCode(type: String): Int = when (type) {
+            "cycleway" -> TYPE_CYCLEWAY; "trunk" -> TYPE_TRUNK; "trunk_link" -> TYPE_TRUNK_LINK
+            "primary_link" -> TYPE_PRIMARY_LINK; "secondary_link" -> TYPE_SECONDARY_LINK; "tertiary_link" -> TYPE_TERTIARY_LINK
+            "living_street" -> TYPE_LIVING_STREET; "footway" -> TYPE_FOOTWAY; "pedestrian" -> TYPE_PEDESTRIAN
             "motorway" -> TYPE_MOTORWAY; "motorway_link" -> TYPE_MOTORWAY_LINK; "primary" -> TYPE_PRIMARY
             "secondary" -> TYPE_SECONDARY; "tertiary" -> TYPE_TERTIARY; "residential" -> TYPE_RESIDENTIAL
             "unclassified" -> TYPE_UNCLASSIFIED; "service" -> TYPE_SERVICE; "track" -> TYPE_TRACK; "path" -> TYPE_PATH
