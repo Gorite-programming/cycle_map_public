@@ -138,3 +138,18 @@ def test_readonly_uri_special_path(tmp_path):
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             conn.execute("DELETE FROM meta")
     assert export.read_meta(str(path)) == {"test": "ok"}
+
+
+def test_osm_import_drops_points_far_outside_every_prefecture(tmp_db, monkeypatch):
+    # 千葉に陸揚げされた海底ケーブル (way) の代表点が南シナ海になり、検証の範囲外チェックで千葉全体が失敗した (2026-11-19)
+    from tools.core.sources import osm as osm_src
+    rows = [
+        {"source": "osm", "source_id": "node/1", "name": "千葉駅", "category": "railway:station",
+         "lat": 35.6131, "lon": 140.1135},
+        {"source": "osm", "source_id": "way/1324108117", "name": "Southeast Asia-Japan Cable", "category": "named",
+         "lat": 12.8902, "lon": 116.0960},
+    ]
+    monkeypatch.setattr(osm_src, "parse_pbf", lambda path: [dict(r) for r in rows])
+    summary = osm_src.import_osm("dummy.pbf", "chiba", tmp_db)
+    assert summary["outside_dropped"] == 1
+    assert summary["assigned_to_target"] == 1

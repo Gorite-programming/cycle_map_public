@@ -173,7 +173,8 @@ def import_osm(pbf_path, prefecture, db_path=None):
     """PBF を取り込み、(prefecture, 'osm') の poi を入れ替える。
 
     県判定は座標→行政界ポリゴン (なければ bbox) で行う (SPEC 7)。
-    どの県にも属さない点のみ、引数の prefecture に寄せる (PBFは県切り出し済み想定)。
+    どの県の行政界からも遠い点 (prefecture_for_point が None: 行政界から 5km 超) は取り込まない。
+    例: 千葉に陸揚げされた海底ケーブル (way) の代表点が南シナ海になり、検証の範囲外チェックで県全体が失敗した (2026-11-19)。
     overlay は残る。戻り値は件数サマリ。
     """
     db_path = db_path or config.MASTER_DB_PATH
@@ -186,8 +187,8 @@ def import_osm(pbf_path, prefecture, db_path=None):
     for r in rows:
         hit = config.prefecture_for_point(r["lat"], r["lon"])
         if hit is None:
-            hit = prefecture
-            fallback += 1
+            fallback += 1  # 県外の遠い点は捨てる (件数は fallback_to_target ではなく outside_dropped で報告)
+            continue
         r["prefecture"] = hit
         assigned.append(r)
 
@@ -208,7 +209,7 @@ def import_osm(pbf_path, prefecture, db_path=None):
         "named": n_named,
         "assigned_to_target": len(target_rows),
         "assigned_elsewhere": len(assigned) - len(target_rows),
-        "fallback_to_target": fallback,
+        "outside_dropped": fallback,
         "deleted": deleted,
         "inserted": inserted,
     }

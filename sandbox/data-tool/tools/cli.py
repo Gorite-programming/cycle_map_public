@@ -29,7 +29,7 @@ def cmd_import_osm(args):
     summary = osm_src.import_osm(pbf, args.pref, args.db)
     print("pbf: %s" % pbf)
     for key in ("parsed", "named", "assigned_to_target",
-                "assigned_elsewhere", "fallback_to_target",
+                "assigned_elsewhere", "outside_dropped",
                 "deleted", "inserted"):
         print("%s: %s" % (key, summary[key]))
     return 0
