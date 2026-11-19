@@ -5,6 +5,7 @@
 """
 
 import json
+import math
 import os
 
 TOOL_VERSION = "0.1.0"
@@ -211,7 +212,7 @@ _boundary_cache = {}
 
 
 def load_boundary_rings(pref_id):
-    """行政界 GeoJSON の外周リング一覧を返す。[(lon, lat), ...] のリストのリスト。"""
+    """行政界のポリゴン一覧。各要素は [外周リング, 穴リング, ...]。"""
     if pref_id in _boundary_cache:
         return _boundary_cache[pref_id]
     path = os.path.join(BOUNDARIES_DIR, PREFECTURES[pref_id]["boundary"])
@@ -227,10 +228,10 @@ def load_boundary_rings(pref_id):
         for feat in feats:
             geom = feat["geometry"]
             if geom["type"] == "Polygon":
-                rings.append([(x, y) for x, y in geom["coordinates"][0]])
+                rings.append([[(x, y) for x, y in ring] for ring in geom["coordinates"]])
             elif geom["type"] == "MultiPolygon":
                 for poly in geom["coordinates"]:
-                    rings.append([(x, y) for x, y in poly[0]])
+                    rings.append([[(x, y) for x, y in ring] for ring in poly])
     _boundary_cache[pref_id] = rings
     return rings
 
@@ -249,15 +250,45 @@ def point_in_ring(lon, lat, ring):
     return inside
 
 
+def ring_distance_m(lon, lat, ring):
+    """点からリング線分までの最短距離。近距離用の局所正距円筒近似。"""
+    sx = math.pi / 180 * 6371000 * math.cos(math.radians(lat))
+    sy = math.pi / 180 * 6371000
+    best = float("inf")
+    for i in range(len(ring)):
+        a, b = ring[i - 1], ring[i]
+        ax, ay = (a[0] - lon) * sx, (a[1] - lat) * sy
+        bx, by = (b[0] - lon) * sx, (b[1] - lat) * sy
+        dx, dy = bx - ax, by - ay
+        length2 = dx * dx + dy * dy
+        t = max(0.0, min(1.0, -(ax * dx + ay * dy) / length2)) if length2 else 0.0
+        best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+    return best
+
+
 def prefecture_for_point(lat, lon):
-    """座標の属する県IDを返す。ポリゴン優先、なければ bbox。該当なしは None。"""
+    """行政界の内側、または最も近い行政界から5km以内の県。その他は None。"""
+    if not math.isfinite(lat) or not math.isfinite(lon):
+        return None
+    max_distance = 5000.0
+    margin_lat = math.degrees(max_distance / 6371000)
+    margin_lon = margin_lat / max(0.01, math.cos(math.radians(lat)))
     cands = []
     for pref_id, pref in PREFECTURES.items():
         lon_min, lat_min, lon_max, lat_max = pref["bbox"]
-        if lon_min <= lon <= lon_max and lat_min <= lat <= lat_max:
+        if (lon_min - margin_lon <= lon <= lon_max + margin_lon
+                and lat_min - margin_lat <= lat <= lat_max + margin_lat):
             cands.append(pref_id)
     for pref_id in cands:
-        for ring in load_boundary_rings(pref_id):
-            if point_in_ring(lon, lat, ring):
+        for poly in load_boundary_rings(pref_id):
+            if (poly and point_in_ring(lon, lat, poly[0])
+                    and not any(point_in_ring(lon, lat, hole) for hole in poly[1:])):
                 return pref_id
-    return cands[0] if cands else None
+    nearest, best = None, max_distance
+    for pref_id in cands:
+        for poly in load_boundary_rings(pref_id):
+            for ring in poly:
+                distance = ring_distance_m(lon, lat, ring)
+                if distance <= best:
+                    nearest, best = pref_id, distance
+    return nearest

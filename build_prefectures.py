@@ -112,7 +112,7 @@ def verify_search_db(db_path: Path) -> Dict[str, Any]:
     if not db_path.is_file() or db_path.stat().st_size == 0:
         raise FileNotFoundError(f"Search DB missing or empty: {db_path}")
 
-    con = sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True)
+    con = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         cur = con.cursor()
         # 1. PRAGMA integrity_check

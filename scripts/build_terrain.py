@@ -127,30 +127,105 @@ def cache_path(x, y):
     return CACHE / str(x) / ("%d.png" % y)
 
 
-def fetch_dem(xy):
-    """標高タイルを取得してキャッシュする。海などデータが無いタイルは空ファイルで記録して再取得しない。"""
+RETRYABLE_HTTP_CODES = frozenset({403, 429})
+
+
+def _fetch_dem_tile(xy, *, recheck=False, max_attempts=4, backoff_base=1.5):
+    """標高タイルを取得してキャッシュする。404 のみ空ファイルで記録し、403/429/5xx は再試行後に失敗とする。"""
     x, y = xy
     path = cache_path(x, y)
-    if path.exists():
-        return xy, True
+    if not recheck and path.exists():
+        return xy, "cached"
     path.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(DEM_URL.format(x=x, y=y), headers={"User-Agent": USER_AGENT})
-    for attempt in range(4):
+    for attempt in range(max_attempts):
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
+            if not data:
+                if not (recheck and path.exists() and path.stat().st_size == 0):
+                    path.write_bytes(b"")
+                return xy, "not_found"
             tmp = path.with_suffix(".tmp")
             tmp.write_bytes(data)
             tmp.replace(path)
-            return xy, True
+            return xy, ("replaced" if recheck else "fetched")
         except urllib.error.HTTPError as e:
-            if e.code in (404, 403):
-                path.write_bytes(b"")  # データなし
-                return xy, True
-            time.sleep(1.5 * (attempt + 1))
+            if e.code == 404:
+                if not (recheck and path.exists() and path.stat().st_size == 0):
+                    path.write_bytes(b"")  # データなし (404 のみ)
+                return xy, "not_found"
+            if e.code in RETRYABLE_HTTP_CODES or 500 <= e.code < 600:
+                if attempt < max_attempts - 1:
+                    time.sleep(backoff_base * (2 ** attempt))
+                    continue
+            return xy, "failed"
         except Exception:
-            time.sleep(1.5 * (attempt + 1))
-    return xy, False
+            if attempt < max_attempts - 1:
+                time.sleep(backoff_base * (2 ** attempt))
+                continue
+            return xy, "failed"
+    return xy, "failed"
+
+
+def fetch_dem(xy):
+    """標高タイルを取得してキャッシュする。海などデータが無いタイル (404) は空ファイルで記録して再取得しない。"""
+    _, status = _fetch_dem_tile(xy)
+    return xy, status != "failed"
+
+
+def find_empty_cache_tiles():
+    """CACHE 配下の 0 バイト *.png タイル (x, y) を昇順で返す。"""
+    if not CACHE.is_dir():
+        return []
+    tiles = []
+    for x_dir in sorted(CACHE.iterdir()):
+        if not x_dir.is_dir():
+            continue
+        try:
+            x = int(x_dir.name)
+        except ValueError:
+            continue
+        for png in sorted(x_dir.glob("*.png")):
+            try:
+                y = int(png.stem)
+            except ValueError:
+                continue
+            if png.stat().st_size == 0:
+                tiles.append((x, y))
+    return tiles
+
+
+def recheck_empty(tiles=None, workers=4):
+    """既にある空ファイルを確かめ直し、画像が返れば置き換える。"""
+    if tiles is None:
+        todo = find_empty_cache_tiles()
+    else:
+        todo = [t for t in tiles if cache_path(*t).exists() and cache_path(*t).stat().st_size == 0]
+    print("  空タイルの再確認: %d 枚 (並列 %d)" % (len(todo), workers), flush=True)
+    stats = {"total": len(todo), "replaced": 0, "not_found": 0, "failed": 0}
+    if not todo:
+        print("  置き換え: 0 枚", flush=True)
+        return stats
+    started = time.time()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for i, (_, status) in enumerate(pool.map(lambda xy: _fetch_dem_tile(xy, recheck=True), todo), 1):
+            if status == "replaced":
+                stats["replaced"] += 1
+            elif status == "not_found":
+                stats["not_found"] += 1
+            else:
+                stats["failed"] += 1
+            if i % 500 == 0 or i == len(todo):
+                rate = i / max(time.time() - started, 1e-6)
+                print("    再確認 %d/%d (置き換え %d, %.1f枚/秒)" % (i, len(todo), stats["replaced"], rate), flush=True)
+    load_dem.cache_clear()
+    print(
+        "  空タイル再確認の結果: 置き換え %d 枚 / データなし維持 %d 枚 / 失敗 %d 枚"
+        % (stats["replaced"], stats["not_found"], stats["failed"]),
+        flush=True,
+    )
+    return stats
 
 
 def download_all(tiles, workers=6):
@@ -388,6 +463,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="対象タイル数だけ表示する")
     ap.add_argument("--dem-only", action="store_true",
                     help="標高タイル (work/terrain/dem14) の取得だけ行う。osm-importer が辺の勾配を書き込むために先に要る")
+    ap.add_argument("--recheck-empty", action="store_true",
+                    help="既にある空キャッシュ (0バイト) を再取得し、画像が返れば置き換える")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="生成の並列数")
     ap.add_argument("--max-tiles", type=int, help="動作確認用: 県の中心付近の z14 タイルをこの枚数だけ使う")
     ap.add_argument("--out", type=Path, default=PACKAGES, help="出力先 (既定: packages/)")
@@ -397,6 +474,18 @@ def main():
         names = resolve(args.only)
     except ValueError as exc:
         ap.error(str(exc))
+    if args.recheck_empty:
+        tiles = None
+        if args.only is not None:
+            seen = set()
+            tiles = []
+            for name in names:
+                for xy in dem_tiles_for(name, args.max_tiles):
+                    if xy not in seen:
+                        seen.add(xy)
+                        tiles.append(xy)
+        stats = recheck_empty(tiles=tiles, workers=min(4, max(1, args.workers)))
+        return 1 if stats["failed"] else 0
     print("Selected: %s" % ",".join(names))
     for name in names:
         if args.dry_run:

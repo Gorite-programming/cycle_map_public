@@ -4,6 +4,7 @@ master.db は全ソースを共通スキーマで保持する中間DB。
 手動編集の overlay テーブルは overlay.py が管理する。
 """
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -28,12 +29,15 @@ CREATE TABLE IF NOT EXISTS poi (
     hours        TEXT,               -- 営業時間 (OSM opening_hours 形式の文字列)
     phone        TEXT,               -- 電話 (国内表記)
     website      TEXT,               -- Web (http/https)
-    wheelchair   TEXT                -- 車椅子 (yes / limited / no)
+    wheelchair   TEXT,               -- 車椅子 (yes / limited / no)
+    merge_original TEXT,             -- 補完前の元データ (JSON)
+    source_dataset TEXT              -- 提供元データセット (Overture sources[].dataset 等)
 );
 """
 
 # 場所の詳細情報の列 (poi → 検索DB の places.opening_hours/phone/website/wheelchair)
 DETAIL_COLUMNS = ("hours", "phone", "website", "wheelchair")
+MERGE_COLUMNS = ("name", "category", "address") + DETAIL_COLUMNS
 
 POI_INDEXES = [
     "CREATE INDEX IF NOT EXISTS poi_pref_cat ON poi(prefecture, category);",
@@ -80,21 +84,25 @@ def _migrate(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(poi)")}
     if "kana" not in cols:
         conn.execute("ALTER TABLE poi ADD COLUMN kana TEXT;")
+    if "merge_original" not in cols:
+        conn.execute("ALTER TABLE poi ADD COLUMN merge_original TEXT;")
+    if "source_dataset" not in cols:
+        conn.execute("ALTER TABLE poi ADD COLUMN source_dataset TEXT;")
     # 詳細情報の列 (旧 master.db には無い)
     for col in DETAIL_COLUMNS:
         if col not in cols:
             conn.execute("ALTER TABLE poi ADD COLUMN %s TEXT;" % col)
 
 
-def insert_pois(conn, rows):
+def insert_pois(conn, rows, auto_commit=True):
     """poi 行 dict の iterable を挿入し、件数を返す。"""
     rows = list(rows)
     conn.executemany(
         """INSERT INTO poi
            (name, category, lat, lon, address, prefecture,
             source, source_id, priority, imported_at, merged_into, kana,
-            hours, phone, website, wheelchair)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)""",
+            hours, phone, website, wheelchair, source_dataset)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)""",
         [
             (
                 r["name"],
@@ -112,26 +120,63 @@ def insert_pois(conn, rows):
                 r.get("phone"),
                 r.get("website"),
                 r.get("wheelchair"),
+                r.get("source_dataset"),
             )
             for r in rows
         ],
     )
-    conn.commit()
+    if auto_commit:
+        conn.commit()
     return len(rows)
 
 
 def replace_source(conn, prefecture, source, rows):
     """再取り込み: 同一 (prefecture, source) の poi を入れ替え、overlay は残す。
 
-    戻り値は (削除件数, 挿入件数)。
+    県の統合を元データから再計算する。戻り値は (削除件数, 挿入件数)。
     """
-    cur = conn.execute(
-        "DELETE FROM poi WHERE prefecture = ? AND source = ?",
-        (prefecture, source),
-    )
-    deleted = cur.rowcount
-    inserted = insert_pois(conn, rows)
+    # Materialize before mutation, including lazy iterables backed by this DB.
+    rows = list(rows)
+    from . import merge
+    with conn:
+        restore_merge_originals(conn, prefecture)
+        conn.execute(
+            "UPDATE poi SET merged_into = NULL WHERE merged_into IN"
+            " (SELECT uid FROM poi WHERE prefecture = ? AND source = ?)",
+            (prefecture, source),
+        )
+        cur = conn.execute(
+            "DELETE FROM poi WHERE prefecture = ? AND source = ?",
+            (prefecture, source),
+        )
+        deleted = cur.rowcount
+        inserted = insert_pois(conn, rows, auto_commit=False)
+        merge.merge_all(conn, prefecture, auto_commit=False)
     return deleted, inserted
+
+
+def save_merge_original(conn, row):
+    """Keep the source values once, before any merge supplementation."""
+    conn.execute(
+        "UPDATE poi SET merge_original = ? WHERE uid = ? AND merge_original IS NULL",
+        (json.dumps({col: row[col] for col in MERGE_COLUMNS}, ensure_ascii=False), row["uid"]),
+    )
+
+
+def restore_merge_originals(conn, prefecture):
+    """Undo this prefecture's merges and restore original source values."""
+    rows = conn.execute(
+        "SELECT uid, merge_original FROM poi WHERE prefecture = ?"
+        " AND merge_original IS NOT NULL", (prefecture,),
+    ).fetchall()
+    assignments = ", ".join(col + " = ?" for col in MERGE_COLUMNS)
+    for row in rows:
+        original = json.loads(row["merge_original"])
+        conn.execute(
+            "UPDATE poi SET " + assignments + ", merge_original = NULL WHERE uid = ?",
+            [original[col] for col in MERGE_COLUMNS] + [row["uid"]],
+        )
+    conn.execute("UPDATE poi SET merged_into = NULL WHERE prefecture = ?", (prefecture,))
 
 
 def get_poi(conn, uid):

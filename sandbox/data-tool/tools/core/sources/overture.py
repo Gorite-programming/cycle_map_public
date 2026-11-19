@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 OVERTURE_S3_PATH = "s3://overturemaps-us-west-2/release/2026-09-23.1/theme=places/type=place/*"
 
+# Overture Places スキーマの operating_status 許容値: open / temporarily_closed / permanently_closed
+CLOSED_OPERATING_STATUSES = frozenset({"permanently_closed", "temporarily_closed", "closed"})
+
 # Overture taxonomy / basic_category -> OSMカテゴリ対応表
 OVERTURE_CATEGORY_MAP: Dict[str, str] = {
     # コンビニ
@@ -165,6 +168,42 @@ def format_address(freeform: Optional[str], locality: Optional[str], region: Opt
     return res if res else None
 
 
+def is_closed_operating_status(status: Optional[str]) -> bool:
+    """operating_status が閉店・休業を示している場合のみ True。値無し (NULL/空) は除外しない。"""
+    if not status:
+        return False
+    return str(status).strip().lower() in CLOSED_OPERATING_STATUSES
+
+
+def extract_source_datasets(datasets: Any) -> Optional[str]:
+    """Overture sources[].dataset の一覧を重複排除してカンマ区切り文字列にする。"""
+    if not datasets:
+        return None
+    items = [datasets] if isinstance(datasets, str) else datasets
+    seen = set()
+    uniq = []
+    for item in items:
+        val = item.get("dataset") if isinstance(item, dict) else item
+        if val is None:
+            continue
+        s = str(val).strip()
+        if s and s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    return ",".join(uniq) if uniq else None
+
+
+def _first_valid_contact(values: Any, normalizer) -> Optional[str]:
+    if not values:
+        return None
+    items = [values] if isinstance(values, str) else values
+    for val in items:
+        norm = normalizer(val)
+        if norm:
+            return norm
+    return None
+
+
 def fetch_overture_places_for_bbox(
     bbox: Tuple[float, float, float, float],
     prefecture_id: str,
@@ -187,34 +226,58 @@ def fetch_overture_places_for_bbox(
     min_lon, min_lat, max_lon, max_lat = bbox
 
     con = duckdb.connect()
-    con.execute("INSTALL httpfs; LOAD httpfs;")
-    con.execute("SET s3_region = 'us-west-2';")
+    try:
+        path_str = str(s3_path)
+        if path_str.startswith(("s3://", "http://", "https://")):
+            con.execute("INSTALL httpfs; LOAD httpfs;")
+            con.execute("SET s3_region = 'us-west-2';")
 
-    query = f"""
-    SELECT 
-        id AS overture_id,
-        names.primary AS name,
-        taxonomy.primary AS overture_category,
-        basic_category,
-        addresses[1].freeform AS address_freeform,
-        addresses[1].locality AS locality,
-        addresses[1].region AS region,
-        addresses[1].postcode AS postcode,
-        bbox.xmin AS lon,
-        bbox.ymin AS lat,
-        confidence,
-        phones[1] AS phone,
-        websites[1] AS website
-    FROM read_parquet('{s3_path}', filename=true, hive_partitioning=1)
-    WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
-      AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
-      AND names.primary IS NOT NULL
-      AND (confidence IS NULL OR confidence >= {min_confidence});
-    """
+        escaped_path = path_str.replace("'", "''")
+        from_clause = f"read_parquet('{escaped_path}', filename=true, hive_partitioning=1)"
+        schema_cols = {c[0] for c in con.execute(f"SELECT * FROM {from_clause} LIMIT 0").description}
 
-    logger.info("Executing Overture query for %s bbox=%s ...", prefecture_id, bbox)
-    rows = con.execute(query).fetchall()
-    logger.info("Retrieved %d raw POIs from Overture", len(rows))
+        op_status_expr = "operating_status" if "operating_status" in schema_cols else "NULL AS operating_status"
+        sources_expr = (
+            "list_transform(sources, s -> s.dataset) AS source_datasets"
+            if "sources" in schema_cols else "NULL AS source_datasets"
+        )
+        phones_expr = "phones" if "phones" in schema_cols else "NULL AS phones"
+        websites_expr = "websites" if "websites" in schema_cols else "NULL AS websites"
+        status_filter = (
+            "\n      AND (operating_status IS NULL"
+            " OR LOWER(TRIM(operating_status)) NOT IN ('permanently_closed', 'temporarily_closed', 'closed'))"
+            if "operating_status" in schema_cols else ""
+        )
+
+        query = f"""
+        SELECT 
+            id AS overture_id,
+            names.primary AS name,
+            taxonomy.primary AS overture_category,
+            basic_category,
+            addresses[1].freeform AS address_freeform,
+            addresses[1].locality AS locality,
+            addresses[1].region AS region,
+            addresses[1].postcode AS postcode,
+            bbox.xmin AS lon,
+            bbox.ymin AS lat,
+            confidence,
+            {phones_expr},
+            {websites_expr},
+            {op_status_expr},
+            {sources_expr}
+        FROM {from_clause}
+        WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
+          AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
+          AND names.primary IS NOT NULL
+          AND (confidence IS NULL OR confidence >= {min_confidence}){status_filter};
+        """
+
+        logger.info("Executing Overture query for %s bbox=%s ...", prefecture_id, bbox)
+        rows = con.execute(query).fetchall()
+        logger.info("Retrieved %d raw POIs from Overture", len(rows))
+    finally:
+        con.close()
 
     results: List[Dict[str, Any]] = []
     for r in rows:
@@ -230,9 +293,14 @@ def fetch_overture_places_for_bbox(
             lon,
             lat,
             confidence,
-            phone,
-            website,
+            phones,
+            websites,
+            operating_status,
+            source_datasets,
         ) = r
+
+        if is_closed_operating_status(operating_status):
+            continue
 
         name_str = (name or "").strip()
         if not name_str:
@@ -257,13 +325,14 @@ def fetch_overture_places_for_bbox(
             "prefecture": prefecture_id,
             "source": "overture:places",
             "source_id": overture_id,
+            "source_dataset": extract_source_datasets(source_datasets),
             "priority": config.source_priority("overture"),
             "imported_at": imported_at,
             "kana": None,
             # Overture は営業時間・車椅子を持たない。電話・Web は OSM が無いときの補完に使う
             "hours": None,
-            "phone": normalize_phone(phone),
-            "website": normalize_website(website),
+            "phone": _first_valid_contact(phones, normalize_phone),
+            "website": _first_valid_contact(websites, normalize_website),
             "wheelchair": None,
         }
         results.append(row)
@@ -289,9 +358,9 @@ def import_overture(
     bbox = pref_def["bbox"]
     imported_at = masterdb.utcnow()
 
+    masterdb.init_db(db_path)
     conn = masterdb.connect(db_path)
     try:
-        masterdb.init_db(db_path)
 
         rows = fetch_overture_places_for_bbox(
             bbox=bbox,

@@ -6,6 +6,7 @@ passed=False。結果は GUI・CLI で表示する。
 
 import os
 import sqlite3
+from pathlib import Path
 
 EXPECTED_HEAD = ["id", "osm_type", "osm_id", "name", "category", "lat", "lon"]
 ALLOWED_TAIL = ["address", "source", "kana", "search_text",
@@ -34,7 +35,7 @@ APP_QUERIES = {
 
 
 def _connect_ro(path):
-    conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
     return conn
 
 

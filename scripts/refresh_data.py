@@ -226,7 +226,7 @@ def build_tiles(names, stage, log):
 # ------------------------------- 検証 -------------------------------
 
 def search_rows(db_path):
-    con = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+    con = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         return con.execute("SELECT COUNT(*) FROM places").fetchone()[0]
     finally:
@@ -234,7 +234,7 @@ def search_rows(db_path):
 
 
 def detail_coverage(db_path):
-    con = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+    con = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(places)")}
         total = con.execute("SELECT COUNT(*) FROM places").fetchone()[0]

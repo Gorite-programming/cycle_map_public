@@ -189,11 +189,17 @@ def find_candidates(conn, prefecture: str, distance_m: float = 100.0) -> List[Tu
             if not o.get("address") and best.get("address"):
                 o["address"] = best["address"]
 
-    # 住所正規化ヘルパー (全角数字・ハイフン・漢数字丁目・市区町村プレフィックスの完全正規化)
+    # 住所正規化 (数字・ハイフン・漢数字丁目を統一し、都道府県名だけを除去)
     def normalize_addr_key(raw_addr: Optional[str]) -> str:
         if not raw_addr:
             return ""
         s = raw_addr.strip().lower()
+        # Strip the full prefecture name before converting kanji numerals (三重県).
+        for pref in config.PREFECTURES.values():
+            prefix = pref["name_ja"].lower()
+            if s.startswith(prefix):
+                s = s[len(prefix):].lstrip("-")
+                break
         # MED-13: 漢数字の十の位（二桁・単独）を正規表現で展開
         s = re.sub(r"([二三四五六七八九])十([一二三四五六七八九])", r"\1\2", s)
         s = re.sub(r"([二三四五六七八九])十", r"\g<1>0", s)
@@ -203,8 +209,6 @@ def find_candidates(conn, prefecture: str, distance_m: float = 100.0) -> List[Tu
         s = s.translate(tr)
         s = re.sub(r"[−ー‐―–〜~ｰ/／,，.．\s]+", "-", s)
         s = re.sub(r"(丁目|番地|番|号)", "-", s)
-        for _ in range(3):
-            s = re.sub(r"^.*?(?:県|府|都|道|市|郡|区)-*", "", s)
         s = re.sub(r"-+", "-", s).strip("-")
         return compact(s)
 
@@ -228,13 +232,20 @@ def find_candidates(conn, prefecture: str, distance_m: float = 100.0) -> List[Tu
     for key, group in addr_map.items():
         if len(group) > 1:
             group.sort(key=lambda x: (config.source_priority(x["source"]), -x["uid"]), reverse=True)
-            winner = group[0]
-            for loser in group[1:]:
+            winners = []
+            for loser in group:
                 if loser["uid"] in used_losers:
                     continue
-                d = haversine_m(winner["lat"], winner["lon"], loser["lat"], loser["lon"])
-                cands.append((winner, loser, d))
-                used_losers.add(loser["uid"])
+                for winner in winners:
+                    if not categories_compatible(winner["category"], loser["category"]):
+                        continue
+                    d = haversine_m(winner["lat"], winner["lon"], loser["lat"], loser["lon"])
+                    if d <= 500.0:
+                        cands.append((winner, loser, d))
+                        used_losers.add(loser["uid"])
+                        break
+                else:
+                    winners.append(loser)
 
     cands.sort(key=lambda t: t[0]["uid"])
     return cands
@@ -281,6 +292,7 @@ def apply_merge(conn, winner_uid: int, loser_uid: int, auto_commit: bool = True)
         params.append(loser["category"])
 
     if updates:
+        masterdb.save_merge_original(conn, winner)
         params.append(winner_uid)
         conn.execute(f"UPDATE poi SET {', '.join(updates)} WHERE uid = ?", params)
 
@@ -291,7 +303,7 @@ def apply_merge(conn, winner_uid: int, loser_uid: int, auto_commit: bool = True)
     return masterdb.get_poi(conn, winner_uid), masterdb.get_poi(conn, loser_uid)
 
 
-def merge_all(conn, prefecture: str, distance_m: float = 100.0) -> int:
+def merge_all(conn, prefecture: str, distance_m: float = 100.0, auto_commit: bool = True) -> int:
     """候補を全件自動適用する。トランザクションで一括コミット。戻り値は適用件数。"""
     n = 0
     cands = find_candidates(conn, prefecture, distance_m)
@@ -301,7 +313,8 @@ def merge_all(conn, prefecture: str, distance_m: float = 100.0) -> int:
             n += 1
         except ValueError:
             continue
-    conn.commit()
+    if auto_commit:
+        conn.commit()
     return n
 
 

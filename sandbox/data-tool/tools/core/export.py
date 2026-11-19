@@ -14,6 +14,7 @@ places.name から再構築されて別表記が消える。rebuild は使わな
 import json
 import os
 import sqlite3
+from pathlib import Path
 from datetime import datetime, timezone
 
 from . import config, masterdb
@@ -310,7 +311,7 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
 
 def read_meta(search_db_path):
     conn = sqlite3.connect(
-        "file:%s?mode=ro" % search_db_path, uri=True)
+        Path(search_db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         return {k: v for k, v in conn.execute("SELECT key, value FROM meta")}
     finally:

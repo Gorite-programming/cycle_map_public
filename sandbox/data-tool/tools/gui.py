@@ -5,8 +5,10 @@
 """
 
 import os
+import sqlite3
 import sys
 import traceback
+from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
@@ -22,23 +24,53 @@ from tools.core import validate as validate_mod
 from tools.core.sources import kokudo as kokudo_src
 from tools.core.sources import osm as osm_src
 
-st.set_page_config(page_title="検索DB管理ツール", layout="wide")
-st.title("検索DB管理ツール (第3段階)")
-page = st.sidebar.radio("画面", ["ダッシュボード", "データ取り込み",
-                                 "POI閲覧・編集", "重複統合の確認",
-                                 "検索DB生成"])
+
+def check_master_db(db_path=None):
+    """master.db の状態を ('ok'|'missing'|'empty'|'corrupt', メッセージ|None) で返す。"""
+    path = db_path or config.MASTER_DB_PATH
+    if not os.path.exists(path):
+        return "missing", "master.db がまだありません。データ取り込みから始めてください。"
+    if not os.path.isfile(path):
+        return "corrupt", "master.db が通常のファイルではありません。"
+    if os.path.getsize(path) == 0:
+        return "empty", "master.db が空です (0 バイト)。データ取り込みから始めてください。"
+    uri = Path(path).resolve().as_uri() + "?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='poi'"
+            ).fetchone()
+            if row is None:
+                return "empty", "master.db に poi テーブルがありません (空です)。データ取り込みから始めてください。"
+        finally:
+            conn.close()
+    except (sqlite3.DatabaseError, OSError) as e:
+        return "corrupt", "master.db が壊れています (%s)。バックアップからの復元または再取り込みを行ってください。" % e
+    return "ok", None
 
 
-def _master_stats(pref_id):
+def _show_master_notice(status, msg):
+    if status == "corrupt":
+        st.error(msg)
+    elif msg:
+        st.info(msg)
+
+
+def _master_stats(pref_id, db_path=None):
     stats = {"count": 0, "last_import": "-", "by_source": []}
-    if not os.path.exists(config.MASTER_DB_PATH):
+    path = db_path or config.MASTER_DB_PATH
+    status, _ = check_master_db(path)
+    if status != "ok":
         return stats
-    conn = masterdb.connect()
+    conn = masterdb.connect(path)
     try:
         stats["count"] = masterdb.count_total(conn, pref_id)
         stats["last_import"] = masterdb.last_import_at(
             conn, pref_id) or "-"
         stats["by_source"] = masterdb.count_by_source(conn, pref_id)
+    except sqlite3.DatabaseError:
+        return stats
     finally:
         conn.close()
     return stats
@@ -62,6 +94,9 @@ def _out_info(pref_id):
 
 def show_dashboard():
     st.header("ダッシュボード: 県ごとの状態")
+    status, msg = check_master_db()
+    if status != "ok":
+        _show_master_notice(status, msg)
     rows = []
     for pref_id, pref in config.PREFECTURES.items():
         ms = _master_stats(pref_id)
@@ -149,6 +184,10 @@ def _show_import_kokudo(pref_id):
 
 def show_poi():
     st.header("POI閲覧・編集")
+    status, msg = check_master_db()
+    if status != "ok":
+        _show_master_notice(status, msg)
+        return
     pref_id = st.selectbox("県", list(config.PREFECTURES),
                            index=list(config.PREFECTURES).index("hiroshima"),
                            format_func=lambda p: config.PREFECTURES[p][
@@ -225,6 +264,10 @@ def show_poi():
 
 def show_merge():
     st.header("重複統合の確認")
+    status, msg = check_master_db()
+    if status != "ok":
+        _show_master_notice(status, msg)
+        return
     pref_id = st.selectbox("県", list(config.PREFECTURES),
                            index=list(config.PREFECTURES).index("hiroshima"),
                            format_func=lambda p: config.PREFECTURES[p][
@@ -259,6 +302,10 @@ def show_merge():
 
 def show_export():
     st.header("検索DB生成")
+    status, msg = check_master_db()
+    if status != "ok":
+        _show_master_notice(status, msg)
+        return
     pref_id = st.selectbox("県", list(config.PREFECTURES),
                            index=list(config.PREFECTURES).index("hiroshima"),
                            format_func=lambda p: config.PREFECTURES[p][
@@ -297,13 +344,23 @@ def show_export():
             st.error("検証: FAIL")
 
 
-if page == "ダッシュボード":
-    show_dashboard()
-elif page == "データ取り込み":
-    show_import()
-elif page == "POI閲覧・編集":
-    show_poi()
-elif page == "重複統合の確認":
-    show_merge()
-else:
-    show_export()
+def main():
+    st.set_page_config(page_title="検索DB管理ツール", layout="wide")
+    st.title("検索DB管理ツール (第3段階)")
+    page = st.sidebar.radio("画面", ["ダッシュボード", "データ取り込み",
+                                     "POI閲覧・編集", "重複統合の確認",
+                                     "検索DB生成"])
+    if page == "ダッシュボード":
+        show_dashboard()
+    elif page == "データ取り込み":
+        show_import()
+    elif page == "POI閲覧・編集":
+        show_poi()
+    elif page == "重複統合の確認":
+        show_merge()
+    else:
+        show_export()
+
+
+if __name__ == "__main__":
+    main()
