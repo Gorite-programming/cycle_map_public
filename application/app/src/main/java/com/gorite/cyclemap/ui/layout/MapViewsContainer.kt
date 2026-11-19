@@ -92,6 +92,7 @@ internal fun MapViewsContainer(
     onBearingChanged: (Double) -> Unit = {},
     onPoiClick: (NearbySpot) -> Unit,
     onVectorMapReady: (MapLibreMap) -> Unit,
+    onVectorMapDisposed: (MapLibreMap?) -> Unit = {},
 ) {
     val areaSelectColor = CycleMapTheme.palette.accent
     val context = LocalContext.current
@@ -251,7 +252,10 @@ internal fun MapViewsContainer(
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
-            key(tileKey, vectorDataRevision) {
+            // 県 (tileKey) が変わっても地図は作り直さない。タイルの切り替えは VectorMapView の中で rebuildStyle が行う。
+            // 作り直すと、起動直後の初回測位や県境で、ズーム・傾き・向きが初期化されていた (Antigravity の調査 APP-R1-01)。
+            // 端末のタイルのファイル自体が入れ替わったとき (vectorDataRevision) だけ作り直す。
+            key(vectorDataRevision) {
                 VectorMapView(
                     modifier = Modifier.fillMaxSize(),
                     routePoints = navigationRoute.map { GeoPoint(it.latitude, it.longitude) },
@@ -290,6 +294,7 @@ internal fun MapViewsContainer(
                     onLongPress = onLongPress,
                     onUserPan = onUserPan,
                     onMapReady = onVectorMapReady,
+                    onMapDisposed = onVectorMapDisposed,
                 )
             }
         }

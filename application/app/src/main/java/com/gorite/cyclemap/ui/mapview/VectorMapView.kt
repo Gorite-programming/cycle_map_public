@@ -94,6 +94,8 @@ internal fun VectorMapView(
     onLongPress: (GeoPoint) -> Unit = {},
     onUserPan: () -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
+    /** 地図が破棄されたとき。呼び出し側は、保持している参照がこの地図なら捨てる (破棄済みの地図を操作しない)。 */
+    onMapDisposed: (MapLibreMap?) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -169,6 +171,7 @@ internal fun VectorMapView(
             fetchPoisJob?.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
             mapView.onDestroy()
+            onMapDisposed(mapLibreMap)
         }
     }
 
@@ -561,7 +564,8 @@ internal fun VectorMapView(
                     lastLon = pos.longitude
                     lastBearing = shownBearing ?: Float.NaN
                     updateLocationPoint(style, GeoPoint(pos.latitude, pos.longitude), shownBearing, true, currentGpsStatus)
-                    if (moved && currentFollowLocation) {
+                    // ナビ開始・現在地ボタンのカメラのアニメーション中は追従を止める (moveCamera がアニメーションを打ち切るため)
+                    if (moved && currentFollowLocation && !CameraAnimationGate.isBusy()) {
                         map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(pos.latitude, pos.longitude)))
                     }
                 }

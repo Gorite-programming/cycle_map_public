@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.layout
 
+import com.gorite.cyclemap.ui.mapview.animateCameraExclusive
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.navigation.*
 import com.gorite.cyclemap.utils.*
@@ -203,6 +204,7 @@ internal fun MapScreenScaffold(
             currentVectorBearing = state.currentVectorBearingState.doubleValue,
             onBearingChanged = { state.currentVectorBearingState.doubleValue = it },
             onVectorMapReady = { state.vectorMapState.value = it },
+            onVectorMapDisposed = { disposed -> if (disposed == null || state.vectorMapState.value === disposed) state.vectorMapState.value = null },
             effectiveAnimationEnabled = effectiveAnimationEnabled,
             hasLocationPermission = state.hasLocationPermissionState.value,
             permissionLauncher = permissionLauncher,
@@ -252,7 +254,7 @@ internal fun MapScreenScaffold(
                 state.followLocationState.value = true
                 state.currentLocationState.value?.let { loc ->
                     if (state.selectedLayerState.value == MapLayer.VECTOR_LIBERTY) {
-                        state.vectorMapState.value?.animateCamera(
+                        state.vectorMapState.value?.animateCameraExclusive(
                             org.maplibre.android.camera.CameraUpdateFactory.newLatLng(
                                 org.maplibre.android.geometry.LatLng(loc.latitude, loc.longitude),
                             ),

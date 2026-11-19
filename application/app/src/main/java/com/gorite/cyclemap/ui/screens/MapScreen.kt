@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.screens
 
+import com.gorite.cyclemap.ui.mapview.animateCameraExclusive
 import com.gorite.cyclemap.*
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -836,7 +837,8 @@ internal fun MapScreen(
                 state.mapViewState.value?.let { view ->
                     view.controller.animateTo(GeoPoint(location.latitude, location.longitude))
                 }
-                state.vectorMapState.value?.animateCamera(
+                // 追従の moveCamera に打ち切られないよう、終わるまで追従を止めてズームする
+                state.vectorMapState.value?.animateCameraExclusive(
                     org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(
                         org.maplibre.android.geometry.LatLng(location.latitude, location.longitude),
                         NAVIGATION_ZOOM,

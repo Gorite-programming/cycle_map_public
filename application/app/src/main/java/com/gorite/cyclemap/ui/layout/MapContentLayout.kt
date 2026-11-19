@@ -104,6 +104,7 @@ internal fun MapContentLayout(
     currentVectorBearing: Double = 0.0,
     onBearingChanged: (Double) -> Unit = {},
     onVectorMapReady: (MapLibreMap) -> Unit,
+    onVectorMapDisposed: (MapLibreMap?) -> Unit = {},
     // Notification banners props
     effectiveAnimationEnabled: Boolean,
     hasLocationPermission: Boolean,
@@ -246,6 +247,7 @@ internal fun MapContentLayout(
                     onBearingChanged = onBearingChanged,
                     onPoiClick = onSelectPoiSpot,
                     onVectorMapReady = onVectorMapReady,
+                    onVectorMapDisposed = onVectorMapDisposed,
                     homePanelBottomPadding = if (homeVisible) homePanelHeight else 0.dp,
                     placeTopPadding = placeTopHeight,
                     placeBottomPadding = placeDetailHeight,
