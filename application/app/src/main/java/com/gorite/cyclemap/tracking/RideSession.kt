@@ -19,6 +19,7 @@ class RideSession {
     private var lowSinceMs: Long? = null
     private var highSinceMs: Long? = null
     private var previous: Fix? = null
+    private var distanceOrigin: Fix? = null
     private val speeds = ArrayDeque<Double>()
     private val altitudes = ArrayDeque<Double>()
     private var referencePressure: Double? = null
@@ -44,6 +45,8 @@ class RideSession {
         val old = previous
         // 遅延・重複した位置で距離や平滑化の履歴を巻き戻さない。
         if (old != null && timeMs <= old.timeMs) return
+        // Reject poor fixes before they enter speed smoothing or maximum-speed statistics.
+        if (!RideMotionPolicy.acceptsAccuracy(accuracyM)) return
         val dtMs = old?.let { timeMs - it.timeMs }
         val stepM = old?.let { haversineMeters(it.lat, it.lon, lat, lon) }
         // 位置の飛び (GPS の誤差・別の測位源への切り替え): 時間の割に離れすぎた点は、距離にも速度にも使わない。
@@ -52,8 +55,16 @@ class RideSession {
             advance(timeMs)
             return
         }
-        val rawSpeed = speedMps?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 }
-            ?: if (dtMs != null && dtMs in 1..30_000 && stepM != null) stepM / (dtMs / 1000.0) else 0.0
+        val reportedSpeed = speedMps?.takeIf { it.isFinite() && it >= 0f }
+        val origin = distanceOrigin ?: old
+        val originDtMs = origin?.let { timeMs - it.timeMs }
+        val displacementM = origin?.let { haversineMeters(it.lat, it.lon, lat, lon) }
+        // With no sensor speed, infer motion from the retained anchor too. Otherwise
+        // frequent, genuine updates under 3 m would all be mistaken for stops.
+        val rawSpeed = reportedSpeed?.toDouble()
+            ?: if (originDtMs != null && originDtMs in 1..30_000 && displacementM != null) {
+                displacementM / (originDtMs / 1000.0)
+            } else 0.0
         advance(timeMs)
         if (dtMs != null && dtMs > 30_000) {
             speeds.clear()
@@ -63,22 +74,42 @@ class RideSession {
         // 飛びは平均にも混ぜず、その位置を次の距離計算の起点にもしない。
         if (!rawSpeed.isFinite() || rawSpeed * 3.6 > 120.0) {
             previous = null
+            distanceOrigin = null
             lowSinceMs = null
             highSinceMs = null
             return
         }
-        speeds.addLast(rawSpeed)
+        // Between confirmed displacements retain the last inferred speed while the
+        // anchor still implies movement; do not dilute it with artificial zeroes.
+        val motionSpeed = RideMotionPolicy.speedMps(rawSpeed, displacementM, reportedSpeed != null, speeds.lastOrNull() ?: 0.0)
+        speeds.addLast(motionSpeed)
         if (speeds.size > 3) speeds.removeFirst()
         val speed = speeds.average()
         val wasPaused = state == RideState.PAUSED
         updateAutoPause(timeMs, speed * 3.6)
-        if (!wasPaused && state == RideState.RUNNING && old != null &&
-            accuracyM <= 20f && old.accuracyM <= 20f && speed >= 0.5 &&
-            dtMs != null && dtMs in 1..30_000 && stepM != null && stepM.isFinite()
-        ) distanceM += stepM
-        if (state == RideState.RUNNING) maxKmh = maxOf(maxKmh, speed * 3.6)
+        val fix = Fix(timeMs, lat, lon, accuracyM)
+        if (!wasPaused && state == RideState.RUNNING && motionSpeed >= RideMotionPolicy.MIN_SPEED_MPS &&
+            origin != null && dtMs != null && dtMs in 1..30_000
+        ) {
+            val distance = haversineMeters(origin.lat, origin.lon, lat, lon)
+            if (RideMotionPolicy.acceptsDistance(distance, motionSpeed)) {
+                distanceM += distance
+                distanceOrigin = fix
+            } else {
+                // Retain an anchor so genuine sub-3 m updates can accumulate displacement.
+                distanceOrigin = origin
+            }
+        } else {
+            distanceOrigin = if (reportedSpeed == null && origin != null &&
+                originDtMs != null && originDtMs in 1..30_000 &&
+                displacementM != null && displacementM < RideMotionPolicy.MIN_DISTANCE_M
+            ) origin else fix
+        }
+        if (state == RideState.RUNNING && motionSpeed >= RideMotionPolicy.MIN_SPEED_MPS) {
+            maxKmh = maxOf(maxKmh, speed * 3.6)
+        }
         updateElevation(altitudeM, pressureHpa)
-        previous = Fix(timeMs, lat, lon, accuracyM)
+        previous = fix
     }
 
     private fun updateAutoPause(timeMs: Long, kmh: Double) {
@@ -146,7 +177,7 @@ class RideSession {
         } else 0.0
         return RideSnapshot(
             state = state,
-            speedKmh = if (state == RideState.RUNNING && speeds.isNotEmpty()) speeds.average() * 3.6 else 0.0,
+            speedKmh = if (state == RideState.RUNNING && speeds.isNotEmpty() && speeds.last() >= RideMotionPolicy.MIN_SPEED_MPS) speeds.average() * 3.6 else 0.0,
             distanceM = distanceM,
             movingTimeS = displayedMovingTimeS,
             elapsedS = startedMs?.let { (displayMs - it).coerceAtLeast(0) / 1000.0 } ?: 0.0,
@@ -166,6 +197,7 @@ class RideSession {
         lowSinceMs = null
         highSinceMs = null
         previous = null
+        distanceOrigin = null
         speeds.clear()
     }
 
@@ -177,6 +209,7 @@ class RideSession {
         lowSinceMs = null
         highSinceMs = null
         previous = null
+        distanceOrigin = null
         speeds.clear()
     }
 
@@ -193,6 +226,7 @@ class RideSession {
         lowSinceMs = null
         highSinceMs = null
         previous = null
+        distanceOrigin = null
         speeds.clear()
         altitudes.clear()
         referencePressure = null
@@ -214,6 +248,7 @@ class RideSession {
         "lowSinceMs" to (lowSinceMs?.toString() ?: ""),
         "highSinceMs" to (highSinceMs?.toString() ?: ""),
         "previous" to (previous?.let { "${it.timeMs},${it.lat},${it.lon},${it.accuracyM}" } ?: ""),
+        "distanceOrigin" to (distanceOrigin?.let { "${it.timeMs},${it.lat},${it.lon},${it.accuracyM}" } ?: ""),
         "speeds" to speeds.joinToString(","),
         "altitudes" to altitudes.joinToString(","),
         "referencePressure" to (referencePressure?.toString() ?: ""),
@@ -246,17 +281,18 @@ class RideSession {
                 elevationGainM = nonnegative("elevationGainM")
                 lowSinceMs = time("lowSinceMs")
                 highSinceMs = time("highSinceMs")
-                previous = value("previous").let { text ->
-                    if (text.isEmpty()) null else {
-                        val parts = text.split(',')
-                        require(parts.size == 4)
-                        Fix(parts[0].toLong(), number(parts[1]), number(parts[2]), parts[3].toFloat()).also {
-                            require(it.timeMs >= 0 && it.lat in -90.0..90.0 && it.lon in -180.0..180.0)
-                            require(it.accuracyM.isFinite() && it.accuracyM >= 0f)
-                            require(clockMs != null && it.timeMs <= clockMs!!)
-                        }
+                fun parseFix(text: String): Fix? {
+                    if (text.isEmpty()) return null
+                    val parts = text.split(',')
+                    require(parts.size == 4)
+                    return Fix(parts[0].toLong(), number(parts[1]), number(parts[2]), parts[3].toFloat()).also {
+                        require(it.timeMs >= 0 && it.lat in -90.0..90.0 && it.lon in -180.0..180.0)
+                        require(it.accuracyM.isFinite() && it.accuracyM >= 0f)
+                        require(clockMs != null && it.timeMs <= clockMs!!)
                     }
                 }
+                previous = parseFix(value("previous"))
+                distanceOrigin = parseFix(map["distanceOrigin"] ?: value("previous"))
                 speeds.addAll(series("speeds", 3).also { values -> require(values.all { it in 0.0..(120.0 / 3.6) }) })
                 altitudes.addAll(series("altitudes", 5))
                 referencePressure = optionalNumber("referencePressure")

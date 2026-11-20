@@ -137,9 +137,9 @@ class RideSessionTest {
     fun distanceAcceptsExactAccuracySpeedAndTimeLimits() {
         val session = RideSession()
         session.start()
-        point(session, 0, speed = 0.5f, accuracy = 20f)
-        point(session, 1000, 0.5, speed = 0.5f, accuracy = 20f)
-        assertEquals(0.5, session.snapshot(1000).distanceM, 0.001)
+        point(session, 0, speed = 0.8f, accuracy = 20f)
+        point(session, 4000, 3.2, speed = 0.8f, accuracy = 20f)
+        assertEquals(3.2, session.snapshot(4000).distanceM, 0.001)
         val moving = RideSession()
         point(moving, 0, accuracy = 20f)
         point(moving, 30_000, 150.0, accuracy = 20f)
@@ -229,7 +229,7 @@ class RideSessionTest {
         val valid = RideSession().toState()
         assertNotNull(RideSession.fromState(valid))
         assertNull(RideSession.fromState(emptyMap()))
-        valid.keys.forEach { assertNull("missing $it", RideSession.fromState(valid - it)) }
+        (valid.keys - "distanceOrigin").forEach { assertNull("missing $it", RideSession.fromState(valid - it)) }
         listOf("oops", "NaN", "Infinity", "-1").forEach {
             assertNull(RideSession.fromState(valid + ("distanceM" to it)))
         }
@@ -303,6 +303,57 @@ class RideSessionTest {
         assertEquals(stored, session.toState())
         session.start(6000)
         assertEquals(2.0, session.snapshot(7000).movingTimeS, 0.0)
+    }
+
+    @Test fun lowReportedSpeedAndPoorAccuracyCannotRaiseMaximumOrDistance() {
+        val session = RideSession()
+        session.start(0)
+        repeat(20) { point(session, it * 1000L, (it % 3) * 2.0, speed = 0.7f) }
+        point(session, 20_000, 25.0, speed = 10f, accuracy = 21f)
+        val snapshot = session.snapshot(20_000)
+        assertEquals(0.0, snapshot.distanceM, 0.0)
+        assertEquals(0.0, snapshot.maxKmh, 0.0)
+        assertEquals(0.0, snapshot.speedKmh, 0.0)
+    }
+    @Test fun jitterWithoutReportedSpeedDoesNotStartRide() {
+        val session = RideSession()
+        repeat(60) { point(session, it * 1000L, (it % 2) * 2.0, speed = null) }
+        assertEquals(RideState.IDLE, session.snapshot(59_000).state)
+        assertEquals(0.0, session.snapshot(59_000).maxKmh, 0.0)
+        assertEquals(0.0, session.snapshot(59_000).distanceM, 0.0)
+    }
+    @Test fun stoppedFixImmediatelyZerosDisplayAndAddsNoResidualDistance() {
+        val session = RideSession()
+        point(session, 0)
+        point(session, 1000, 5.0)
+        point(session, 2000, 10.0, speed = 0f)
+        assertEquals(0.0, session.snapshot(2000).speedKmh, 0.0)
+        assertEquals(5.0, session.snapshot(2000).distanceM, 0.001)
+        assertEquals(18.0, session.snapshot(2000).maxKmh, 0.001)
+    }
+    @Test fun frequentSmallMovingFixesAccumulateFromRetainedAnchor() {
+        val session = RideSession()
+        repeat(9) { point(session, it * 250L, it * 1.0, speed = 4f) }
+        assertEquals(6.0, session.snapshot(2000).distanceM, 0.001)
+        val restored = requireNotNull(RideSession.fromState(session.toState()))
+        point(session, 2250, 9.0, speed = 4f)
+        point(restored, 2250, 9.0, speed = 4f)
+        assertEquals(9.0, session.snapshot(2250).distanceM, 0.001)
+        assertEquals(session.snapshot(2250), restored.snapshot(2250))
+    }
+    @Test fun oldSavedStateWithoutDistanceAnchorStillLoads() {
+        val session = RideSession()
+        point(session, 0)
+        assertNotNull(RideSession.fromState(session.toState() - "distanceOrigin"))
+    }
+
+    @Test fun frequentMovingFixesWithoutSensorSpeedStillAccumulateDistance() {
+        val session = RideSession()
+        repeat(21) { point(session, it * 250L, it * 1.1, speed = null) }
+        val snapshot = session.snapshot(5000)
+        assertTrue(snapshot.distanceM >= 19.0)
+        assertTrue(snapshot.distanceM <= 22.0)
+        assertTrue(snapshot.maxKmh > 10.0)
     }
 
 }
