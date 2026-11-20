@@ -15,8 +15,11 @@
 # =============================================================================
 set -euo pipefail
 
+# 別パッケージ ID で入れた debug ビルド (-Pcyclemap.appIdSuffix) を試すときは CYCLEMAP_PACKAGE_NAME で指定する。
+# 検証用ブロードキャストの action 名は applicationId によらず com.gorite.cyclemap.test.* で固定。
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PKG="com.gorite.cyclemap.test"
+PKG="${CYCLEMAP_PACKAGE_NAME:-com.gorite.cyclemap.test}"
+ACTION="com.gorite.cyclemap.test"
 OUT="${1:-${ROOT_DIR}/work/baseline/$(date +%Y%m%d_%H%M%S)}"
 mkdir -p "$OUT"
 
@@ -46,7 +49,7 @@ for loc in "${LOCATIONS[@]}"; do
     read -r id lat lon <<< "$loc"
     for z in "${ZOOMS[@]}"; do
         read -r gz mz <<< "$z"
-        adb shell am broadcast -a "${PKG}.CAMERA" -p "$PKG" --ed lat "$lat" --ed lon "$lon" --ed zoom "$mz" >/dev/null
+        adb shell am broadcast -a "${ACTION}.CAMERA" -p "$PKG" --ed lat "$lat" --ed lon "$lon" --ed zoom "$mz" >/dev/null
         sleep 6
         adb exec-out screencap -p > "${OUT}/${id}_z${gz}.png"
         echo "captured ${id} z${gz} (MapLibre ${mz})"
