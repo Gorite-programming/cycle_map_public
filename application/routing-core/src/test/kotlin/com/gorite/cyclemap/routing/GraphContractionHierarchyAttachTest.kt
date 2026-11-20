@@ -93,7 +93,7 @@ class GraphContractionHierarchyAttachTest {
     }
 
     /** 呼ばれたら分かる偽の CH。CH を使ってはいけない条件で使われていないことの検証用。 */
-    private fun bogusQuery(calls: IntArray) = LazyMappedRoadGraph.ChQuery { s, g, _ -> calls[0]++; ChRouteResult(intArrayOf(s, g), 12345.0, 1.0) }
+    private fun bogusQuery(calls: IntArray) = LazyMappedRoadGraph.ChQuery { s, g, _, _ -> calls[0]++; ChRouteResult(intArrayOf(s, g), 12345.0, 1.0) }
 
     @Test fun nonDefaultConditionsStayOnAStar() {
         graphFrom(randomGraph()).use { graph ->
@@ -133,7 +133,7 @@ class GraphContractionHierarchyAttachTest {
             val n = graph.nodeCount
             val expected = Array(n) { s -> Array(n) { g -> graph.route(s, g) } }
             var thrown = 0
-            graph.attachChQuery { _, _, _ -> thrown++; throw IllegalStateException("boom") }
+            graph.attachChQuery { _, _, _, _ -> thrown++; throw IllegalStateException("boom") }
             for (s in 0 until n) for (g in 0 until n) {
                 assertEquals(expected[s][g], graph.route(s, g), "$s->$g")
                 if (s != g) assertEquals("astar", graph.lastEngine)
@@ -149,6 +149,86 @@ class GraphContractionHierarchyAttachTest {
             assertTrue(c.wasCancelled); assertFalse(c.isReachable); assertEquals(0, calls[0])
             val same = graph.route(4, 4)
             assertEquals(listOf(4), same.nodeIndices); assertEquals(0, calls[0])
+        }
+    }
+
+    @Test fun attachedChPropagatesMidSearchCancellationAndNullMatchesBaseline() {
+        // 1) ランダムグラフで isCancelled = null / { false } の一致と { true } のキャンセルを確認
+        graphFrom(randomGraph()).use { graph ->
+            val baseline = graph.route(0, 5)
+            graph.attachContractionHierarchy(buildCh(graph))
+            val withNull = graph.route(0, 5, isCancelled = null)
+            assertEquals("ch", graph.lastEngine)
+            assertFalse(withNull.wasCancelled)
+            assertEquals(baseline.isReachable, withNull.isReachable)
+            assertTrue(costOk(baseline.totalCost, withNull.totalCost))
+            assertEquals(baseline.totalDistanceMeters, withNull.totalDistanceMeters, 1e-6)
+
+            val withFalse = graph.route(0, 5, isCancelled = { false })
+            assertEquals("ch", graph.lastEngine)
+            assertEquals(withNull, withFalse)
+
+            val immediate = graph.route(0, 5, isCancelled = { true })
+            assertTrue(immediate.wasCancelled)
+            assertFalse(immediate.isReachable)
+            assertTrue(immediate.nodeIds.isEmpty())
+            assertTrue(immediate.totalCost.isInfinite())
+            assertEquals("ch", graph.lastEngine)
+        }
+
+        // 2) 2500 ノード上向き鎖で CH 探索ループ内の 1024 ステップ判定による途中キャンセルを単一グラフ route() 経由で検証
+        val n = 2500
+        val out = List(n) { u -> if (u + 1 < n) listOf(E(u + 1, 10.0)) else emptyList() }
+        val edgeN = n - 1
+        val ranks = IntArray(n) { it }
+        val from = IntArray(edgeN) { it }
+        val to = IntArray(edgeN) { it + 1 }
+        val dist = DoubleArray(edgeN) { 10.0 }
+        val minusOne = IntArray(edgeN) { -1 }
+
+        graphFrom(out).use { graph ->
+            val aStarBaseline = graph.route(0, n - 1)
+            val edgeCost = graph.route(0, 1).totalCost
+            val ch = ContractionHierarchy.create(
+                n, edgeN, ranks, from, to, DoubleArray(edgeN) { edgeCost }, dist, minusOne, minusOne, minusOne, GraphFingerprint.UNKNOWN,
+            )
+            graph.attachContractionHierarchy(ch)
+            val chBaseline = graph.route(0, n - 1, isCancelled = null)
+            assertEquals("ch", graph.lastEngine)
+            assertFalse(chBaseline.wasCancelled)
+            assertTrue(chBaseline.isReachable)
+            assertEquals(aStarBaseline.nodeIds, chBaseline.nodeIds)
+            assertEquals(aStarBaseline.totalCost, chBaseline.totalCost, 1e-9)
+            assertEquals(aStarBaseline.totalDistanceMeters, chBaseline.totalDistanceMeters, 1e-9)
+
+            // chRouteIfApplicable 開始前 (1)、ch.route 開始前 (2)、ch.route ループ 1024 ステップ目 (3) で true
+            var checks = 0
+            val midCancelled = graph.route(0, n - 1, isCancelled = { ++checks >= 3 })
+            assertEquals(3, checks)
+            assertEquals("ch", graph.lastEngine)
+            assertTrue(midCancelled.wasCancelled)
+            assertFalse(midCancelled.isReachable)
+            assertTrue(midCancelled.nodeIds.isEmpty())
+            assertTrue(midCancelled.totalCost.isInfinite())
+            assertTrue(midCancelled.totalDistanceMeters.isInfinite())
+
+            // キャンセル後も同一グラフの次回 route() が正常に動くこと
+            val afterCancel = graph.route(0, n - 1)
+            assertEquals("ch", graph.lastEngine)
+            assertEquals(chBaseline, afterCancel)
+
+            // ChQuery が wasCancelled = true を返した場合も到達不能ではなく wasCancelled = true を返すこと
+            var seenInQuery = false
+            graph.attachChQuery { s, g, gr, cancel ->
+                seenInQuery = cancel?.invoke() == true
+                ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = seenInQuery)
+            }
+            var queryChecks = 0
+            val queryCancelled = graph.route(0, n - 1, isCancelled = { ++queryChecks >= 2 })
+            assertTrue(seenInQuery)
+            assertTrue(queryCancelled.wasCancelled)
+            assertFalse(queryCancelled.isReachable)
+            assertEquals("ch", graph.lastEngine)
         }
     }
 

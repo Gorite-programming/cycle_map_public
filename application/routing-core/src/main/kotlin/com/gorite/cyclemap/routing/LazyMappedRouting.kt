@@ -475,7 +475,15 @@ class LazyMappedRoadGraph private constructor(
 
     /** CH 問い合わせの最小インターフェース (テストで差し替え可能にするため)。 */
     internal fun interface ChQuery {
-        fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult
+        fun route(
+            start: Int,
+            goal: Int,
+            graph: LazyMappedRoadGraph,
+            isCancelled: (() -> Boolean)?,
+        ): ChRouteResult
+
+        fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult =
+            route(start, goal, graph, null)
     }
 
     @Volatile private var chQuery: ChQuery? = null
@@ -491,7 +499,7 @@ class LazyMappedRoadGraph private constructor(
     /** Contraction Hierarchies を取り付ける (null で外す)。CH は 自転車×おすすめ の既定条件の問い合わせだけに使う。 */
     fun attachContractionHierarchy(ch: ContractionHierarchy?) {
         attachedHierarchy = ch
-        chQuery = if (ch == null) null else ChQuery { s, g, gr -> ch.route(s, g, gr) }
+        chQuery = if (ch == null) null else ChQuery { s, g, gr, isCancelled -> ch.route(s, g, gr, isCancelled) }
     }
 
     /** 取り付け済みの CH 本体 (県またぎ探索の多対多で使う)。[attachContractionHierarchy] だけが設定する。 */
@@ -519,7 +527,7 @@ class LazyMappedRoadGraph private constructor(
         }
         val queryStarted = System.nanoTime()
         val r = try {
-            query.route(start, goal, this).also {
+            query.route(start, goal, this, isCancelled).also {
                 lastChQueryMillis = (System.nanoTime() - queryStarted) / 1_000_000
             }
         } catch (e: Exception) {
@@ -528,6 +536,9 @@ class LazyMappedRoadGraph private constructor(
         }
         lastExpandedNodes = 0
         lastEngine = "ch"
+        if (r.wasCancelled) {
+            return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
+        }
         if (!r.isReachable) return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
         val path = r.nodeIndices
         return MappedRouteResult(
