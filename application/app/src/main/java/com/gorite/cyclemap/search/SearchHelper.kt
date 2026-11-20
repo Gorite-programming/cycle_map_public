@@ -7,7 +7,6 @@ import androidx.annotation.VisibleForTesting
 import com.gorite.cyclemap.data.Fts5SupportDetector
 import com.gorite.cyclemap.utils.*
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 
 // ---------------------------------------------------------------------------
 // 検索データモデル
@@ -293,7 +292,7 @@ internal fun rankSearchResults(
     return dedupeNearbySameName(sorted)
 }
 
-private val placesColumnsCache = ConcurrentHashMap<String, Set<String>>()
+private val placesColumnsCache = FileVersionCache<Set<String>>()
 
 /** places テーブルの列名 (DB ごとにキャッシュ)。 */
 internal fun placesColumns(db: SQLiteDatabase): Set<String> {
@@ -307,8 +306,7 @@ internal fun placesColumns(db: SQLiteDatabase): Set<String> {
     } catch (e: Exception) {
         emptySet()
     }
-    val path = db.path ?: return read()
-    return placesColumnsCache.computeIfAbsent(path) { read() }
+    return placesColumnsCache.getOrLoad(db.path) { read() }
 }
 
 /**
@@ -392,7 +390,7 @@ private fun addressResult(db: SQLiteDatabase, query: String): SearchResult? {
     )
 }
 
-private val placesHasSearchTextCache = ConcurrentHashMap<String, Boolean>()
+private val placesHasSearchTextCache = FileVersionCache<Boolean>()
 
 @VisibleForTesting
 internal fun clearPlacesHasSearchTextCacheForTesting() {
@@ -400,11 +398,7 @@ internal fun clearPlacesHasSearchTextCacheForTesting() {
 }
 
 internal fun hasSearchTextColumn(db: SQLiteDatabase): Boolean {
-    val path = db.path ?: ""
-    if (path.isEmpty()) {
-        return checkSearchTextColumnDirectly(db)
-    }
-    return placesHasSearchTextCache.computeIfAbsent(path) {
+    return placesHasSearchTextCache.getOrLoad(db.path) {
         checkSearchTextColumnDirectly(db)
     }
 }
