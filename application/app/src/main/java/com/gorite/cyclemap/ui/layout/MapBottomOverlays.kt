@@ -122,6 +122,7 @@ internal fun BoxScope.MapBottomOverlays(
     onRoutePreviewSheetHeightChanged: (Int) -> Unit = {},
     /** 到着時の振り返り表示用。未指定時は [navigationProgress] / [navStats] / [routeSummary] から取れる項目のみ表示する。 */
     rideSnapshot: RideSnapshot? = null,
+    onOpenOfflineData: (() -> Unit)? = null,
 ) {
     val isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived
     LaunchedEffect(isRoutePreviewActive) {
@@ -210,6 +211,14 @@ internal fun BoxScope.MapBottomOverlays(
                         .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)),
                 )
                 Spacer(modifier = Modifier.height(10.dp))
+
+                OfflineReadinessRow(
+                    context = context,
+                    route = navigationRoute,
+                    waypoints = waypoints,
+                    destination = destination,
+                    onOpenOfflineData = onOpenOfflineData,
+                )
 
                 // ルート探索中プログレス表示
                 AnimatedVisibility(

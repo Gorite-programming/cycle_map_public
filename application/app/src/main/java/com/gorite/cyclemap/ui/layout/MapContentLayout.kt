@@ -552,6 +552,7 @@ internal fun MapContentLayout(
                         },
                         onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx = it },
                         rideSnapshot = rideSnapshot,
+                        onOpenOfflineData = onOpenDownload,
                     )
                 }
             }
