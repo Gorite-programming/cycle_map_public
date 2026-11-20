@@ -231,12 +231,16 @@ internal fun MapSearchEffects(
                         }
                     }
                 }
+                // 各検索の距離は、その検索の中心からのもの。表示・重複判定の基準は現在地にそろえる
+                val groupsFromHere = groups.map { group ->
+                    group.map { it.copy(distanceM = com.gorite.cyclemap.utils.haversineMeters(center.first, center.second, it.latitude, it.longitude)) }
+                }
                 if (failedCount == targetDbs.size * centers.size) {
                     readFailed = true
                     emptyList()
                 } else {
                     mergeQuickSpotResults(
-                        spotGroups = groups,
+                        spotGroups = groupsFromHere,
                         remainingRoute = remainingRoute,
                         limit = 30,
                     )
