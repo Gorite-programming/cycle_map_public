@@ -22,7 +22,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Support direct CLI execution and importlib-based callers alike.
@@ -50,8 +50,9 @@ def find_pmtiles_cli():
 
 def latest_build():
     """build.protomaps.com で実在する最新のビルド日 (YYYYMMDD) を返す。"""
+    today_utc = datetime.now(timezone.utc).date()
     for back in range(LOOKBACK_DAYS):
-        stamp = (date.today() - timedelta(days=back)).strftime("%Y%m%d")
+        stamp = (today_utc - timedelta(days=back)).strftime("%Y%m%d")
         # 既定の Python-urllib の User-Agent は CDN に 403 で拒否されるため明示する
         req = urllib.request.Request(BUILD_URL % stamp, method="HEAD",
                                      headers={"User-Agent": "cycle_map-build-tiles/1.0"})
@@ -61,7 +62,10 @@ def latest_build():
                     return stamp
         except urllib.error.HTTPError as e:
             if e.code != 404:
-                raise
+                sys.exit("Protomaps ビルドの確認に失敗しました (HTTP %d): %s" % (e.code, e.reason))
+        except (urllib.error.URLError, TimeoutError) as e:
+            reason = getattr(e, "reason", e)
+            sys.exit("Protomaps への接続に失敗しました (ネットワークを確認してください): %s" % reason)
     sys.exit("Protomaps の公開ビルドが見つかりません (直近 %d 日)" % LOOKBACK_DAYS)
 
 
