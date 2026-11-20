@@ -170,6 +170,7 @@ internal fun MapScreen(
 
     val routeExecutionContext = RouteExecutionContext(
         context = state.context,
+        scope = state.scope,
         routeJobRef = state.routeJobRef,
         routeExecutionGeneration = routeExecutionGeneration,
         inFlightRouteRef = state.inFlightRouteRef,
@@ -378,16 +379,16 @@ internal fun MapScreen(
         }
 
         // ルート線の再構築
-        if (curNavRoute.isNotEmpty() && state.routeOverlayState.value == null) {
-            val polyline = org.osmdroid.views.overlay.Polyline(view).apply {
-                setPoints(curNavRoute.map { GeoPoint(it.latitude, it.longitude) })
+        if (curNavRoute.isNotEmpty()) {
+            val polyline = state.routeOverlayState.value ?: org.osmdroid.views.overlay.Polyline(view).apply {
                 outlinePaint.color = android.graphics.Color.parseColor("#333333")
                 outlinePaint.strokeWidth = 24f
                 outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
                 outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                 outlinePaint.isAntiAlias = true
             }
-            view.overlays.add(polyline)
+            polyline.setPoints(curNavRoute.map { GeoPoint(it.latitude, it.longitude) })
+            if (!view.overlays.contains(polyline)) view.overlays.add(polyline)
             state.routeOverlayState.value = polyline
         }
         view.invalidate()

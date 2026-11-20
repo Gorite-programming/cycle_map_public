@@ -34,6 +34,7 @@ import kotlin.concurrent.read
 
 internal class RouteExecutionContext(
     val context: Context,
+    val scope: CoroutineScope,
     val routeJobRef: AtomicReference<RouteCalculationJob?>,
     val routeExecutionGeneration: AtomicLong,
     val inFlightRouteRef: AtomicReference<InFlightRouteRequest?>,
@@ -230,7 +231,8 @@ internal fun executeRouteCalculation(
     env.inFlightRouteRef.set(inFlightRequest)
     val jobGraphName = env.getLoadedGraphName()
     val jobGraph = graph
-    routeJob.job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+    // 親スコープのキャンセルを isCancelled() が検出できるよう、開始前に Job を登録する。
+    routeJob.job = env.scope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
         try {
             if (routeJob.isCancelled()) return@launch
 
@@ -610,4 +612,5 @@ internal fun executeRouteCalculation(
             }
         }
     }
+    routeJob.job?.start()
 }
