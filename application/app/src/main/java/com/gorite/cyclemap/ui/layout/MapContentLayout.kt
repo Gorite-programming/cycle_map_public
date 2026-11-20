@@ -193,7 +193,6 @@ internal fun MapContentLayout(
             isNavigationActive,
         )
         val homeVisible = isIdle && !mapExpanded && simpleVisibility.homePanel
-        val landscapeDashboardMaxHeight = (LocalConfiguration.current.screenHeightDp.dp - effectiveTopPadding - 84.dp).coerceAtLeast(48.dp)
         var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
@@ -205,14 +204,22 @@ internal fun MapContentLayout(
         val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
         var topOverlayHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val topOverlayHeight = with(density) { topOverlayHeightPx.toDp() }
+        var mapAreaHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val landscapeDashboardMaxHeight = landscapeHomeMaxHeight(
+            with(density) { mapAreaHeightPx.toDp() }, effectiveTopPadding, topOverlayHeight,
+        )
+        androidx.compose.runtime.LaunchedEffect(simpleVisibility.homePanel) {
+            if (!simpleVisibility.homePanel) mapExpanded = false
+        }
         var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val routePreviewSheetHeight = with(density) { routePreviewSheetHeightPx.toDp() }
-        androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle) { mapExpanded = false }
+        androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle && simpleVisibility.homePanel) { mapExpanded = false }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .onSizeChanged { mapAreaHeightPx = it.height },
             ) {
                 MapViewsContainer(
                     modifier = Modifier.fillMaxSize(),
@@ -308,6 +315,7 @@ internal fun MapContentLayout(
                             .align(Alignment.TopStart)
                             .fillMaxWidth()
                             .padding(top = effectiveTopPadding + 8.dp, start = 12.dp, end = 12.dp)
+                            .onSizeChanged { topOverlayHeightPx = it.height }
                             .zIndex(2f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -353,7 +361,7 @@ internal fun MapContentLayout(
                             .padding(
                                 start = if (!isLandscape && com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp,
                                 end = if (isLandscape || !com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp,
-                                top = if (isLandscape) effectiveTopPadding + 84.dp else 0.dp,
+                                top = if (isLandscape) homeControlsTop(effectiveTopPadding, topOverlayHeight) else 0.dp,
                                 bottom = if (isLandscape) 0.dp else homePanelHeight + 12.dp,
                             ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -545,7 +553,7 @@ internal fun MapContentLayout(
                         onToggleMute = onToggleMute,
                         weatherUiState = weatherUiState,
                         onRefreshWeather = onRefreshWeather,
-                        onBackToDashboard = if (mapExpanded && isIdle) {
+                        onBackToDashboard = if (mapExpanded && isIdle && simpleVisibility.homePanel) {
                             { mapExpanded = false }
                         } else {
                             null
