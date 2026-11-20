@@ -221,6 +221,7 @@ internal fun MapScreen(
                 state.lastRerouteElapsedMsState.value = 0L
                 state.offRouteDetector.reset()
             } else {
+                state.voiceNavigator.onRerouted()
                 state.navStartElapsedMsState.value = SystemClock.elapsedRealtime()
                 state.rerouteCountState.intValue++
             }

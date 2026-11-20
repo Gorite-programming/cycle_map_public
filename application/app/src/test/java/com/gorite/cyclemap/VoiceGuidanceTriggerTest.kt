@@ -8,6 +8,9 @@ import com.gorite.cyclemap.speech.VoiceGuidanceStage
 import com.gorite.cyclemap.speech.VoiceGuidanceThresholds
 import com.gorite.cyclemap.speech.RouteInstructionText
 import com.gorite.cyclemap.speech.VoiceTriggerEvaluator
+import com.gorite.cyclemap.speech.VoiceAudioPlayer
+import com.gorite.cyclemap.speech.HybridVoiceGuidanceEngine
+import com.gorite.cyclemap.speech.VoiceGuidanceNavigator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -260,9 +263,15 @@ class VoiceGuidanceTriggerTest {
     fun skippedDistanceBandsStillAnnounceEachStageOnce() {
         val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
         val spoken = mutableSetOf<String>()
-        fun evaluate(distance: Double) = VoiceTriggerEvaluator.evaluate(
-            1000.0 - distance, 2000.0, instructions, false, spoken,
-        )
+        var previousDistance: Double? = null
+        fun evaluate(distance: Double): VoiceCue? {
+            val cue = VoiceTriggerEvaluator.evaluate(
+                1000.0 - distance, 2000.0, instructions, false, spoken,
+                previousDistanceToNextMeters = previousDistance,
+            )
+            previousDistance = distance
+            return cue
+        }
         assertNull(evaluate(350.0))
         for ((distance, stage) in listOf(
             250.0 to VoiceGuidanceStage.FAR,
@@ -280,13 +289,15 @@ class VoiceGuidanceTriggerTest {
         }
         // A new navigation session clears the keys and can announce the same turn again.
         spoken.clear()
-        assertEquals(VoiceGuidanceStage.NEAR, evaluate(70.0)?.stage)
+        previousDistance = null
+        assertNull(evaluate(70.0))
+        assertEquals(VoiceGuidanceStage.NEAR, evaluate(100.0)?.stage)
     }
 
     @Test
     fun jumpingAcrossMultipleBandsOnlyAnnouncesMostUrgentStage() {
         val instructions = listOf(createInstruction(InstructionType.RIGHT_TURN, 1000.0))
-        for ((distance, stage) in listOf(70.0 to VoiceGuidanceStage.NEAR, 10.0 to VoiceGuidanceStage.IMMEDIATE)) {
+        for ((distance, stage) in listOf(100.0 to VoiceGuidanceStage.NEAR, 10.0 to VoiceGuidanceStage.IMMEDIATE)) {
             val spoken = mutableSetOf<String>()
             assertNull(VoiceTriggerEvaluator.evaluate(600.0, null, instructions, false, spoken))
             val cue = requireNotNull(VoiceTriggerEvaluator.evaluate(1000.0 - distance, null, instructions, false, spoken))
@@ -308,9 +319,102 @@ class VoiceGuidanceTriggerTest {
             assertEquals(stage, cue.stage)
             spoken.add(VoiceTriggerEvaluator.makeKey(cue))
         }
-        val next = requireNotNull(VoiceTriggerEvaluator.evaluate(1750.0, null, instructions, false, spoken))
+        val next = requireNotNull(VoiceTriggerEvaluator.evaluate(1700.0, null, instructions, false, spoken))
         assertEquals(1, next.instructionIndex)
         assertEquals(VoiceGuidanceStage.FAR, next.stage)
         assertNull(VoiceTriggerEvaluator.evaluate(2100.0, null, instructions, false, spoken))
+    }
+
+    @Test
+    fun initialEvaluationOnlyAnnouncesWithinOriginalBands() {
+        for (distance in listOf(35.0, 59.0, 60.0, 70.0, 79.0, 121.0, 219.0, 220.0, 250.0, 259.0, 341.0, 400.0)) {
+            val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, distance))
+            assertNull("Initial distance $distance", VoiceTriggerEvaluator.evaluate(0.0, null, instructions, false, emptySet()))
+        }
+        for ((distance, stage) in listOf(80.0 to VoiceGuidanceStage.NEAR, 120.0 to VoiceGuidanceStage.NEAR,
+            260.0 to VoiceGuidanceStage.FAR, 340.0 to VoiceGuidanceStage.FAR, 30.0 to VoiceGuidanceStage.IMMEDIATE)) {
+            val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, distance))
+            assertEquals(stage, VoiceTriggerEvaluator.evaluate(0.0, null, instructions, false, emptySet())?.stage)
+        }
+    }
+
+    @Test
+    fun catchUpRequiresTrackingAndHasSafeLowerLimits() {
+        val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
+        fun evaluate(distance: Double, spoken: Set<String> = emptySet(), previous: Double? = null) =
+            VoiceTriggerEvaluator.evaluate(1000.0 - distance, null, instructions, false, spoken,
+                previousDistanceToNextMeters = previous)
+        assertEquals(VoiceGuidanceStage.FAR, evaluate(220.0, previous = 400.0)?.stage)
+        assertNull(evaluate(219.0, previous = 400.0))
+        assertNull(evaluate(250.0, previous = 340.0))
+        assertNull(evaluate(70.0, previous = 400.0))
+        assertEquals(VoiceGuidanceStage.NEAR, evaluate(60.0, setOf("0:FAR"))?.stage)
+        assertNull(evaluate(59.0, setOf("0:FAR")))
+    }
+
+    private class RecordingPlayer : VoiceAudioPlayer {
+        val played = mutableListOf<Int>()
+        var stops = 0
+        override fun playResId(rawResId: Int): Boolean { played.add(rawResId); return true }
+        override fun stop() { stops++ }
+    }
+
+    @Test
+    fun navigatorSkipsNearAfterGpsGapAndDoesNotDoubleSpeak() {
+        val player = RecordingPlayer()
+        val navigator = VoiceGuidanceNavigator(HybridVoiceGuidanceEngine(player))
+        val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
+        fun update(distance: Double) = navigator.onLocationUpdated(1000.0 - distance, null, instructions)
+        update(400.0)
+        update(300.0)
+        update(35.0)
+        update(31.0)
+        assertEquals(listOf(R.raw.voice_300m_turn_left), player.played)
+        update(30.0)
+        update(20.0)
+        update(35.0)
+        update(100.0)
+        assertEquals(listOf(R.raw.voice_300m_turn_left, R.raw.voice_now_turn_left), player.played)
+    }
+
+    @Test
+    fun rerouteClearsAllInstructionStagesWithoutStoppingOrRepeatingReroute() {
+        val player = RecordingPlayer()
+        val navigator = VoiceGuidanceNavigator(HybridVoiceGuidanceEngine(player))
+        val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
+        fun update(distance: Double, offRoute: Boolean = false) =
+            navigator.onLocationUpdated(1000.0 - distance, null, instructions, offRoute)
+        for (distance in listOf(300.0, 100.0, 20.0)) update(distance)
+        update(20.0, true)
+        val stops = player.stops
+        navigator.onRerouted()
+        assertEquals(stops, player.stops)
+        assertEquals(VoiceGuidanceStage.REROUTE, navigator.lastSpokenCue?.stage)
+        update(20.0, true)
+        assertEquals(4, player.played.size)
+        for (distance in listOf(300.0, 100.0, 20.0)) update(distance)
+        assertEquals(listOf(R.raw.voice_300m_turn_left, R.raw.voice_100m_turn_left, R.raw.voice_now_turn_left,
+            R.raw.voice_reroute, R.raw.voice_300m_turn_left, R.raw.voice_100m_turn_left, R.raw.voice_now_turn_left), player.played)
+    }
+
+    @Test
+    fun navigatorTracksFarCatchUpButClearsDistanceOnRerouteAndReset() {
+        val player = RecordingPlayer()
+        val navigator = VoiceGuidanceNavigator(HybridVoiceGuidanceEngine(player))
+        val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
+        fun update(distance: Double) = navigator.onLocationUpdated(1000.0 - distance, null, instructions)
+        update(400.0)
+        update(250.0)
+        update(70.0)
+        assertEquals(listOf(R.raw.voice_300m_turn_left, R.raw.voice_100m_turn_left), player.played)
+        update(400.0)
+        navigator.onRerouted()
+        update(250.0)
+        update(70.0)
+        assertEquals(2, player.played.size)
+        update(400.0)
+        navigator.reset()
+        update(250.0)
+        assertEquals(2, player.played.size)
     }
 }

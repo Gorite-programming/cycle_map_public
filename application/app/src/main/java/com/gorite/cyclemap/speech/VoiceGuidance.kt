@@ -55,6 +55,8 @@ object VoiceGuidanceThresholds {
     const val ARRIVAL_DISTANCE_METERS = 30.0
     const val FAR_TOLERANCE_METERS = 40.0   // 300m前案内の開始を40m早める (340m以下)
     const val NEAR_TOLERANCE_METERS = 20.0  // 100m前案内の開始を20m早める (120m以下)
+    const val FAR_CATCH_UP_MIN_METERS = 220.0 // 遠方から追跡中に帯を飛び越えた場合の下限
+    const val NEAR_CATCH_UP_MIN_METERS = 60.0 // 直前案内との連続再生を避ける
 }
 
 /**
@@ -73,6 +75,8 @@ data class VoiceCue(
 interface VoiceAudioPlayer {
     fun playResId(rawResId: Int): Boolean
     fun stop()
+    /** 再生資源を解放する。既定は何もしない (テスト用の偽物など)。 */
+    fun shutdown() {}
     fun isReady(): Boolean = true
 }
 
@@ -127,7 +131,7 @@ class ShikokuMetanAudioEngine(
 
     override fun isReady(): Boolean = true
 
-    fun shutdown() {
+    override fun shutdown() {
         stop()
     }
 }
@@ -200,7 +204,7 @@ class AndroidTextToSpeechEngine(
  * 全フレーズが四国めたん MP3 で再生されます。
  */
 class HybridVoiceGuidanceEngine(
-    private val metanEngine: ShikokuMetanAudioEngine,
+    private val metanEngine: VoiceAudioPlayer,
     private val fallbackTtsEngine: AndroidTextToSpeechEngine? = null,
     var mode: VoiceGuidanceMode = VoiceGuidanceMode.VOICEVOX,
 ) {
@@ -339,6 +343,7 @@ object VoiceTriggerEvaluator {
         isOffRoute: Boolean,
         spokenKeys: Set<String>,
         arrivalConfirmed: Boolean = false,
+        previousDistanceToNextMeters: Double? = null,
     ): VoiceCue? {
         // 1. 実測位置・精度・連続測位で確定した到着だけを案内する。
         if (arrivalConfirmed) {
@@ -377,8 +382,18 @@ object VoiceTriggerEvaluator {
 
         val distanceToNext = (nextInstruction.distanceFromStartMeters - traveledMeters).coerceAtLeast(0.0)
 
-        // 4. 上限を通過した段階を一度だけ案内する。下限は設けず、GPS 更新で帯を
-        // 飛び越えても拾う。近い段階を優先し、発話済みキーで揺れ戻りも抑止する。
+        val nearLower = VoiceGuidanceThresholds.DISTANCE_NEAR_METERS - VoiceGuidanceThresholds.NEAR_TOLERANCE_METERS
+        val farLower = VoiceGuidanceThresholds.DISTANCE_FAR_METERS - VoiceGuidanceThresholds.FAR_TOLERANCE_METERS
+        val farUpper = VoiceGuidanceThresholds.DISTANCE_FAR_METERS + VoiceGuidanceThresholds.FAR_TOLERANCE_METERS
+        val nearEligible = distanceToNext >= nearLower ||
+            (spokenKeys.contains("$nextInstructionIndex:FAR") &&
+                distanceToNext >= VoiceGuidanceThresholds.NEAR_CATCH_UP_MIN_METERS)
+        val farEligible = distanceToNext >= farLower ||
+            (previousDistanceToNextMeters != null && previousDistanceToNextMeters > farUpper &&
+                distanceToNext >= VoiceGuidanceThresholds.FAR_CATCH_UP_MIN_METERS)
+
+        // 4. 通常は元の距離帯で案内し、遠方から追跡していた場合だけ下限を少し広げる。
+        // 60m未満では100m案内を出さず、直前案内に任せる。
         return when {
             // 直前 (約30m前)
             distanceToNext <= VoiceGuidanceThresholds.DISTANCE_IMMEDIATE_METERS -> {
@@ -390,14 +405,14 @@ object VoiceTriggerEvaluator {
             // 約100m前
             distanceToNext <= VoiceGuidanceThresholds.DISTANCE_NEAR_METERS + VoiceGuidanceThresholds.NEAR_TOLERANCE_METERS -> {
                 val key = "$nextInstructionIndex:NEAR"
-                if (!spokenKeys.contains(key) && !spokenKeys.contains("$nextInstructionIndex:IMMEDIATE")) {
+                if (nearEligible && !spokenKeys.contains(key) && !spokenKeys.contains("$nextInstructionIndex:IMMEDIATE")) {
                     buildCue(nextInstructionIndex, nextInstruction, VoiceGuidanceStage.NEAR)
                 } else null
             }
             // 約300m前
             distanceToNext <= VoiceGuidanceThresholds.DISTANCE_FAR_METERS + VoiceGuidanceThresholds.FAR_TOLERANCE_METERS -> {
                 val key = "$nextInstructionIndex:FAR"
-                if (!spokenKeys.contains(key) &&
+                if (farEligible && !spokenKeys.contains(key) &&
                     !spokenKeys.contains("$nextInstructionIndex:NEAR") &&
                     !spokenKeys.contains("$nextInstructionIndex:IMMEDIATE")
                 ) {
@@ -456,6 +471,8 @@ class VoiceGuidanceNavigator(
     val engine: HybridVoiceGuidanceEngine,
 ) {
     private val spokenKeys = mutableSetOf<String>()
+    private var previousInstructionIndex: Int? = null
+    private var previousDistanceToNextMeters: Double? = null
     var lastSpokenCue: VoiceCue? = null
         private set
 
@@ -475,6 +492,13 @@ class VoiceGuidanceNavigator(
             spokenKeys.remove("REROUTE")
         }
 
+        val nextIndex = instructions.indexOfFirst { it.distanceFromStartMeters > traveledMeters }
+        val previousDistance = previousDistanceToNextMeters.takeIf { previousInstructionIndex == nextIndex }
+        // 逸脱中の経路上の進捗は追跡の根拠にしない。
+        previousInstructionIndex = nextIndex.takeIf { it >= 0 && !isOffRoute && !arrivalConfirmed }
+        previousDistanceToNextMeters = previousInstructionIndex?.let {
+            instructions[it].distanceFromStartMeters - traveledMeters
+        }
         val cue = VoiceTriggerEvaluator.evaluate(
             traveledMeters = traveledMeters,
             remainingMeters = remainingMeters,
@@ -482,6 +506,7 @@ class VoiceGuidanceNavigator(
             isOffRoute = isOffRoute,
             spokenKeys = spokenKeys,
             arrivalConfirmed = arrivalConfirmed,
+            previousDistanceToNextMeters = previousDistance,
         ) ?: return
 
         spokenKeys.add(VoiceTriggerEvaluator.makeKey(cue))
@@ -489,8 +514,17 @@ class VoiceGuidanceNavigator(
         engine.playCue(cue)
     }
 
+    /** 新経路では指示のindexが再利用される。再探索の再生と共通キーは維持する。 */
+    fun onRerouted() {
+        spokenKeys.removeAll { it.substringBefore(':').toIntOrNull() != null }
+        previousInstructionIndex = null
+        previousDistanceToNextMeters = null
+    }
+
     fun reset() {
         spokenKeys.clear()
+        previousInstructionIndex = null
+        previousDistanceToNextMeters = null
         lastSpokenCue = null
         engine.stop()
     }
