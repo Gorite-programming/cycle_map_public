@@ -42,7 +42,16 @@ class LocationTrackingService : Service() {
     private var recorder: GpxRecorder? = null
     @Volatile var recoveryPending = false
         private set
-    private var saving = false
+    private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val saveCoordinator = GpxSaveCoordinator(
+        dispatchIo = { saveExecutor.execute(it) },
+        dispatchCompletion = { healthHandler.post(it) },
+        onStopped = {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        },
+    )
+    private val saving: Boolean get() = saveCoordinator.saving
     private var tracking = false
     private var previousLocation: Location? = null
     private var smoothedSpeed = 0.0
@@ -93,8 +102,9 @@ class LocationTrackingService : Service() {
                 startRecording()
             }
             ACTION_STOP_RECORDING -> stopRecording()
-            ACTION_PAUSE_RECORDING -> { recorder?.pause() }
+            ACTION_PAUSE_RECORDING -> { if (!saving) recorder?.pause() }
             ACTION_RESUME_RECORDING -> {
+                if (saving) return START_STICKY
                 ensureTracking()
                 recoveryPending = false
                 recorder?.resume()
@@ -130,6 +140,7 @@ class LocationTrackingService : Service() {
     }
 
     private fun ensureTracking() {
+        saveCoordinator.resumeTracking()
         if (tracking) {
             startForeground(NOTIFICATION_ID, trackingNotification())
             return
@@ -201,7 +212,6 @@ class LocationTrackingService : Service() {
         snapshot.pause()
         recording = false
         recoveryPending = false
-        saving = true
         val outputDir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), "CycleMap/gpx")
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
             timeZone = TimeZone.getDefault()
@@ -211,45 +221,41 @@ class LocationTrackingService : Service() {
         if (points == 0) {
             snapshot.deleteJournal()
             recorder = null
-            saving = false
             restorePendingRecording()
             sendBroadcast(Intent(ACTION_RECORDING_EMPTY).setPackage(packageName))
             startForeground(NOTIFICATION_ID, trackingNotification())
             return
         }
 
-        Thread {
-            var saved = false
-            try {
+        var saved = false
+        saveCoordinator.save(
+            write = {
                 val output = snapshot.writeToFile(File(outputDir, "cyclemap_${timestamp}_${snapshot.startedAt}.gpx"))
-                run {
-                    saved = true
-                    snapshot.deleteJournal()
-                    getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(KEY_LAST_FILE, output.absolutePath).apply()
-                    sendBroadcast(
-                        Intent(ACTION_RECORDING_SAVED).setPackage(packageName)
-                            .putExtra(EXTRA_PATH, output.absolutePath)
-                            .putExtra(EXTRA_POINTS, points),
-                    )
+                saved = true
+                snapshot.deleteJournal()
+                getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(KEY_LAST_FILE, output.absolutePath).apply()
+                sendBroadcast(
+                    Intent(ACTION_RECORDING_SAVED).setPackage(packageName)
+                        .putExtra(EXTRA_PATH, output.absolutePath)
+                        .putExtra(EXTRA_POINTS, points),
+                )
+            },
+            onComplete = { result ->
+                result.exceptionOrNull()?.let {
+                    android.util.Log.e("CycleMapTracking", "Failed to save GPX file", it)
                 }
-            } catch (t: Throwable) {
-                android.util.Log.e("CycleMapTracking", "Failed to save GPX file", t)
-            } finally {
-                healthHandler.post {
-                    // On failure retain the in-memory points as well as the journal.
-                    if (snapshot === recorder) {
-                        if (saved) {
-                            recorder = null
-                            restorePendingRecording()
-                        } else {
-                            recoveryPending = true
-                            sendBroadcast(Intent(ACTION_RECORDING_SAVE_FAILED).setPackage(packageName))
-                        }
+                // On failure retain the in-memory points as well as the journal.
+                if (snapshot === recorder) {
+                    if (saved) {
+                        recorder = null
+                        restorePendingRecording()
+                    } else {
+                        recoveryPending = true
+                        sendBroadcast(Intent(ACTION_RECORDING_SAVE_FAILED).setPackage(packageName))
                     }
-                    saving = false
                 }
-            }
-        }.start()
+            },
+        )
 
         startForeground(NOTIFICATION_ID, trackingNotification())
     }
@@ -261,8 +267,7 @@ class LocationTrackingService : Service() {
         tracking = false
         previousLocation = null
         smoothedSpeed = 0.0
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        saveCoordinator.requestStop()
     }
 
     private fun stopRecordingIfNeeded() {
@@ -276,6 +281,7 @@ class LocationTrackingService : Service() {
         tracking = false
         previousLocation = null
         smoothedSpeed = 0.0
+        saveExecutor.shutdown()
         super.onDestroy()
     }
 
