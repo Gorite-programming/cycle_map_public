@@ -255,4 +255,62 @@ class VoiceGuidanceTriggerTest {
         ))
     }
 
+
+    @Test
+    fun skippedDistanceBandsStillAnnounceEachStageOnce() {
+        val instructions = listOf(createInstruction(InstructionType.LEFT_TURN, 1000.0))
+        val spoken = mutableSetOf<String>()
+        fun evaluate(distance: Double) = VoiceTriggerEvaluator.evaluate(
+            1000.0 - distance, 2000.0, instructions, false, spoken,
+        )
+        assertNull(evaluate(350.0))
+        for ((distance, stage) in listOf(
+            250.0 to VoiceGuidanceStage.FAR,
+            70.0 to VoiceGuidanceStage.NEAR,
+            15.0 to VoiceGuidanceStage.IMMEDIATE,
+        )) {
+            val cue = requireNotNull(evaluate(distance))
+            assertEquals(stage, cue.stage)
+            spoken.add(VoiceTriggerEvaluator.makeKey(cue))
+            assertNull(evaluate(distance))
+        }
+        // GPS jitter cannot replay any earlier stage after the immediate cue.
+        for (distance in listOf(40.0, 100.0, 130.0, 300.0, 350.0, 70.0)) {
+            assertNull(evaluate(distance))
+        }
+        // A new navigation session clears the keys and can announce the same turn again.
+        spoken.clear()
+        assertEquals(VoiceGuidanceStage.NEAR, evaluate(70.0)?.stage)
+    }
+
+    @Test
+    fun jumpingAcrossMultipleBandsOnlyAnnouncesMostUrgentStage() {
+        val instructions = listOf(createInstruction(InstructionType.RIGHT_TURN, 1000.0))
+        for ((distance, stage) in listOf(70.0 to VoiceGuidanceStage.NEAR, 10.0 to VoiceGuidanceStage.IMMEDIATE)) {
+            val spoken = mutableSetOf<String>()
+            assertNull(VoiceTriggerEvaluator.evaluate(600.0, null, instructions, false, spoken))
+            val cue = requireNotNull(VoiceTriggerEvaluator.evaluate(1000.0 - distance, null, instructions, false, spoken))
+            assertEquals(stage, cue.stage)
+            spoken.add(VoiceTriggerEvaluator.makeKey(cue))
+            assertNull(VoiceTriggerEvaluator.evaluate(1000.0 - distance, null, instructions, false, spoken))
+        }
+    }
+
+    @Test
+    fun stageUpperBoundariesAndDifferentTurnsAreIndependent() {
+        val instructions = listOf(
+            createInstruction(InstructionType.RIGHT_TURN, 1000.0),
+            createInstruction(InstructionType.LEFT_TURN, 2000.0),
+        )
+        val spoken = mutableSetOf<String>()
+        for ((distance, stage) in listOf(340.0 to VoiceGuidanceStage.FAR, 120.0 to VoiceGuidanceStage.NEAR, 30.0 to VoiceGuidanceStage.IMMEDIATE)) {
+            val cue = requireNotNull(VoiceTriggerEvaluator.evaluate(1000.0 - distance, null, instructions, false, spoken))
+            assertEquals(stage, cue.stage)
+            spoken.add(VoiceTriggerEvaluator.makeKey(cue))
+        }
+        val next = requireNotNull(VoiceTriggerEvaluator.evaluate(1750.0, null, instructions, false, spoken))
+        assertEquals(1, next.instructionIndex)
+        assertEquals(VoiceGuidanceStage.FAR, next.stage)
+        assertNull(VoiceTriggerEvaluator.evaluate(2100.0, null, instructions, false, spoken))
+    }
 }

@@ -53,8 +53,8 @@ object VoiceGuidanceThresholds {
     const val DISTANCE_NEAR_METERS = 100.0
     const val DISTANCE_IMMEDIATE_METERS = 30.0
     const val ARRIVAL_DISTANCE_METERS = 30.0
-    const val FAR_TOLERANCE_METERS = 40.0   // 300m前案内を許容する範囲 [260, 340]
-    const val NEAR_TOLERANCE_METERS = 20.0  // 100m前案内を許容する範囲 [80, 120]
+    const val FAR_TOLERANCE_METERS = 40.0   // 300m前案内の開始を40m早める (340m以下)
+    const val NEAR_TOLERANCE_METERS = 20.0  // 100m前案内の開始を20m早める (120m以下)
 }
 
 /**
@@ -377,7 +377,8 @@ object VoiceTriggerEvaluator {
 
         val distanceToNext = (nextInstruction.distanceFromStartMeters - traveledMeters).coerceAtLeast(0.0)
 
-        // 4. 距離段階に応じたトリガー判定
+        // 4. 上限を通過した段階を一度だけ案内する。下限は設けず、GPS 更新で帯を
+        // 飛び越えても拾う。近い段階を優先し、発話済みキーで揺れ戻りも抑止する。
         return when {
             // 直前 (約30m前)
             distanceToNext <= VoiceGuidanceThresholds.DISTANCE_IMMEDIATE_METERS -> {
@@ -387,16 +388,14 @@ object VoiceTriggerEvaluator {
                 } else null
             }
             // 約100m前
-            distanceToNext <= VoiceGuidanceThresholds.DISTANCE_NEAR_METERS + VoiceGuidanceThresholds.NEAR_TOLERANCE_METERS &&
-                distanceToNext >= VoiceGuidanceThresholds.DISTANCE_NEAR_METERS - VoiceGuidanceThresholds.NEAR_TOLERANCE_METERS -> {
+            distanceToNext <= VoiceGuidanceThresholds.DISTANCE_NEAR_METERS + VoiceGuidanceThresholds.NEAR_TOLERANCE_METERS -> {
                 val key = "$nextInstructionIndex:NEAR"
                 if (!spokenKeys.contains(key) && !spokenKeys.contains("$nextInstructionIndex:IMMEDIATE")) {
                     buildCue(nextInstructionIndex, nextInstruction, VoiceGuidanceStage.NEAR)
                 } else null
             }
             // 約300m前
-            distanceToNext <= VoiceGuidanceThresholds.DISTANCE_FAR_METERS + VoiceGuidanceThresholds.FAR_TOLERANCE_METERS &&
-                distanceToNext >= VoiceGuidanceThresholds.DISTANCE_FAR_METERS - VoiceGuidanceThresholds.FAR_TOLERANCE_METERS -> {
+            distanceToNext <= VoiceGuidanceThresholds.DISTANCE_FAR_METERS + VoiceGuidanceThresholds.FAR_TOLERANCE_METERS -> {
                 val key = "$nextInstructionIndex:FAR"
                 if (!spokenKeys.contains(key) &&
                     !spokenKeys.contains("$nextInstructionIndex:NEAR") &&

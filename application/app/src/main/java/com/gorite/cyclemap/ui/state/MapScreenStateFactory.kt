@@ -44,7 +44,6 @@ import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.routing.RouteProgress
-import com.gorite.cyclemap.speech.AndroidTextToSpeechEngine
 import com.gorite.cyclemap.speech.HybridVoiceGuidanceEngine
 import com.gorite.cyclemap.speech.ShikokuMetanAudioEngine
 import com.gorite.cyclemap.speech.VoiceGuidanceMode
@@ -350,8 +349,7 @@ internal fun rememberMapScreenState(
     }
     val metanAudioEngine = remember(context) { ShikokuMetanAudioEngine(context) }
     val voiceNavigator = remember(context, metanAudioEngine) {
-        val tts = AndroidTextToSpeechEngine(context)
-        val hybrid = HybridVoiceGuidanceEngine(metanAudioEngine, tts, voiceGuidanceModeState.value)
+        val hybrid = HybridVoiceGuidanceEngine(metanAudioEngine, mode = voiceGuidanceModeState.value)
         VoiceGuidanceNavigator(hybrid)
     }
     LaunchedEffect(voiceGuidanceModeState.value) {
