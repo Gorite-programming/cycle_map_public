@@ -3,6 +3,8 @@ package com.gorite.cyclemap.navigation
 import com.gorite.cyclemap.*
 import com.gorite.cyclemap.utils.*
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
@@ -89,7 +91,10 @@ internal fun executeDownloadCorridorTiles(
     onFinished: () -> Unit,
 ) {
     if (navigationRoute.isEmpty()) return
-    onProgressUpdate("準備中…")
+    val mainHandler = Handler(Looper.getMainLooper())
+    fun updateProgress(message: String) { mainHandler.post { onProgressUpdate(message) } }
+    fun finished() { mainHandler.post { onFinished() } }
+    updateProgress("準備中…")
     val points = navigationRoute.map { Pair(it.latitude, it.longitude) }
     val source = when (selectedLayer) {
         MapLayer.VECTOR_LIBERTY -> gsiTileSource()
@@ -115,23 +120,23 @@ internal fun executeDownloadCorridorTiles(
                 maxZoom = 16,
                 bufferTiles = 1,
                 onProgress = { progress ->
-                    onProgressUpdate("${progress.completed}/${progress.total}")
+                    updateProgress("${progress.completed}/${progress.total}")
                 },
                 onDone = { successCount, failCount ->
                     if (failCount == 0 && successCount > 0) {
-                        onProgressUpdate("保存完了 (${successCount}枚)")
+                        updateProgress("保存完了 (${successCount}枚)")
                     } else if (successCount > 0) {
-                        onProgressUpdate("一部完了 (${successCount}枚成功 / ${failCount}枚失敗)")
+                        updateProgress("一部完了 (${successCount}枚成功 / ${failCount}枚失敗)")
                     } else {
-                        onProgressUpdate("ダウンロード失敗 (オフラインまたは通信エラー)")
+                        updateProgress("ダウンロード失敗 (オフラインまたは通信エラー)")
                     }
-                    onFinished()
+                    finished()
                 },
             )
         } catch (e: Exception) {
             Log.e("CycleMap", "Corridor tile download failed", e)
-            onProgressUpdate("失敗")
-            onFinished()
+            updateProgress("失敗")
+            finished()
         }
     }.start()
 }

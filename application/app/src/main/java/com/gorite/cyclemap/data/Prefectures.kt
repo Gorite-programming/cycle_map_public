@@ -298,7 +298,6 @@ object TileDownloader {
         }
 
         val cached = readCachedTileKeys(File(tileDir, SqlTileWriter.DATABASE_FILENAME), source.name())
-        val writer = SqlTileWriter()
         val completed = AtomicInteger(0)
         val successCount = AtomicInteger(0)
         val failCount = AtomicInteger(0)
@@ -309,59 +308,61 @@ object TileDownloader {
             onProgress(TileProgress(label, sourceType.displayName, current, total))
         }
 
-        for (job in jobs) {
-            val tileIndex = MapTileIndex.getTileIndex(job.zoom, job.x, job.y)
-            if (tileIndex in cached) {
-                successCount.incrementAndGet()
-                report()
-                continue
-            }
-            executor.submit {
-                val urlStr = "$baseUrl/${job.zoom}/${job.x}/${job.y}.png"
-                var attempt = 0
-                var saved = false
-                while (!saved && attempt <= MAX_RETRIES) {
-                    if (attempt > 0) Thread.sleep(300L * attempt)
-                    var connection: HttpURLConnection? = null
-                    try {
-                        connection = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                            connectTimeout = CONNECT_TIMEOUT_MS
-                            readTimeout = READ_TIMEOUT_MS
-                            requestMethod = "GET"
-                            setRequestProperty("User-Agent", "CycleMap/1.0 (Android; cycling navigator; personal use)")
-                        }
-                        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                            connection.inputStream.use { input ->
-                                synchronized(writer) {
-                                    writer.saveFile(source, tileIndex, input, null)
-                                }
-                            }
-                            saved = true
-                        }
-                    } catch (_: Exception) {
-                        // リトライまたはスキップ
-                    } finally {
-                        connection?.disconnect()
-                    }
-                    // HTTP 200 以外 (404/503 など) でも必ず試行回数を進める (以前は例外時だけで、無限に再接続していた)
-                    attempt++
-                }
-                if (saved) {
-                    successCount.incrementAndGet()
-                } else {
-                    failCount.incrementAndGet()
-                }
-                report()
-            }
-        }
-        executor.shutdown()
+        val writer = SqlTileWriter()
         try {
+            for (job in jobs) {
+                val tileIndex = MapTileIndex.getTileIndex(job.zoom, job.x, job.y)
+                if (tileIndex in cached) {
+                    successCount.incrementAndGet()
+                    report()
+                    continue
+                }
+                executor.submit {
+                    val urlStr = "$baseUrl/${job.zoom}/${job.x}/${job.y}.png"
+                    var attempt = 0
+                    var saved = false
+                    while (!saved && attempt <= MAX_RETRIES && !Thread.currentThread().isInterrupted) {
+                        if (attempt > 0) Thread.sleep(300L * attempt)
+                        var connection: HttpURLConnection? = null
+                        try {
+                            connection = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                                connectTimeout = CONNECT_TIMEOUT_MS
+                                readTimeout = READ_TIMEOUT_MS
+                                requestMethod = "GET"
+                                setRequestProperty("User-Agent", "CycleMap/1.0 (Android; cycling navigator; personal use)")
+                            }
+                            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                                connection.inputStream.use { input ->
+                                    synchronized(writer) {
+                                        writer.saveFile(source, tileIndex, input, null)
+                                    }
+                                }
+                                saved = true
+                            }
+                        } catch (_: Exception) {
+                            // リトライまたはスキップ
+                        } finally {
+                            connection?.disconnect()
+                        }
+                        // HTTP 200 以外 (404/503 など) でも必ず試行回数を進める (以前は例外時だけで、無限に再接続していた)
+                        attempt++
+                    }
+                    if (saved) {
+                        successCount.incrementAndGet()
+                    } else {
+                        failCount.incrementAndGet()
+                    }
+                    report()
+                }
+            }
+            executor.shutdown()
             val timeoutSeconds = maxOf(60L, (total / 10).toLong())
             executor.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)
-        } catch (_: InterruptedException) {
+        } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
+            throw interrupted
         } finally {
-            writer.onDetach()
+            closeTileWriter(executor, writer)
         }
         onDone?.invoke(successCount.get(), failCount.get())
     }
@@ -423,7 +424,6 @@ object TileDownloader {
 
         // キャッシュ済みタイルのスナップショット (1クエリ)。失敗時は空扱いで全DLする。
         val cached = readCachedTileKeys(File(tileDir, SqlTileWriter.DATABASE_FILENAME), source.name())
-        val writer = SqlTileWriter()
         val completed = AtomicInteger(0)
         val successCount = AtomicInteger(0)
         val failCount = AtomicInteger(0)
@@ -434,55 +434,83 @@ object TileDownloader {
             onProgress(TileProgress(label, sourceType.displayName, current, total))
         }
 
-        for (job in jobs) {
-            val tileIndex = MapTileIndex.getTileIndex(job.zoom, job.x, job.y)
-            if (tileIndex in cached) {
-                successCount.incrementAndGet()
-                report()
-                continue
-            }
-            executor.submit {
-                val urlStr = "$baseUrl/${job.zoom}/${job.x}/${job.y}.png"
-                var attempt = 0
-                var saved = false
-                while (!saved && attempt <= MAX_RETRIES) {
-                    if (attempt > 0) Thread.sleep(500L * attempt)
-                    var connection: HttpURLConnection? = null
-                    try {
-                        connection = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                            connectTimeout = CONNECT_TIMEOUT_MS
-                            readTimeout = READ_TIMEOUT_MS
-                            requestMethod = "GET"
-                            setRequestProperty("User-Agent", "CycleMap/1.0 (Android; cycling navigator; personal use)")
-                        }
-                        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                            connection.inputStream.use { input ->
-                                synchronized(writer) {
-                                    writer.saveFile(source, tileIndex, input, null)
-                                }
-                            }
-                            saved = true
-                        }
-                    } catch (_: Exception) {
-                        // リトライまたはスキップ (進捗は進める)
-                    } finally {
-                        connection?.disconnect()
-                    }
-                    attempt++
-                }
-                if (saved) {
+        val writer = SqlTileWriter()
+        try {
+            for (job in jobs) {
+                val tileIndex = MapTileIndex.getTileIndex(job.zoom, job.x, job.y)
+                if (tileIndex in cached) {
                     successCount.incrementAndGet()
-                } else {
-                    failCount.incrementAndGet()
+                    report()
+                    continue
                 }
-                report()
+                executor.submit {
+                    val urlStr = "$baseUrl/${job.zoom}/${job.x}/${job.y}.png"
+                    var attempt = 0
+                    var saved = false
+                    while (!saved && attempt <= MAX_RETRIES && !Thread.currentThread().isInterrupted) {
+                        if (attempt > 0) Thread.sleep(500L * attempt)
+                        var connection: HttpURLConnection? = null
+                        try {
+                            connection = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                                connectTimeout = CONNECT_TIMEOUT_MS
+                                readTimeout = READ_TIMEOUT_MS
+                                requestMethod = "GET"
+                                setRequestProperty("User-Agent", "CycleMap/1.0 (Android; cycling navigator; personal use)")
+                            }
+                            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                                connection.inputStream.use { input ->
+                                    synchronized(writer) {
+                                        writer.saveFile(source, tileIndex, input, null)
+                                    }
+                                }
+                                saved = true
+                            }
+                        } catch (_: Exception) {
+                            // リトライまたはスキップ (進捗は進める)
+                        } finally {
+                            connection?.disconnect()
+                        }
+                        attempt++
+                    }
+                    if (saved) {
+                        successCount.incrementAndGet()
+                    } else {
+                        failCount.incrementAndGet()
+                    }
+                    report()
+                }
+            }
+
+            executor.shutdown()
+            executor.awaitTermination(60, TimeUnit.MINUTES)
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw interrupted
+        } finally {
+            closeTileWriter(executor, writer)
+        }
+        onDone?.invoke(successCount.get(), failCount.get())
+    }
+
+    /** Stop workers before detaching: a timed out HTTP request may still be writing. */
+    private fun closeTileWriter(executor: java.util.concurrent.ExecutorService, writer: SqlTileWriter) {
+        var interrupted = Thread.interrupted()
+        try {
+            executor.shutdownNow()
+            while (!executor.isTerminated) {
+                try {
+                    executor.awaitTermination(1, TimeUnit.SECONDS)
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+        } finally {
+            try {
+                writer.onDetach()
+            } finally {
+                if (interrupted) Thread.currentThread().interrupt()
             }
         }
-
-        executor.shutdown()
-        executor.awaitTermination(60, TimeUnit.MINUTES)
-        writer.onDetach()
-        onDone?.invoke(successCount.get(), failCount.get())
     }
 
     /**
