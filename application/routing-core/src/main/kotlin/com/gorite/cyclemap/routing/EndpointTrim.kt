@@ -66,9 +66,12 @@ private fun cutFromEnd(lat: Double, lon: Double, c: List<Pair<Double, Double>>, 
     val atStart = t <= 0.0
     val atEnd = t >= 1.0
     val dropNodes = if (atStart) best.e else best.e + 1
-    if (dropNodes > c.size - 2) return null
-    val dropMeters = best.cumulative + t * best.length
-    if (dropMeters < minTrimMeters) return null
+    if (dropNodes == 0 || dropNodes > c.size - 2) return null
+    val trimOffsetMeters = best.cumulative + t * best.length
+    if (trimOffsetMeters < minTrimMeters) return null
+    // result.coordinates は c[dropNodes] から始まるため、実際に落とした辺の長さだけを総距離から引く
+    // (射影点 cut.point 〜 c[dropNodes] の区間は呼び出し側が head / tail 経由で接続する)。
+    val dropMeters = if (atStart) best.cumulative else best.cumulative + best.length
     val point = if (!atStart && !atEnd) best.p.lat to best.p.lon else null
     return Cut(dropNodes, dropMeters, point)
 }

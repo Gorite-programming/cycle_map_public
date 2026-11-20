@@ -94,4 +94,85 @@ class EndpointTrimTest {
         assertTrue(t.result.nodeIds.size < 5)
         assertEquals(34.001 to 132.0001, t.tail.last())
     }
+
+    private fun polylineLength(coords: List<Pair<Double, Double>>): Double =
+        coords.zipWithNext().sumOf { (a, b) -> haversineMeters(a.first, a.second, b.first, b.second) }
+
+    @Test
+    fun trimmedDistanceMatchesRemainingCoordinatesWhenStartTrimmed() {
+        val coords = listOf(
+            34.000 to 132.000,
+            34.002 to 132.000,
+            34.004 to 132.000,
+            34.004 to 132.002,
+        )
+        val rawDist = polylineLength(coords)
+        val raw = MappedRouteResult(
+            nodeIds = listOf(1L, 2L, 3L, 4L),
+            totalDistanceMeters = rawDist,
+            totalCost = rawDist * 1.2,
+            coordinates = coords,
+            nodeIndices = listOf(0, 1, 2, 3),
+        )
+        // 起点が最初の辺の t ≈ 0.25 付近にある場合、node 1 を落とし node 2 (34.002) が新先頭になる。
+        val t = trimRouteEnds(raw, 34.0005, 132.0001, 34.004, 132.002)
+        assertEquals(listOf(2L, 3L, 4L), t.result.nodeIds)
+        assertEquals(2, t.head.size)
+        assertTrue(t.tail.isEmpty())
+        val expectedRemaining = polylineLength(t.result.coordinates)
+        assertEquals(expectedRemaining, t.result.totalDistanceMeters, 1.0)
+        assertEquals(expectedRemaining * 1.2, t.result.totalCost, 1.0)
+    }
+
+    @Test
+    fun trimmedDistanceMatchesRemainingCoordinatesWhenGoalTrimmed() {
+        val coords = listOf(
+            34.000 to 132.000,
+            34.002 to 132.000,
+            34.002 to 132.002,
+            34.002 to 132.004,
+        )
+        val rawDist = polylineLength(coords)
+        val raw = MappedRouteResult(
+            nodeIds = listOf(1L, 2L, 3L, 4L),
+            totalDistanceMeters = rawDist,
+            totalCost = rawDist,
+            coordinates = coords,
+            nodeIndices = listOf(0, 1, 2, 3),
+        )
+        // 終点が最後の辺の途中 (辺末端から 30% 付近) にある場合、node 4 を落とし node 3 が新末尾になる。
+        val t = trimRouteEnds(raw, 34.000, 132.000, 34.0021, 132.0034)
+        assertEquals(listOf(1L, 2L, 3L), t.result.nodeIds)
+        assertTrue(t.head.isEmpty())
+        assertEquals(2, t.tail.size)
+        assertEquals(polylineLength(t.result.coordinates), t.result.totalDistanceMeters, 1.0)
+    }
+
+    @Test
+    fun trimmedDistanceMatchesRemainingCoordinatesWhenBothEndsTrimmed() {
+        val coords = (0..6).map { 34.000 to (132.000 + it * 0.001) }
+        val rawDist = polylineLength(coords)
+        val raw = MappedRouteResult(
+            nodeIds = coords.indices.map { it.toLong() + 100L },
+            totalDistanceMeters = rawDist,
+            totalCost = rawDist * 1.5,
+            coordinates = coords,
+            nodeIndices = coords.indices.toList(),
+        )
+        // 起点は最初の辺 (0→1) の 20%、終点は最後の辺 (5→6) の 80% 付近に射影される。
+        val t = trimRouteEnds(raw, 34.0001, 132.0002, 34.0001, 132.0058)
+        assertEquals(listOf(101L, 102L, 103L, 104L, 105L), t.result.nodeIds)
+        assertEquals(2, t.head.size)
+        assertEquals(2, t.tail.size)
+        val remainingLength = polylineLength(t.result.coordinates)
+        assertEquals(remainingLength, t.result.totalDistanceMeters, 1.0)
+        assertEquals(remainingLength * 1.5, t.result.totalCost, 1.0)
+
+        val fullDisplayedLine = t.head + t.result.coordinates + t.tail
+        val joinedLength =
+            polylineLength(t.head + listOf(t.result.coordinates.first())) +
+                t.result.totalDistanceMeters +
+                polylineLength(listOf(t.result.coordinates.last()) + t.tail)
+        assertEquals(polylineLength(fullDisplayedLine), joinedLength, 1.0)
+    }
 }
