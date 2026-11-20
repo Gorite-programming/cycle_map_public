@@ -214,6 +214,10 @@ internal fun MapContentLayout(
         var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val routePreviewSheetHeight = with(density) { routePreviewSheetHeightPx.toDp() }
         androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle && simpleVisibility.homePanel) { mapExpanded = false }
+        // Selection is temporary: keep mapExpanded unchanged on cancel and confirmation.
+        androidx.activity.compose.BackHandler(enabled = isAreaSelectMode) {
+            onAreaSelectModeChange(false)
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -425,6 +429,30 @@ internal fun MapContentLayout(
                             .onSizeChanged { homePanelHeightPx = it.height }
                             .zIndex(2f),
                     )
+                } else if (isAreaSelectMode) {
+                    // Give the selection banner its own space; ordinary controls and tabs
+                    // must not navigate away or cover the area being selected.
+                    Column(
+                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                            .padding(top = effectiveTopPadding + 8.dp, start = 12.dp, end = 12.dp)
+                            .zIndex(2f),
+                    ) {
+                        notificationBanners(Modifier.fillMaxWidth())
+                    }
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(2f),
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                    ) {
+                        androidx.compose.material3.Button(
+                            onClick = { onAreaSelectModeChange(false) },
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, top = 12.dp,
+                                    bottom = 12.dp + systemInsets.calculateBottomPadding())
+                                .heightIn(min = 52.dp),
+                        ) {
+                            androidx.compose.material3.Text("キャンセル")
+                        }
+                    }
                 } else {
                     Box(
                         modifier = Modifier
