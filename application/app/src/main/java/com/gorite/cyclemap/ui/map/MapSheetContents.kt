@@ -94,7 +94,8 @@ fun PlaceDetailContent(
                                 text = catLabel,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = catColor,
+                                color = if (com.gorite.cyclemap.ui.theme.CycleMapTheme.palette.isDark)
+                                    MaterialTheme.colorScheme.onSurface else catColor,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }

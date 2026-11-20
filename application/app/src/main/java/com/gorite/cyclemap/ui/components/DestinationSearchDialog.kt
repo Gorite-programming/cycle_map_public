@@ -37,7 +37,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -282,6 +284,8 @@ internal fun DestinationSearchDialog(
 
     val quickCategories = remember { SearchCategory.entries.filter { it != SearchCategory.ALL } }
 
+    val density = LocalDensity.current
+    val topInset = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     Surface(
         modifier = Modifier
             .fillMaxSize()
@@ -293,7 +297,7 @@ internal fun DestinationSearchDialog(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding(),
+                .padding(top = topInset),
         ) {
             // FTS5非対応時の案内バナー（セッション中1回のみ）
             if (showFts5Notice) {

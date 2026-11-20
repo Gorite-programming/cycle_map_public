@@ -74,7 +74,7 @@ internal fun MapDrawerContent(
             }
         }
         HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
-        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+        Column(modifier = Modifier.weight(1f).navigationBarsPadding().verticalScroll(rememberScrollState())) {
             DrawerSectionHeader("走る")
             DrawerMenuItem(
                 label = "目的地検索",
@@ -152,7 +152,6 @@ internal fun MapDrawerContent(
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .navigationBarsPadding()
                     .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp),
             )
         }
