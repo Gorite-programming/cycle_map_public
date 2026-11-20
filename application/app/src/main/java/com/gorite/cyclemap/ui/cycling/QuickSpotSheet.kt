@@ -170,6 +170,11 @@ internal fun sortSpotsByRouteProximity(
         .map { it.first }
 }
 
+/** 走行距離を200m単位に丸め、GPS更新ごとの経路再生成・候補ソートを避ける。 */
+internal fun quickSpotProgressKey(traveledMeters: Double?): Long =
+    if (traveledMeters == null || !traveledMeters.isFinite() || traveledMeters <= 0.0) 0L
+    else kotlin.math.floor(traveledMeters / 200.0).toLong()
+
 internal fun formatDistanceFromRoute(meters: Double): String {
     if (!meters.isFinite() || meters < 0.0) return ""
     val rounded = meters.roundToInt()
@@ -208,7 +213,8 @@ fun QuickSpotBottomSheet(
     val context = LocalContext.current
     val mapViewModel = remember(context) { findMapViewModelOrNull(context) }
     val effectiveProgress = navigationProgress ?: if (isNavigating) mapViewModel?.navigation?.progress?.value else null
-    val effectiveRoutePoints = remember(isNavigating, routePoints, effectiveProgress) {
+    val progressKey = quickSpotProgressKey(effectiveProgress?.distanceFromStartMeters)
+    val effectiveRoutePoints = remember(isNavigating, routePoints, progressKey) {
         activeRemainingRoutePoints(isNavigating, routePoints, effectiveProgress)
     }
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
