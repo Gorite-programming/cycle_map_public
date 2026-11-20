@@ -74,7 +74,7 @@ internal fun buildRouteInstructions(
             val to = graph.nodeAt(branch.targetIndex)
             val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
                 ?: return@mapNotNull null
-            TurnClassifier.MappedBranch(bearing, branch.roadTypeName, branch.distanceMeters)
+            TurnClassifier.MappedBranch(bearing, branch.roadTypeName, branch.distanceMeters, to.id)
         }
     }
     // ルート上の edge の roadType (ランプ・側道・合流判定用)。

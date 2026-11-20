@@ -124,7 +124,9 @@ object TurnClassifier {
         if (nodeIds.size < 3 || coordinates.size != nodeIds.size) return emptyList()
         val view = object : GraphView {
             override fun branches(nodeId: Long): List<RawBranch> =
-                branchesOf(nodeId).map { RawBranch(null, it.bearing, it.roadType, it.distanceMeters) }
+                branchesOf(nodeId).map {
+                    RawBranch(it.targetNodeId, it.bearing, it.roadType, it.distanceMeters)
+                }
 
             override fun roadType(fromId: Long, toId: Long): String = "unknown"
         }
@@ -133,7 +135,12 @@ object TurnClassifier {
     }
 
     /** LazyMappedRoadGraph から取り出す分岐情報。 */
-    data class MappedBranch(val bearing: Double, val roadType: String, val distanceMeters: Double)
+    data class MappedBranch(
+        val bearing: Double,
+        val roadType: String,
+        val distanceMeters: Double,
+        val targetNodeId: Long? = null,
+    )
 
     private fun buildInputs(
         view: GraphView,
@@ -159,11 +166,13 @@ object TurnClassifier {
                     points[i].latitude, points[i].longitude,
                     points[i + 1].latitude, points[i + 1].longitude,
                 ) ?: return@mapNotNull null
-            val options = view.branches(nodeIds[i]).map { raw ->
-                val isChoice = if (raw.targetNodeId != null) {
-                    raw.targetNodeId == nodeIds[i + 1]
-                } else {
-                    abs(signedTurnDegrees(outgoing, raw.bearing)) <= 2.5
+            val rawBranches = view.branches(nodeIds[i])
+            val hasIdMatch = rawBranches.any { it.targetNodeId != null && it.targetNodeId == nodeIds[i + 1] }
+            val options = rawBranches.map { raw ->
+                val isChoice = when {
+                    raw.targetNodeId != null -> raw.targetNodeId == nodeIds[i + 1]
+                    hasIdMatch -> false
+                    else -> abs(signedTurnDegrees(outgoing, raw.bearing)) <= 2.5
                 }
                 BranchOption(raw.bearing, raw.roadType, isChoice, raw.distanceMeters)
             }

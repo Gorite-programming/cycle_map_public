@@ -566,4 +566,144 @@ class TurnClassifierTest {
         val turn = signedTurnDegrees(0.0, 180.0)
         assertEquals(-180.0, turn, 1e-9)
     }
+
+    @Test
+    fun classifyMappedRoute_usesTargetNodeIdWhenCurvedOutgoingExceedsBearingTolerance() {
+        // 交差点直後が短いエッジ(約7.4m)で、その先が20m圏内で大きくカーブするため、
+        // 15〜30m先読み方位が直近エッジ方位(90°)から2.5°を超えてずれるT字路。
+        val s = pt(34.10100, 131.40000)
+        val j = pt(34.10000, 131.40000)
+        val c1 = pt(34.10000, 131.40008) // 東へ約7.4m (bearing 90°)
+        val c2 = pt(34.10012, 131.40020) // 北東へカーブ (j->c2 は約22.7m, bearing 約54°)
+        val d = pt(34.10000, 131.39900)  // 西枝 (bearing 270°)
+        val route = listOf(s, j, c1, c2)
+        val graph = buildGraph(
+            route,
+            listOf("residential", "residential", "residential"),
+            extraEdges = listOf(Triple(j, d, "residential"), Triple(d, j, "residential")),
+        )
+        val points = route.map { RoutePoint(it.lat, it.lon) }
+        val nodeIds = route.map { it.id }
+        val edgeTypes = listOf("residential", "residential", "residential")
+
+        val withIds = TurnClassifier.classifyMappedRoute(
+            nodeIds = nodeIds,
+            coordinates = points,
+            branchesOf = { id ->
+                val from = graph.node(id)
+                graph.outgoing[id].orEmpty().mapNotNull { edge ->
+                    val to = graph.node(edge.to)
+                    val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
+                        ?: return@mapNotNull null
+                    TurnClassifier.MappedBranch(bearing, edge.roadType, edge.distanceMeters, edge.to)
+                }
+            },
+            edgeTypes = edgeTypes,
+        )
+        val atJunctionWithIds = withIds.first { it.nodeId == j.id }
+        assertEquals(InstructionType.T_JUNCTION, atJunctionWithIds.type)
+        assertEquals("two-branches", atJunctionWithIds.reason)
+
+        // ID 無しの旧来経路では先読み方位との差が 2.5° を超えるため angle-only に落ちることを対照確認する。
+        val withoutIds = TurnClassifier.classifyMappedRoute(
+            nodeIds = nodeIds,
+            coordinates = points,
+            branchesOf = { id ->
+                val from = graph.node(id)
+                graph.outgoing[id].orEmpty().mapNotNull { edge ->
+                    val to = graph.node(edge.to)
+                    val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
+                        ?: return@mapNotNull null
+                    TurnClassifier.MappedBranch(bearing, edge.roadType, edge.distanceMeters)
+                }
+            },
+            edgeTypes = edgeTypes,
+        )
+        val atJunctionWithoutIds = withoutIds.first { it.nodeId == j.id }
+        assertEquals("angle-only", atJunctionWithoutIds.reason)
+    }
+
+    @Test
+    fun classifyMappedRoute_curvedForkDoesNotDropInstructionWithTargetNodeId() {
+        // 直進分岐直後が約8.9mでその先が左へ緩くカーブする場合、
+        // ID が無いと angle-only (<=20°) で分岐案内ごと欠落するが、ID 照合なら FORK_UP_LEFT を保てる。
+        val s = pt(34.10100, 131.40000)
+        val j = pt(34.10000, 131.40000)
+        val c1 = pt(34.09992, 131.40000) // 真南へ約8.9m (bearing 180°)
+        val c2 = pt(34.09978, 131.40006) // 約25m先で東寄りへカーブ (bearing 約167°, 差 > 2.5°)
+        val d = pt(34.09900, 131.39940)  // 右前方への分岐 (turn 約 +26°)
+        val route = listOf(s, j, c1, c2)
+        val graph = buildGraph(
+            route,
+            listOf("primary", "primary", "primary"),
+            extraEdges = listOf(Triple(j, d, "primary"), Triple(d, j, "primary")),
+        )
+        val points = route.map { RoutePoint(it.lat, it.lon) }
+        val nodeIds = route.map { it.id }
+        val edgeTypes = listOf("primary", "primary", "primary")
+
+        val withIds = TurnClassifier.classifyMappedRoute(
+            nodeIds = nodeIds,
+            coordinates = points,
+            branchesOf = { id ->
+                val from = graph.node(id)
+                graph.outgoing[id].orEmpty().mapNotNull { edge ->
+                    val to = graph.node(edge.to)
+                    val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
+                        ?: return@mapNotNull null
+                    TurnClassifier.MappedBranch(bearing, edge.roadType, edge.distanceMeters, edge.to)
+                }
+            },
+            edgeTypes = edgeTypes,
+        )
+        val atJunctionWithIds = withIds.firstOrNull { it.nodeId == j.id }
+        assertEquals(InstructionType.FORK_UP_LEFT, atJunctionWithIds?.type)
+        assertEquals("two-branches", atJunctionWithIds?.reason)
+
+        val withoutIds = TurnClassifier.classifyMappedRoute(
+            nodeIds = nodeIds,
+            coordinates = points,
+            branchesOf = { id ->
+                val from = graph.node(id)
+                graph.outgoing[id].orEmpty().mapNotNull { edge ->
+                    val to = graph.node(edge.to)
+                    val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
+                        ?: return@mapNotNull null
+                    TurnClassifier.MappedBranch(bearing, edge.roadType, edge.distanceMeters)
+                }
+            },
+            edgeTypes = edgeTypes,
+        )
+        assertTrue(withoutIds.none { it.nodeId == j.id })
+    }
+
+    @Test
+    fun classifyMappedRoute_fallsBackToBearingWhenTargetNodeIdIsNull() {
+        val a = pt(34.101, 131.400)
+        val b = pt(34.100, 131.400)
+        val c = pt(34.100, 131.401)
+        val d = pt(34.100, 131.399)
+        val route = listOf(a, b, c)
+        val graph = buildGraph(
+            route,
+            listOf("residential", "residential"),
+            extraEdges = listOf(Triple(b, d, "residential"), Triple(d, b, "residential")),
+        )
+        val result = TurnClassifier.classifyMappedRoute(
+            nodeIds = route.map { it.id },
+            coordinates = route.map { RoutePoint(it.lat, it.lon) },
+            branchesOf = { id ->
+                val from = graph.node(id)
+                graph.outgoing[id].orEmpty().mapNotNull { edge ->
+                    val to = graph.node(edge.to)
+                    val bearing = bearingBetween(from.latitude, from.longitude, to.latitude, to.longitude)
+                        ?: return@mapNotNull null
+                    TurnClassifier.MappedBranch(bearing, edge.roadType, edge.distanceMeters)
+                }
+            },
+            edgeTypes = listOf("residential", "residential"),
+        )
+        assertEquals(listOf(InstructionType.T_JUNCTION), result.map { it.type })
+        assertEquals(listOf("two-branches"), result.map { it.reason })
+    }
 }
