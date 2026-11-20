@@ -23,6 +23,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.gorite.cyclemap.R
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,8 +41,12 @@ class LocationTrackingService : Service() {
     private val statusListeners = CopyOnWriteArrayList<(GpsSignalStatus) -> Unit>()
     private val binder = LocalBinder()
     private var recorder: GpxRecorder? = null
-    @Volatile var recoveryPending = false
-        private set
+    private val _recoveryPending = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val recoveryPendingState: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        _recoveryPending.asStateFlow()
+    var recoveryPending: Boolean
+        get() = _recoveryPending.value
+        private set(value) { _recoveryPending.value = value }
     private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val saveCoordinator = GpxSaveCoordinator(
         dispatchIo = { saveExecutor.execute(it) },
