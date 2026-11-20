@@ -19,16 +19,23 @@ internal class GpxSaveCoordinator(
     fun save(write: () -> Unit, onComplete: (Result<Unit>) -> Unit) {
         if (saving) return
         saving = true
-        dispatchIo {
-            val result = runCatching(write)
-            dispatchCompletion {
-                try {
-                    onComplete(result)
-                } finally {
-                    saving = false
-                    stopIfReady()
+        try {
+            dispatchIo {
+                val result = runCatching(write)
+                dispatchCompletion {
+                    try {
+                        onComplete(result)
+                    } finally {
+                        saving = false
+                        stopIfReady()
+                    }
                 }
             }
+        } catch (t: Throwable) {
+            // 保存を始められなかったとき (executor の停止など) に saving が true のまま戻れなくならないようにする
+            saving = false
+            onComplete(Result.failure(t))
+            stopIfReady()
         }
     }
 

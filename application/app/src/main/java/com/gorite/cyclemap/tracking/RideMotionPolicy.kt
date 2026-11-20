@@ -4,7 +4,8 @@ package com.gorite.cyclemap.tracking
 internal object RideMotionPolicy {
     const val MAX_ACCURACY_M = 20f
     const val MIN_DISTANCE_M = 3.0
-    const val MIN_SPEED_MPS = 0.8
+    // 自動一時停止の閾値 (2.0 km/h ≒ 0.556 m/s) と整合させ、押し歩き・急な登りも拾う
+    const val MIN_SPEED_MPS = 0.5
 
     fun acceptsAccuracy(accuracyM: Float): Boolean =
         accuracyM.isFinite() && accuracyM in 0f..MAX_ACCURACY_M

@@ -47,10 +47,11 @@ class LocationTrackingService : Service() {
     var recoveryPending: Boolean
         get() = _recoveryPending.value
         private set(value) { _recoveryPending.value = value }
+    @Volatile private var destroyed = false
     private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val saveCoordinator = GpxSaveCoordinator(
         dispatchIo = { saveExecutor.execute(it) },
-        dispatchCompletion = { healthHandler.post(it) },
+        dispatchCompletion = { if (!destroyed) healthHandler.post(it) },
         onStopped = {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -286,6 +287,7 @@ class LocationTrackingService : Service() {
         tracking = false
         previousLocation = null
         smoothedSpeed = 0.0
+        destroyed = true
         saveExecutor.shutdown()
         super.onDestroy()
     }

@@ -74,4 +74,15 @@ class GpxSaveCoordinatorTest {
         coordinator.requestStop()
         assertEquals(1, stops)
     }
+    @Test
+    fun saveReturnsToIdleWhenDispatchThrows() {
+        var stops = 0
+        var failure: Throwable? = null
+        val coordinator = GpxSaveCoordinator({ throw java.util.concurrent.RejectedExecutionException("shutdown") }, { it() }) { stops++ }
+        coordinator.save({ fail("not written") }) { failure = it.exceptionOrNull() }
+        assertTrue(failure is java.util.concurrent.RejectedExecutionException)
+        assertFalse(coordinator.saving)
+        coordinator.requestStop()
+        assertEquals(1, stops)
+    }
 }

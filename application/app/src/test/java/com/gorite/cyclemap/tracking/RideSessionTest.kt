@@ -308,7 +308,7 @@ class RideSessionTest {
     @Test fun lowReportedSpeedAndPoorAccuracyCannotRaiseMaximumOrDistance() {
         val session = RideSession()
         session.start(0)
-        repeat(20) { point(session, it * 1000L, (it % 3) * 2.0, speed = 0.7f) }
+        repeat(20) { point(session, it * 1000L, (it % 3) * 2.0, speed = 0.4f) }
         point(session, 20_000, 25.0, speed = 10f, accuracy = 21f)
         val snapshot = session.snapshot(20_000)
         assertEquals(0.0, snapshot.distanceM, 0.0)
