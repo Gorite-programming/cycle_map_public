@@ -55,9 +55,13 @@ import com.gorite.cyclemap.R
 import com.gorite.cyclemap.data.FavoriteSpot
 import com.gorite.cyclemap.data.FavoritesManager
 import com.gorite.cyclemap.routing.RoutePoint
+import com.gorite.cyclemap.routing.RouteProgress
 import com.gorite.cyclemap.routing.RouteProgressIndex
+import com.gorite.cyclemap.search.activeRemainingRoutePoints
+import com.gorite.cyclemap.search.findMapViewModelOrNull
 import com.gorite.cyclemap.ui.components.DistanceAndDirection
 import com.gorite.cyclemap.ui.components.directionBearingDeg
+import com.gorite.cyclemap.ui.components.formatShortDistance
 import com.gorite.cyclemap.ui.components.formatSpotSubtitle
 import kotlin.math.roundToInt
 
@@ -142,7 +146,7 @@ internal data class QuickSpotWithRouteDistance(
 )
 
 /**
- * ナビ中は案内ルートに近い順 (同一距離なら現在地に近い順) に並べ替える。
+ * ナビ中は「経路に沿った先までの距離 + 経路から外れる往復の距離」の短い順 (同じなら現在地に近い順) に並べ替える。
  * ルート点が 2 点未満のときは元の順序を保つ。
  */
 internal fun sortSpotsByRouteProximity(
@@ -153,23 +157,31 @@ internal fun sortSpotsByRouteProximity(
         return spots.map { QuickSpotWithRouteDistance(it, null) }
     }
     val index = RouteProgressIndex(routePoints)
+    // 実質距離 = 経路に沿った先までの距離 + 経路から外れて戻る往復の迂回距離。
+    // 先の遠い店が「ルート直上」というだけで、すぐ先の店より上位に来ないようにする。
     return spots
         .map { spot ->
-            val routeDist = index.calculate(RoutePoint(spot.latitude, spot.longitude))?.distanceToRouteMeters
-            QuickSpotWithRouteDistance(spot, routeDist)
+            val progress = index.calculate(RoutePoint(spot.latitude, spot.longitude))
+            val routeDist = progress?.distanceToRouteMeters
+            val effective = progress?.let { it.distanceFromStartMeters + 2.0 * it.distanceToRouteMeters }
+            Triple(QuickSpotWithRouteDistance(spot, routeDist), effective ?: Double.POSITIVE_INFINITY, spot.distanceM)
         }
-        .sortedWith(
-            compareBy<QuickSpotWithRouteDistance>(
-                { it.routeDistanceMeters ?: Double.POSITIVE_INFINITY },
-                { it.spot.distanceM },
-            ),
-        )
+        .sortedWith(compareBy<Triple<QuickSpotWithRouteDistance, Double, Double>>({ it.second }, { it.third }))
+        .map { it.first }
 }
 
 internal fun formatDistanceFromRoute(meters: Double): String {
     if (!meters.isFinite() || meters < 0.0) return ""
     val rounded = meters.roundToInt()
     return if (rounded < 1000) "ルートから${rounded}m" else "ルートから${"%.1f".format(java.util.Locale.US, meters / 1000.0)}km"
+}
+
+/**
+ * 経路から外れて立ち寄り、再び経路へ戻る往復の追加距離 (片道距離 × 2) を既存の距離書式で返す。
+ */
+internal fun formatDetourDistance(routeDistanceMeters: Double): String {
+    if (!routeDistanceMeters.isFinite() || routeDistanceMeters <= 0.0) return ""
+    return "迂回+${formatShortDistance(routeDistanceMeters * 2.0)}"
 }
 
 /**
@@ -191,13 +203,19 @@ fun QuickSpotBottomSheet(
     origin: Pair<Double, Double>? = null,
     isNavigating: Boolean = false,
     routePoints: List<RoutePoint> = emptyList(),
+    navigationProgress: RouteProgress? = null,
 ) {
     val context = LocalContext.current
+    val mapViewModel = remember(context) { findMapViewModelOrNull(context) }
+    val effectiveProgress = navigationProgress ?: if (isNavigating) mapViewModel?.navigation?.progress?.value else null
+    val effectiveRoutePoints = remember(isNavigating, routePoints, effectiveProgress) {
+        activeRemainingRoutePoints(isNavigating, routePoints, effectiveProgress)
+    }
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
     val favorites by favoritesManager.favorites.collectAsState()
-    val sortedByRoute = isNavigating && routePoints.size >= 2
-    val displayItems = remember(spots, sortedByRoute, routePoints) {
-        if (sortedByRoute) sortSpotsByRouteProximity(spots, routePoints)
+    val sortedByRoute = isNavigating && effectiveRoutePoints.size >= 2
+    val displayItems = remember(spots, sortedByRoute, effectiveRoutePoints) {
+        if (sortedByRoute) sortSpotsByRouteProximity(spots, effectiveRoutePoints)
         else spots.map { QuickSpotWithRouteDistance(it, null) }
     }
 
@@ -472,9 +490,13 @@ internal fun QuickSpotCard(
             ) {
                 val baseSubtitle = formatSpotSubtitle(spot.address, spot.category)
                 val routeDistLabel = routeDistanceMeters?.let(::formatDistanceFromRoute).orEmpty()
+                val detourLabel = routeDistanceMeters?.let(::formatDetourDistance).orEmpty()
+                val routeInfoLabel = listOf(routeDistLabel, detourLabel)
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" ")
                 val subtitleText = when {
-                    routeDistLabel.isNotEmpty() && baseSubtitle.isNotEmpty() -> "$routeDistLabel ・ $baseSubtitle"
-                    routeDistLabel.isNotEmpty() -> routeDistLabel
+                    routeInfoLabel.isNotEmpty() && baseSubtitle.isNotEmpty() -> "$routeInfoLabel ・ $baseSubtitle"
+                    routeInfoLabel.isNotEmpty() -> routeInfoLabel
                     else -> baseSubtitle
                 }
                 Text(

@@ -5,12 +5,20 @@ import android.location.Location
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import com.gorite.cyclemap.R
+import com.gorite.cyclemap.routing.RoutePoint
+import com.gorite.cyclemap.routing.RouteProgress
 import com.gorite.cyclemap.utils.cycleMapDataDir
 import com.gorite.cyclemap.data.SearchDbSelection
 import com.gorite.cyclemap.data.SearchDbSelector
+import com.gorite.cyclemap.search.activeRemainingRoutePoints
+import com.gorite.cyclemap.search.findMapViewModelOrNull
+import com.gorite.cyclemap.search.mergeQuickSpotResults
 import com.gorite.cyclemap.search.searchNearbyPlaces
 import com.gorite.cyclemap.search.searchNearbyQuickSpots
+import com.gorite.cyclemap.search.routeSearchCenters
+import com.gorite.cyclemap.search.selectRouteQuickSpotDatabases
 import com.gorite.cyclemap.ui.cycling.NearbySpot
 import com.gorite.cyclemap.ui.cycling.QuickSpotType
 import com.gorite.cyclemap.ui.cycling.SpotQuickCategory
@@ -39,7 +47,14 @@ internal fun MapSearchEffects(
     onQuickSpotMessageChange: (String?) -> Unit,
     onQuickSpotResultsChange: (List<NearbySpot>) -> Unit,
     selectedPoiSpot: NearbySpot?,
+    isNavigationActive: Boolean? = null,
+    navigationRoute: List<RoutePoint>? = null,
+    navigationProgress: RouteProgress? = null,
 ) {
+    val mapViewModel = remember(context) { findMapViewModelOrNull(context) }
+    val effectiveNavigating = isNavigationActive ?: (mapViewModel?.navigation?.isActive?.value == true)
+    val effectiveRoute = navigationRoute ?: mapViewModel?.route?.points?.value.orEmpty()
+    val effectiveProgress = navigationProgress ?: mapViewModel?.navigation?.progress?.value
     // スポット検索 (カテゴリ選択→周辺のオフラインDB検索)
     LaunchedEffect(spotCategory, showSpotPanel) {
         val cat = spotCategory
@@ -113,39 +128,124 @@ internal fun MapSearchEffects(
             onQuickSpotMessageChange("現在地が取得できません")
             return@LaunchedEffect
         }
-        val dbSelection = SearchDbSelector.select(center.first, center.second)
         val dataDir = cycleMapDataDir(context)
-        val dbFile = when (dbSelection) {
-            is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(dataDir, dbSelection.fileName)
-            is SearchDbSelection.Unavailable -> null
-        }
-        if (dbSelection is SearchDbSelection.Available) {
-            Log.i(
-                "CycleMapGeo",
-                "QUICK_SPOT_DB prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} type=${type.name}",
+        if (!effectiveNavigating) {
+            val dbSelection = SearchDbSelector.select(center.first, center.second)
+            val dbFile = when (dbSelection) {
+                is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(dataDir, dbSelection.fileName)
+                is SearchDbSelection.Unavailable -> null
+            }
+            if (dbSelection is SearchDbSelection.Available) {
+                Log.i(
+                    "CycleMapGeo",
+                    "QUICK_SPOT_DB prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} type=${type.name}",
+                )
+            }
+            var readFailed = false
+            val found = try {
+                if (dbFile != null && dbFile.isFile) {
+                    withContext(Dispatchers.IO) {
+                        searchNearbyQuickSpots(
+                            dbFile = dbFile,
+                            centerLat = center.first,
+                            centerLon = center.second,
+                            radiusMeters = 8000.0,
+                            categoryKeys = type.categoryKeys,
+                            nameFilter = type.nameFilter,
+                            limit = 30,
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("CycleMap", "Quick spot search DB read failed", e)
+                readFailed = true
+                emptyList()
+            }
+            onQuickSpotResultsChange(found)
+            onQuickSpotLoadingChange(false)
+            onQuickSpotMessageChange(
+                if (readFailed) {
+                    "検索DBを読めません"
+                } else if (dbFile == null || !dbFile.isFile) {
+                    "検索DBが見つかりません"
+                } else if (found.isEmpty()) {
+                    "周辺に${type.label}が見つかりませんでした"
+                } else {
+                    null
+                },
             )
+            return@LaunchedEffect
         }
+
+        val remainingRoute = activeRemainingRoutePoints(
+            isNavigating = true,
+            routePoints = effectiveRoute,
+            progress = effectiveProgress,
+        )
+        var noDbAvailable = false
         var readFailed = false
         val found = try {
-            if (dbFile != null && dbFile.isFile) {
-                withContext(Dispatchers.IO) {
-                    searchNearbyQuickSpots(
-                        dbFile = dbFile,
-                        centerLat = center.first,
-                        centerLon = center.second,
-                        radiusMeters = 8000.0,
-                        categoryKeys = type.categoryKeys,
-                        nameFilter = type.nameFilter,
+            withContext(Dispatchers.IO) {
+                val targetDbs = selectRouteQuickSpotDatabases(
+                    dataDir = dataDir,
+                    centerLat = center.first,
+                    centerLon = center.second,
+                    remainingRoute = remainingRoute,
+                )
+                if (targetDbs.isEmpty()) {
+                    noDbAvailable = true
+                    return@withContext emptyList()
+                }
+                Log.i(
+                    "CycleMapGeo",
+                    "QUICK_SPOT_DB nav prefectures=${targetDbs.joinToString(",") { it.prefectureName ?: it.file.name }} " +
+                        "files=${targetDbs.joinToString(",") { it.file.name }} type=${type.name}",
+                )
+                var failedCount = 0
+                // 現在地だけでなく残りの経路に沿った先の地点でも探し、県境の先の候補も拾う
+                val centers = routeSearchCenters(remainingRoute).map { it.latitude to it.longitude }
+                    .ifEmpty { listOf(center) }
+                    .let { if (it.first() != center) listOf(center) + it else it }
+                val groups = targetDbs.flatMap { db ->
+                    centers.map { c ->
+                        try {
+                            searchNearbyQuickSpots(
+                                dbFile = db.file,
+                                centerLat = c.first,
+                                centerLon = c.second,
+                                radiusMeters = 8000.0,
+                                categoryKeys = type.categoryKeys,
+                                nameFilter = type.nameFilter,
+                                limit = 30,
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("CycleMap", "Quick spot search DB read failed: ${db.file.name}", e)
+                            failedCount++
+                            emptyList()
+                        }
+                    }
+                }
+                if (failedCount == targetDbs.size * centers.size) {
+                    readFailed = true
+                    emptyList()
+                } else {
+                    mergeQuickSpotResults(
+                        spotGroups = groups,
+                        remainingRoute = remainingRoute,
                         limit = 30,
                     )
                 }
-            } else {
-                emptyList()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w("CycleMap", "Quick spot search DB read failed", e)
+            Log.w("CycleMap", "Quick spot route search failed", e)
             readFailed = true
             emptyList()
         }
@@ -154,7 +254,7 @@ internal fun MapSearchEffects(
         onQuickSpotMessageChange(
             if (readFailed) {
                 "検索DBを読めません"
-            } else if (dbFile == null || !dbFile.isFile) {
+            } else if (noDbAvailable) {
                 "検索DBが見つかりません"
             } else if (found.isEmpty()) {
                 "周辺に${type.label}が見つかりませんでした"

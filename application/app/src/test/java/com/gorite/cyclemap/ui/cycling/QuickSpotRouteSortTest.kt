@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.ui.cycling
 
 import com.gorite.cyclemap.routing.RoutePoint
+import com.gorite.cyclemap.search.remainingRoutePoints
+import com.gorite.cyclemap.utils.haversineMeters
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -42,5 +44,35 @@ class QuickSpotRouteSortTest {
         assertEquals("ルートから85m", formatDistanceFromRoute(85.4))
         assertEquals("ルートから1.3km", formatDistanceFromRoute(1260.0))
         assertEquals("", formatDistanceFromRoute(Double.NaN))
+    }
+
+    @Test
+    fun formatsDetourDistanceUsingRoundTripMeters() {
+        assertEquals("迂回+171 m", formatDetourDistance(85.4))
+        assertEquals("迂回+2.5 km", formatDetourDistance(1260.0))
+        assertEquals("", formatDetourDistance(0.0))
+        assertEquals("", formatDetourDistance(-10.0))
+        assertEquals("", formatDetourDistance(Double.NaN))
+    }
+
+    @Test
+    fun remainingRouteExcludesPassedSpotSoAheadSpotRanksFirst() {
+        val p0 = RoutePoint(34.000, 132.000)
+        val p1 = RoutePoint(34.000, 132.030)
+        val p2 = RoutePoint(34.000, 132.060)
+        val route = listOf(p0, p1, p2)
+
+        val passedOnRoute = NearbySpot("通過済みの店", "shop:convenience", 34.000, 132.010, 2000.0)
+        val aheadOffSlightly = NearbySpot("前方の店", "shop:convenience", 34.001, 132.045, 1500.0)
+
+        // 全経路のまま並べると通過済みの店が「経路から0m」で先頭になる
+        val fullSorted = sortSpotsByRouteProximity(listOf(passedOnRoute, aheadOffSlightly), route)
+        assertEquals(listOf("通過済みの店", "前方の店"), fullSorted.map { it.spot.name })
+
+        // p1 (132.030) まで進んだ残り経路で並べると前方の店が先頭になる
+        val traveledToP1 = haversineMeters(p0.latitude, p0.longitude, p1.latitude, p1.longitude)
+        val remaining = remainingRoutePoints(route, traveledToP1)
+        val remainingSorted = sortSpotsByRouteProximity(listOf(passedOnRoute, aheadOffSlightly), remaining)
+        assertEquals(listOf("前方の店", "通過済みの店"), remainingSorted.map { it.spot.name })
     }
 }
