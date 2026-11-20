@@ -17,8 +17,8 @@
      アプリの画面の配色 (ui/theme/Palette.kt の SumiShu) と同じ系統。
   6. 建物を少し透かし、商業地の色が街区に出るようにする (Google マップの繁華街のベージュ)。
   7. 丁目などの町名 (neighbourhood) は z14 から出す。引いた地図は区名・駅名・ランドマークに絞る。
-  4. タイル内 POI: 動的 POI ピン (検索DB由来) が担うカテゴリ (飲食・コンビニ・トイレ・給水・バス停) は
-     スタイル側から外し、同じ施設が二重に出ないようにする。
+  4. タイル内 POI: 動的 POI ピン (検索DB由来、PoiCategory v3) が担うカテゴリは
+     スタイル側から外し、同じ施設が二重に出ないようにする。景観・小さな店などは残す。
 
 使い方 (リポジトリ直下から):
     python3 scripts/patch_map_style.py
@@ -31,8 +31,23 @@ from pathlib import Path
 STYLE_DIR = Path(__file__).resolve().parent.parent / "application/app/src/main/assets/styles"
 THEMES = ("light", "dark")
 
-# 動的 POI ピンが担うため、タイルの POI から外す kind
-POI_KINDS_COVERED_BY_PINS = {"restaurant", "fast_food", "cafe", "convenience", "toilets", "drinking_water", "bus_stop"}
+# 動的 POI ピン (CyclingData.kt の PoiCategory v3) が担うため、タイルの POI から外す kind。
+# ピンが描かない景観・小さな店 (forest, garden, marina, bench, animal, building, books, beauty,
+# electronics, clothes, theatre 等) は地図が寂しくならないよう残す。
+POI_KINDS_COVERED_BY_PINS = {
+    # 既定でオンのカテゴリ、または従来から外していたものだけ。既定オフのカテゴリ (駐車場・学校・銀行・薬局・
+    # 診療所・郵便局・バー・観光案内) は、ピンが出ない既定設定で地図から消えないようタイル側に残す。
+    "station", "halt", "bus_station", "ferry_terminal", "bus_stop", "tram_stop", "fuel", "charging_station",
+    "bicycle", "bicycle_rental", "bicycle_parking", "bicycle_repair_station",
+    "convenience", "supermarket", "department_store", "mall", "restaurant", "fast_food", "cafe", "bakery",
+    "attraction", "museum", "zoo", "artwork", "theme_park", "aquarium", "viewpoint", "gallery", "picnic_site",
+    "place_of_worship", "aerodrome", "beach", "peak", "volcano", "waterfall", "castle", "monument", "memorial", "ruins",
+    "park", "public_bath", "hotel", "guest_house", "hostel", "motel", "resort",
+    "camp_site", "alpine_hut", "wilderness_hut",
+    "stadium", "sports_centre", "swimming_pool", "golf_course",
+    "toilets", "drinking_water", "hospital",
+    "townhall", "police", "fire_station", "library", "public_building",
+}
 
 # テーマ別の鉄道配色 (base=黒地, tick=白い破線)
 RAIL = {
@@ -122,11 +137,32 @@ def patch_city_detail(layers):
     ]
 
 
+def _find_kind_literal_list(expr):
+    """MapLibre filter AST から ["in", ["get", "kind"], ["literal", [...]]] のリストを返す。"""
+    if not isinstance(expr, list):
+        return None
+    if (
+        len(expr) == 3
+        and expr[0] == "in"
+        and expr[1] == ["get", "kind"]
+        and isinstance(expr[2], list)
+        and len(expr[2]) == 2
+        and expr[2][0] == "literal"
+        and isinstance(expr[2][1], list)
+    ):
+        return expr[2][1]
+    for item in expr:
+        found = _find_kind_literal_list(item)
+        if found is not None:
+            return found
+    return None
+
+
 def patch_pois(layer):
-    flt = layer["filter"]
-    # ["all", ["in", ["get","kind"], ["literal", [...]]], [">=", ...]]
-    kinds = flt[1][2][1]
-    flt[1][2][1] = [k for k in kinds if k not in POI_KINDS_COVERED_BY_PINS]
+    kinds = _find_kind_literal_list(layer.get("filter"))
+    if kinds is None:
+        raise ValueError("pois layer filter missing ['in', ['get', 'kind'], ['literal', [...]]]")
+    kinds[:] = [k for k in kinds if k not in POI_KINDS_COVERED_BY_PINS]
 
 
 # 土地利用の塗り分け。landuse_park は残りの種別 (公園・草地・ゴルフ場など) を担当する。
@@ -243,18 +279,21 @@ def raise_shields(style):
 
     MapLibre は上の層から順にラベルを置き、重なるものは後の層が消える。標識は道路名・POI より下に
     あったため、市街地では z15 でも標識がほとんど出なかった (Google マップは z12 から出す)。冪等。
+    allow-overlap は無効にしてバッジ同士や地名との重なりを防ぎ、symbol-sort-key で国道を優先する。
     """
     layers = style["layers"]
     shield = next(l for l in layers if l["id"] == "roads_shields")
     layers.remove(shield)
     anchor = max(i for i, l in enumerate(layers) if l["id"] in ("pois", "roads_labels_major"))
     layers.insert(anchor + 1, shield)
-    # 標識は小さいので、ほかのラベルとの間隔を詰めて置ける場所を増やす
-    shield["layout"]["icon-padding"] = 1
-    shield["layout"]["text-padding"] = 1
-    # 標識は、ほかのラベルと重なっても出す (Google マップと同じく番号を優先)。間隔は symbol-spacing で保つ
-    shield["layout"]["icon-allow-overlap"] = True
-    shield["layout"]["text-allow-overlap"] = True
+    layout = shield["layout"]
+    # バッジ同士が触れ合わない最小限の余白を保ちつつ、市街地で消えすぎないよう詰め気味にする
+    layout["icon-padding"] = 3
+    layout["text-padding"] = 2
+    layout["icon-allow-overlap"] = False
+    layout["text-allow-overlap"] = False
+    # 重複区間や交差点で重なる場合は国道 > 県道 > その他の順に優先する (値が小さいほど先)
+    layout["symbol-sort-key"] = ["match", ["get", "network"], "JP:national", 0, "JP:prefectural", 1, 2]
 
 
 def patch_style(theme):

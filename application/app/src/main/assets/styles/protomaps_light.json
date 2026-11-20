@@ -9935,35 +9935,17 @@
           [
             "literal",
             [
-              "beach",
               "forest",
               "marina",
-              "park",
-              "peak",
-              "zoo",
               "garden",
               "bench",
-              "aerodrome",
-              "station",
-              "ferry_terminal",
-              "stadium",
-              "university",
-              "library",
-              "school",
               "animal",
-              "post_office",
               "building",
-              "townhall",
-              "bar",
-              "supermarket",
               "books",
               "beauty",
               "electronics",
               "clothes",
-              "attraction",
-              "museum",
-              "theatre",
-              "artwork"
+              "theatre"
             ]
           ]
         ],
@@ -11407,10 +11389,22 @@
             ]
           ]
         ],
-        "text-padding": 1,
-        "icon-padding": 1,
-        "icon-allow-overlap": true,
-        "text-allow-overlap": true
+        "text-padding": 2,
+        "icon-padding": 3,
+        "icon-allow-overlap": false,
+        "text-allow-overlap": false,
+        "symbol-sort-key": [
+          "match",
+          [
+            "get",
+            "network"
+          ],
+          "JP:national",
+          0,
+          "JP:prefectural",
+          1,
+          2
+        ]
       },
       "paint": {
         "text-color": "#FFFFFF"
