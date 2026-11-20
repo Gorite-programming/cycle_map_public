@@ -10,6 +10,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LazyMappedRoutingTest {
@@ -70,8 +71,8 @@ class LazyMappedRoutingTest {
         return graph
     }
 
-    private fun graphWithAlternativeGrades(): LazyMappedRoadGraph {
-        val edges = listOf(
+    private fun graphWithAlternativeGrades(): LazyMappedRoadGraph = graphWithEdges(
+        listOf(
             listOf(
                 FixtureEdge(1, 115.0, 0.0),
                 FixtureEdge(2, 105.0, 2.0),
@@ -81,7 +82,13 @@ class LazyMappedRoutingTest {
             listOf(FixtureEdge(4, 105.0, 2.0)),
             listOf(FixtureEdge(4, 90.0, 10.0)),
             emptyList(),
-        )
+        ),
+    )
+
+    private fun graphWithEdges(
+        edges: List<List<FixtureEdge>>,
+        lats: DoubleArray = DoubleArray(edges.size) { 34.0 },
+    ): LazyMappedRoadGraph {
         val bytes = ByteArrayOutputStream()
         val edgeStarts = LongArray(edges.size)
         val edgeFirstOrdinals = IntArray(edges.size)
@@ -106,10 +113,9 @@ class LazyMappedRoutingTest {
                 }
             }
         }
-        val tmp = File.createTempFile("lazymapped-preference", ".graph").apply { deleteOnExit() }
+        val tmp = File.createTempFile("lazymapped-edges", ".graph").apply { deleteOnExit() }
         val channel = RandomAccessFile(tmp, "r").channel
         val nodeIds = LongArray(edges.size) { 100L + it }
-        val zeros = DoubleArray(edges.size) { 34.0 }
         val ctor = LazyMappedRoadGraph::class.java.getDeclaredConstructor(
             FileChannel::class.java,
             ByteBuffer::class.java,
@@ -126,7 +132,7 @@ class LazyMappedRoutingTest {
             channel,
             ByteBuffer.wrap(bytes.toByteArray()),
             nodeIds,
-            zeros,
+            lats,
             DoubleArray(edges.size) { 131.0 },
             edgeStarts,
             edgeFirstOrdinals,
@@ -276,5 +282,110 @@ class LazyMappedRoutingTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun emptyGraphNearestNodeAndRouteFailCleanly() {
+        graphWith(DoubleArray(0), DoubleArray(0)).use { graph ->
+            assertEquals(0, graph.nodeCount)
+            assertEquals(-1, graph.nearestNodeIndex(34.0, 132.0))
+            assertEquals(-1, graph.nearestNodeIndex(34.0, 132.0, 400.0))
+            assertTrue(graph.nearestNodeCandidates(34.0, 132.0).isEmpty())
+            assertFailsWith<IllegalStateException> { graph.nearestNode(34.0, 132.0) }
+            assertFailsWith<IllegalArgumentException> { graph.route(0, 0) }
+        }
+
+        val (graphFile, indexFile) = writeGraphAndIndex(nodeCount = 0)
+        LazyMappedRoadGraph.load(graphFile, indexFile).use { loaded ->
+            assertEquals(0, loaded.nodeCount)
+            assertEquals(0, loaded.edgeCount)
+            assertEquals(-1, loaded.nearestNodeIndex(34.0, 132.0))
+            assertFailsWith<IllegalStateException> { loaded.nearestNode(34.0, 132.0) }
+        }
+        assertEquals(0, LazyMappedRoadGraph.loadSortedNodeIdIndex(graphFile).size)
+    }
+
+    @Test
+    fun corruptedOrEmptyGraphAndIndexRejectWithIllegalArgumentException() {
+        val (validGraph, validIndex) = writeGraphAndIndex(nodeCount = 1)
+
+        // 空の .graph / .idx
+        val emptyGraph = File.createTempFile("empty", ".graph").apply { deleteOnExit() }
+        val emptyIndex = File.createTempFile("empty", ".idx").apply { deleteOnExit() }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.load(emptyGraph, validIndex) }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.loadSortedNodeIdIndex(emptyGraph) }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.load(validGraph, emptyIndex) }
+
+        // 負の nodeCount
+        val negativeNodeGraph = File.createTempFile("neg-nodes", ".graph").apply { deleteOnExit() }
+        DataOutputStream(negativeNodeGraph.outputStream()).use { out ->
+            out.writeUTF("CYCLEMAP_GRAPH_V1")
+            out.writeInt(-1)
+        }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.load(negativeNodeGraph, validIndex) }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.loadSortedNodeIdIndex(negativeNodeGraph) }
+
+        // 文字列テーブルの件数が残りバイト数を超える .idx
+        val badStringTableIndex = File.createTempFile("bad-strtable", ".idx").apply { deleteOnExit() }
+        DataOutputStream(badStringTableIndex.outputStream()).use { out ->
+            out.writeUTF("CYCLEMAP_INDEX_V2")
+            out.writeInt(1)
+            out.writeLong(0L)
+            out.writeInt(0)
+            out.writeInt(0)
+            out.writeInt(0) // edgeCount
+            out.writeUTF("CYCLEMAP_ROADNAME_V1")
+            out.writeInt(1_000_000) // count exceeds remaining bytes
+        }
+        assertFailsWith<IllegalArgumentException> { LazyMappedRoadGraph.load(validGraph, badStringTableIndex) }
+    }
+
+    @Test
+    fun routeHonorsSmallMaxExpandedNodes() {
+        val nodeCount = 6
+        val edges = List(nodeCount) { i ->
+            if (i + 1 < nodeCount) listOf(FixtureEdge(i + 1, 100.0, 0.0)) else emptyList()
+        }
+        graphWithEdges(edges, DoubleArray(nodeCount) { 34.0 + it * 0.001 }).use { graph ->
+            val truncated1 = graph.route(0, 5, maxExpandedNodes = 1)
+            assertFalse(truncated1.isReachable)
+            assertTrue(truncated1.wasTruncated)
+            assertEquals(1, graph.lastExpandedNodes)
+
+            val truncated3 = graph.route(0, 5, maxExpandedNodes = 3)
+            assertFalse(truncated3.isReachable)
+            assertTrue(truncated3.wasTruncated)
+            assertEquals(3, graph.lastExpandedNodes)
+
+            val reachable3 = graph.route(0, 2, maxExpandedNodes = 3)
+            assertTrue(reachable3.isReachable)
+            assertFalse(reachable3.wasTruncated)
+            assertEquals(listOf(100L, 101L, 102L), reachable3.nodeIds)
+            assertEquals(3, graph.lastExpandedNodes)
+        }
+    }
+
+    private fun writeGraphAndIndex(nodeCount: Int): Pair<File, File> {
+        val graphFile = File.createTempFile("fixture", ".graph").apply { deleteOnExit() }
+        DataOutputStream(graphFile.outputStream()).use { out ->
+            out.writeUTF("CYCLEMAP_GRAPH_V1")
+            out.writeInt(nodeCount)
+            repeat(nodeCount) { i ->
+                out.writeLong(100L + i)
+                out.writeDouble(34.0 + i * 0.001)
+                out.writeDouble(132.0 + i * 0.001)
+            }
+            out.writeInt(0) // edgeCount
+        }
+        val indexFile = File(graphFile.path + ".idx").apply { deleteOnExit() }
+        DataOutputStream(indexFile.outputStream()).use { out ->
+            out.writeUTF("CYCLEMAP_INDEX_V2")
+            out.writeInt(nodeCount)
+            repeat(nodeCount) { out.writeLong(0L) }
+            repeat(nodeCount) { out.writeInt(0) }
+            repeat(nodeCount) { out.writeInt(0) }
+            out.writeInt(0) // edgeCount
+        }
+        return graphFile to indexFile
     }
 }

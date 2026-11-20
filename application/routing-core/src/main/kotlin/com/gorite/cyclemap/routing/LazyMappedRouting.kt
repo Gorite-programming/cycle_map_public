@@ -407,7 +407,11 @@ class LazyMappedRoadGraph private constructor(
         return dLat * dLat + dLon * dLon
     }
 
-    fun nearestNode(latitude: Double, longitude: Double): Long = nodeIds[nearestNodeIndex(latitude, longitude)]
+    fun nearestNode(latitude: Double, longitude: Double): Long {
+        val index = nearestNodeIndex(latitude, longitude)
+        check(index >= 0) { "Graph contains no nodes" }
+        return nodeIds[index]
+    }
 
     /**
      * 案内生成用の読み取り専用ビュー (①基本経路指示)。
@@ -554,16 +558,10 @@ class LazyMappedRoadGraph private constructor(
                 ws.pop()
                 if (entryCost > ws.costOf(current)) continue
                 expandedNodes++
-                // 1024展開ごとにキャンセル・上限を判定 (毎回の判定コストを避ける)
-                if ((expandedNodes and 1023) == 0) {
-                    if (isCancelled?.invoke() == true) {
-                        lastExpandedNodes = expandedNodes
-                        return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
-                    }
-                    if (expandedNodes >= maxExpandedNodes) {
-                        lastExpandedNodes = expandedNodes
-                        return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasTruncated = true)
-                    }
+                // キャンセル判定はラムダ呼び出しを避けて 1024 展開ごと、展開上限は軽い比較なので毎回確認する
+                if ((expandedNodes and 1023) == 0 && isCancelled?.invoke() == true) {
+                    lastExpandedNodes = expandedNodes
+                    return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
                 }
                 if (current == goal) {
                     lastExpandedNodes = expandedNodes
@@ -575,6 +573,10 @@ class LazyMappedRoadGraph private constructor(
                         path.map { latitudes[it] to longitudes[it] },
                         nodeIndices = path,
                     )
+                }
+                if (expandedNodes >= maxExpandedNodes) {
+                    lastExpandedNodes = expandedNodes
+                    return MappedRouteResult(emptyList(), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasTruncated = true)
                 }
                 if (bounds != null && current != start &&
                     !bounds.contains(latitudes[current], longitudes[current])
@@ -936,12 +938,8 @@ class LazyMappedRoadGraph private constructor(
                 }
                 var stageStartedAt = System.nanoTime()
                 val mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.BIG_ENDIAN)
-                val headerLength = mapped.short.toInt() and 0xffff
-                val header = ByteArray(headerLength); mapped.get(header)
-                check(String(header, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1")
-                val nodeCount = mapped.int
+                val nodeCount = readGraphHeader(mapped, file)
                 val nodeBase = mapped.position()
-                check(nodeBase.toLong() + nodeCount.toLong() * 24L <= mapped.limit()) { "Truncated graph node table: ${file.absolutePath}" }
                 reportLoadStage("graph_mmap_and_header", stageStartedAt)
                 val indexChannel = RandomAccessFile(indexFile, "r").channel
                 try {
@@ -951,11 +949,13 @@ class LazyMappedRoadGraph private constructor(
                     stageStartedAt = System.nanoTime()
                     val indexMapped = indexChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexChannel.size()).order(ByteOrder.BIG_ENDIAN)
                     val indexHeader = indexMapped.duplicate().order(ByteOrder.BIG_ENDIAN)
+                    require(indexHeader.remaining() >= 2) { "Truncated graph index header: ${indexFile.absolutePath}" }
                     val headerLength = indexHeader.short.toInt() and 0xffff
-                    check(headerLength <= indexHeader.remaining() - 4) { "Truncated graph index header: ${indexFile.absolutePath}" }
+                    require(headerLength <= indexHeader.remaining() - 4) { "Truncated graph index header: ${indexFile.absolutePath}" }
                     val header = ByteArray(headerLength); indexHeader.get(header)
-                    check(String(header, Charsets.UTF_8) == "CYCLEMAP_INDEX_V2")
-                    check(indexHeader.int == nodeCount)
+                    require(String(header, Charsets.UTF_8) == "CYCLEMAP_INDEX_V2") { "Invalid graph index header: ${indexFile.absolutePath}" }
+                    val indexNodeCount = indexHeader.int
+                    require(indexNodeCount == nodeCount) { "Graph index node count mismatch: expected $nodeCount, got $indexNodeCount" }
                     val startsOffset = indexHeader.position()
                     val rawIndexInput = FileInputStream(indexFile)
                     rawIndexInput.channel.position(startsOffset.toLong())
@@ -964,11 +964,11 @@ class LazyMappedRoadGraph private constructor(
                     val firstOffset = Math.addExact(startsOffset, Math.multiplyExact(nodeCount, 8))
                     val countsOffset = Math.addExact(firstOffset, Math.multiplyExact(nodeCount, 4))
                     val edgeCountOffset = Math.addExact(countsOffset, Math.multiplyExact(nodeCount, 4))
-                    check(edgeCountOffset.toLong() + 4L <= indexMapped.limit()) { "Truncated graph index: ${indexFile.absolutePath}" }
+                    require(edgeCountOffset.toLong() + 4L <= indexMapped.limit()) { "Truncated graph index: ${indexFile.absolutePath}" }
                     val edgeCount = indexMapped.getInt(edgeCountOffset)
                     require(edgeCount >= 0) { "Invalid edge count: $edgeCount" }
                     val targetsOffset = edgeCountOffset + 4
-                    check(targetsOffset.toLong() + edgeCount.toLong() * 4L <= indexMapped.limit()) { "Truncated graph targets: ${indexFile.absolutePath}" }
+                    require(targetsOffset.toLong() + edgeCount.toLong() * 4L <= indexMapped.limit()) { "Truncated graph targets: ${indexFile.absolutePath}" }
                     skipFully(input, 8L * nodeCount + 4L * nodeCount + 4L * nodeCount + 4L + 4L * edgeCount)
                     reportLoadStage("index_mmap_offsets_and_stream_skip", stageStartedAt)
                     stageStartedAt = System.nanoTime()
@@ -1017,12 +1017,8 @@ class LazyMappedRoadGraph private constructor(
                 }
                 val stageStartedAt = System.nanoTime()
                 val mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()).order(ByteOrder.BIG_ENDIAN)
-                val headerLength = mapped.short.toInt() and 0xffff
-                val header = ByteArray(headerLength); mapped.get(header)
-                check(String(header, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1")
-                val n = mapped.int
+                val n = readGraphHeader(mapped, file)
                 val base = mapped.position()
-                check(base.toLong() + n.toLong() * 24L <= mapped.limit()) { "Truncated graph node table: ${file.absolutePath}" }
                 if (n < (1 shl 24)) {
                     val packed = LongArray(n)
                     var packable = true
@@ -1046,6 +1042,23 @@ class LazyMappedRoadGraph private constructor(
             } finally { channel.close() }
         }
 
+        /** `.graph` ヘッダとノード数を検証して返し、バッファ位置をノード表の先頭に進める。 */
+        private fun readGraphHeader(mapped: ByteBuffer, file: File): Int {
+            require(mapped.remaining() >= 2) { "Truncated graph header: ${file.absolutePath}" }
+            val headerLength = mapped.short.toInt() and 0xffff
+            require(headerLength <= mapped.remaining() - 4) { "Truncated graph header: ${file.absolutePath}" }
+            val header = ByteArray(headerLength)
+            mapped.get(header)
+            require(String(header, Charsets.UTF_8) == "CYCLEMAP_GRAPH_V1") { "Invalid graph header: ${file.absolutePath}" }
+            val nodeCount = mapped.int
+            require(nodeCount >= 0) { "Invalid node count: $nodeCount" }
+            val nodeBase = mapped.position()
+            require(nodeBase.toLong() + nodeCount.toLong() * 24L <= mapped.limit()) {
+                "Truncated graph node table: ${file.absolutePath}"
+            }
+            return nodeCount
+        }
+
         private fun skipFully(input: DataInputStream, byteCount: Long) {
             var remaining = byteCount
             while (remaining > 0) {
@@ -1066,6 +1079,11 @@ class LazyMappedRoadGraph private constructor(
         ): Pair<Array<String>, MappedIntColumn>? {
             val count = input.readInt()
             if (count < 0) return null
+            // writeUTF は 1 件あたり最低 2 バイト (長さプレフィックス) を消費するため、残りバイトを超える配列確保を拒否する
+            val remainingBytes = indexMapped.limit().toLong() - position()
+            require(count.toLong() * 2L <= remainingBytes) {
+                "String table count exceeds remaining bytes: count=$count, remaining=$remainingBytes"
+            }
             val table = Array(count) { input.readUTF() }
             if (input.readInt() != edgeCount) return null
             val ids = mappedSection(indexMapped, position(), edgeCount.toLong() * 4L) ?: return null
