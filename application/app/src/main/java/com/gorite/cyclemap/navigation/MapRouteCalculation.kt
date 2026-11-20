@@ -551,6 +551,9 @@ internal fun executeRouteCalculation(
                             startIndex = if (currentWaypoints.isEmpty()) firstStartIndex else -1,
                             goalIndex = if (currentWaypoints.isEmpty()) lastGoalIndex else -1,
                             primaryResult = result,
+                            preference = pref,
+                            primaryDisplayPoints = lineCoordinates,
+                            primaryNodePointOffset = headPoints.size,
                             travelMode = com.gorite.cyclemap.contract.TravelModeType.Bicycle,
                             isCancelled = {
                                 routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||

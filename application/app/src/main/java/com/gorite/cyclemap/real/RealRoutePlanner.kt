@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.real
 
 import com.gorite.cyclemap.contract.RouteOption
+import com.gorite.cyclemap.navigation.displayedRouteDistance
+import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.contract.RoutePlanner
 import com.gorite.cyclemap.contract.TravelModeType
 import com.gorite.cyclemap.routing.AStarRouter
@@ -86,6 +88,9 @@ class RealRoutePlanner(
         travelMode: TravelModeType = TravelModeType.Bicycle,
         isCancelled: (() -> Boolean)? = null,
         maxExpandedNodes: Int = Int.MAX_VALUE,
+        preference: RoutePreference = RoutePreference.RECOMMENDED,
+        primaryDisplayPoints: List<Pair<Double, Double>> = primaryResult.coordinates,
+        primaryNodePointOffset: Int = 0,
     ): List<RouteOption> {
         if (!primaryResult.isReachable || primaryResult.nodeIds.isEmpty()) return emptyList()
         val mode = when (travelMode) {
@@ -99,7 +104,7 @@ class RealRoutePlanner(
             TravelModeType.Car -> com.gorite.cyclemap.routing.RouteCostMode.CAR
         }
         val now = LocalDateTime.now()
-        val primaryDistance = primaryResult.totalDistanceMeters
+        val primaryDistance = displayedRouteDistance(primaryDisplayPoints)
         val primaryDuration = travelTimeEstimator.estimateSegmentSeconds(
             distanceMeters = primaryDistance,
             roadType = "secondary",
@@ -113,7 +118,11 @@ class RealRoutePlanner(
         val primaryOption = RouteOption(
             id = "route_primary",
             title = when (travelMode) {
-                TravelModeType.Bicycle -> "主要サイクリングルート (推奨)"
+                TravelModeType.Bicycle -> when (preference) {
+                    RoutePreference.RECOMMENDED -> "主要サイクリングルート (推奨)"
+                    RoutePreference.FLAT -> "平坦優先ルート"
+                    RoutePreference.HILL_CLIMB -> "坂道優先ルート"
+                }
                 TravelModeType.Walk -> "最短徒歩ルート (推奨)"
                 TravelModeType.Car -> "主要幹線ルート (推奨)"
             },
@@ -121,9 +130,10 @@ class RealRoutePlanner(
             distanceMeters = primaryDistance,
             durationSeconds = primaryDuration,
             elevationGainMeters = primaryElevGain,
-            points = primaryResult.coordinates,
+            points = primaryDisplayPoints,
             isPrimary = true,
             nodeIds = primaryResult.nodeIds,
+            nodePointOffset = primaryNodePointOffset,
         )
 
         val options = mutableListOf(primaryOption)
@@ -140,6 +150,7 @@ class RealRoutePlanner(
             isCancelled = isCancelled,
             maxExpandedNodes = maxExpandedNodes,
             costMode = costMode,
+            preference = preference,
         )
 
         if (altResult.isReachable && altResult.nodeIds.isNotEmpty()) {
@@ -149,7 +160,7 @@ class RealRoutePlanner(
             val overlap = intersection.toDouble() / if (altNodes.isNotEmpty()) altNodes.size else 1
 
             if (overlap <= 0.70) {
-                val altDistance = altResult.totalDistanceMeters
+                val altDistance = displayedRouteDistance(altResult.coordinates)
                 val altDuration = travelTimeEstimator.estimateSegmentSeconds(
                     distanceMeters = altDistance,
                     roadType = "tertiary",
@@ -162,7 +173,7 @@ class RealRoutePlanner(
                     RouteOption(
                         id = "route_alternative",
                         title = when (travelMode) {
-                            TravelModeType.Bicycle -> "裏道・平坦優先ルート"
+                            TravelModeType.Bicycle -> "別のサイクリングルート"
                             TravelModeType.Walk -> "生活道路優先ルート"
                             TravelModeType.Car -> "一般道路優先ルート"
                         },

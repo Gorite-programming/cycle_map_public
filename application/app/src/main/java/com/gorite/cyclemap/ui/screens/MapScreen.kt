@@ -288,6 +288,8 @@ internal fun MapScreen(
         }
     }
 
+    val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
+    val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
     MapGraphEffects(
         context = state.context,
         scope = state.scope,
@@ -319,11 +321,15 @@ internal fun MapScreen(
             state.gpxNotificationTextState.value = "記録を開始しました"
         },
         onGpxRecordingEmpty = {
+            rideSession.reset()
+            rideSessionStore.clear()
             state.isRecordingState.value = false
             state.gpxPointCountState.value = 0
             state.gpxNotificationTextState.value = "位置情報を取得できなかったため記録しませんでした"
         },
         onGpxRecordingSaved = { points, fileName ->
+            rideSession.reset()
+            rideSessionStore.clear()
             state.isRecordingState.value = false
             state.gpxPointCountState.value = points
             state.gpxNotificationTextState.value = "GPX保存完了 ($points 点): $fileName"
@@ -490,8 +496,6 @@ internal fun MapScreen(
                 .firstNotNullOfOrNull { com.gorite.cyclemap.routing.ExcludedRoadIndex.load(java.io.File(dir, "$it.bikerules")) }
         }
     }
-    val rideSessionStore = remember { com.gorite.cyclemap.tracking.RideSessionStore(state.prefs) }
-    val rideSession = remember { rideSessionStore.restore() ?: com.gorite.cyclemap.tracking.RideSession() }
     val trackingService = remember { mutableStateOf<com.gorite.cyclemap.tracking.LocationTrackingService?>(null) }
     val showRecovery = remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(state.context) {
@@ -500,10 +504,9 @@ internal fun MapScreen(
         onDispose { state.context.unbindService(connection) }
     }
     LaunchedEffect(trackingService.value) {
-        while (true) {
-            showRecovery.value = trackingService.value?.recoveryPending == true
-            kotlinx.coroutines.delay(500)
-        }
+        val service = trackingService.value
+        if (service == null) showRecovery.value = false
+        else service.recoveryPendingState.collect { showRecovery.value = it }
     }
     if (showRecovery.value) {
         androidx.compose.material3.AlertDialog(
@@ -759,7 +762,7 @@ internal fun MapScreen(
     val weatherRepo = remember(state.context) { com.gorite.cyclemap.weather.WeatherRepository.getInstance(state.context) }
     val weatherUiState by weatherRepo.uiState.collectAsState()
     val isOnline = currentNetworkLink !is com.gorite.cyclemap.net.Link.Offline
-    val currentCityHint = state.locationLabelState.value
+    val currentCityHint = com.gorite.cyclemap.weather.weatherCityHint(state.locationLabelState.value)
     LaunchedEffect(state.currentLocationState.value, currentCityHint, isOnline) {
         val loc = state.currentLocationState.value
         val lat = loc?.latitude ?: FALLBACK_LATITUDE
@@ -777,10 +780,18 @@ internal fun MapScreen(
         if (state.isNavigationActiveState.value) return@select
         val graph = state.mappedGraphState.value
         routeSelectScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            val instructions = if (graph != null && option.nodeIds.size == option.points.size) {
+            val nodeEnd = option.nodePointOffset + option.nodeIds.size
+            val nodePoints = if (option.nodePointOffset >= 0 && nodeEnd <= option.points.size) {
+                option.points.subList(option.nodePointOffset, nodeEnd)
+            } else emptyList()
+            val headDistance = com.gorite.cyclemap.navigation.displayedRouteDistance(
+                option.points.take(option.nodePointOffset.coerceAtLeast(0) + 1),
+            )
+            val instructions = if (graph != null && option.nodeIds.size == nodePoints.size) {
                 try {
                     state.graphLock.read {
-                        com.gorite.cyclemap.navigation.buildRouteInstructions(graph, option.nodeIds, option.points)
+                        com.gorite.cyclemap.navigation.buildRouteInstructions(graph, option.nodeIds, nodePoints)
+                            .map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headDistance) }
                     }
                 } catch (t: Throwable) {
                     Log.w("CycleMapInstruction", "alternative route instruction build failed", t)

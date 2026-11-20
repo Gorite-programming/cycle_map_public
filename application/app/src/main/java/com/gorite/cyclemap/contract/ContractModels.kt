@@ -38,8 +38,10 @@ data class RouteOption(
     val elevationGainMeters: Double,
     val points: List<Pair<Double, Double>> = emptyList(),
     val isPrimary: Boolean = false,
-    /** 経路のグラフ上のノード id (points と同じ順)。案内の指示を作り直すのに使う。無ければ空。 */
+    /** 経路のグラフ上のノード id。points の nodePointOffset から順に対応する。無ければ空。 */
     val nodeIds: List<Long> = emptyList(),
+    /** 表示線に起点側の接続点を足した場合の、最初のグラフノードの位置。 */
+    val nodePointOffset: Int = 0,
 )
 
 enum class TurnType {
