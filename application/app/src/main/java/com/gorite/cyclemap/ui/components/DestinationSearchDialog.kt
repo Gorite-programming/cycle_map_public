@@ -142,6 +142,11 @@ internal fun DestinationSearchDialog(
     val searchDb = searchDbInfo.first
     val searchDatabases = remember(searchDb) { availableSearchDatabases(cycleMapDataDir(context), searchDb) }
     val unsupportedPrefecture = searchDbInfo.second
+    val request = remember(query, selectedCategory, effectiveLocation, searchDatabases) {
+        DestinationSearchRequest(query, selectedCategory, effectiveLocation, searchDatabases.map { it.file.absolutePath })
+    }
+    var completedRequest by remember { mutableStateOf<DestinationSearchRequest?>(null) }
+    val resultsEnabled = completedRequest == request
 
     // FTS5およびsearch_textの対応状況をチェック (旧DBのみセッション1回案内)
     LaunchedEffect(searchDb) {
@@ -184,11 +189,12 @@ internal fun DestinationSearchDialog(
         }
     }
 
-    LaunchedEffect(query, selectedCategory, effectiveLocation) {
+    LaunchedEffect(request) {
         val trimmed = query.trim()
         // カテゴリ未選択 + クエリ短い場合はリストクリア
         if (trimmed.length < 2 && selectedCategory == SearchCategory.ALL) {
             results = emptyList()
+            completedRequest = request
             message = when {
                 unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
                 searchDatabases.isNotEmpty() -> null
@@ -223,6 +229,7 @@ internal fun DestinationSearchDialog(
         )
         val ranked = found
         results = ranked
+        completedRequest = request
         message = when {
             unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
             searchDatabases.isEmpty() -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
@@ -488,8 +495,13 @@ internal fun DestinationSearchDialog(
                                     }
                                     SearchResultItemCard(
                                         result = result,
+                                        enabled = resultsEnabled,
                                         isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),
-                                        onResultSelected = selectResult,
+                                        onResultSelected = {
+                                            if (completedRequest == request && query == request.query && selectedCategory == request.category) {
+                                                selectResult(it)
+                                            }
+                                        },
                                         onToggleFavorite = {
                                             favoritesManager.toggleFavorite(
                                                 FavoriteSpot(

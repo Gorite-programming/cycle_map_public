@@ -336,45 +336,19 @@ internal fun MapViewsContainer(
                                 val bottom = maxOf(localDrag.anchorY, localDrag.currentY)
                                 // Only accept drag with at least 20px in each axis
                                 if ((right - left) > 20f && (bottom - top) > 20f) {
-                                    if (latestSelectedLayer == MapLayer.VECTOR_LIBERTY) {
-                                        val vMap = latestVectorMapForArea
-                                        if (vMap != null) {
-                                            val topLeftLatLng = vMap.projection.fromScreenLocation(android.graphics.PointF(left, top))
-                                            val bottomRightLatLng = vMap.projection.fromScreenLocation(android.graphics.PointF(right, bottom))
-                                            if (topLeftLatLng != null && bottomRightLatLng != null) {
-                                                val latNorth = maxOf(topLeftLatLng.latitude, bottomRightLatLng.latitude)
-                                                val latSouth = minOf(topLeftLatLng.latitude, bottomRightLatLng.latitude)
-                                                val lonWest = minOf(topLeftLatLng.longitude, bottomRightLatLng.longitude)
-                                                val lonEast = maxOf(topLeftLatLng.longitude, bottomRightLatLng.longitude)
-                                                onAreaSelected(
-                                                    BoundingBox(
-                                                        latNorth,
-                                                        lonEast,
-                                                        latSouth,
-                                                        lonWest,
-                                                    ),
-                                                )
-                                            }
+                                    val bounds = projectAreaSelectionBounds(left, top, right, bottom) { x, y ->
+                                        if (latestSelectedLayer == MapLayer.VECTOR_LIBERTY) {
+                                            latestVectorMapForArea?.projection
+                                                ?.fromScreenLocation(android.graphics.PointF(x, y))
+                                                ?.let { it.latitude to it.longitude }
+                                        } else {
+                                            latestMapViewForArea?.projection
+                                                ?.fromPixels(x.toInt(), y.toInt())
+                                                ?.let { it.latitude to it.longitude }
                                         }
-                                    } else {
-                                        val view = latestMapViewForArea
-                                        if (view != null) {
-                                            val proj = view.projection
-                                            if (proj != null) {
-                                                val topLeftGeo = proj.fromPixels(left.toInt(), top.toInt()) as? GeoPoint
-                                                val bottomRightGeo = proj.fromPixels(right.toInt(), bottom.toInt()) as? GeoPoint
-                                                if (topLeftGeo != null && bottomRightGeo != null) {
-                                                    onAreaSelected(
-                                                        BoundingBox(
-                                                            topLeftGeo.latitude,       // latNorth
-                                                            bottomRightGeo.longitude,  // lonEast
-                                                            bottomRightGeo.latitude,   // latSouth
-                                                            topLeftGeo.longitude,      // lonWest
-                                                        ),
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    }
+                                    bounds?.let {
+                                        onAreaSelected(BoundingBox(it.north, it.east, it.south, it.west))
                                     }
                                 }
                                 localDrag = localDrag.copy(active = false)

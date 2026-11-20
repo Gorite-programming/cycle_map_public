@@ -293,6 +293,7 @@ fun LandscapeNavHudBar(
     modifier: Modifier = Modifier,
     laneHints: List<LaneInfo> = emptyList(),
     isRerouting: Boolean = false,
+    showStopNavigation: Boolean = true,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -355,18 +356,20 @@ fun LandscapeNavHudBar(
                     fontWeight = FontWeight.SemiBold,
                     color = CycleMapTheme.palette.onNavBanner
                 )
-                Spacer(modifier = Modifier.width(12.dp))
-                Button(
-                    onClick = onStopNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.height(36.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.nav_stop),
-                        color = MaterialTheme.colorScheme.onError,
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                if (showStopNavigation) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = onStopNavigation,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.nav_stop),
+                            color = MaterialTheme.colorScheme.onError,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
         }

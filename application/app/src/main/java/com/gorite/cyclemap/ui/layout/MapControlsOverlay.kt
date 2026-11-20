@@ -58,6 +58,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -226,7 +229,12 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
-                .padding(top = effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp), start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp)
+                .padding(
+                    top = if (topOverlayHeight > 0.dp) effectiveTopPadding + topOverlayHeight + 16.dp
+                        else effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp),
+                    start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp,
+                    end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp,
+                )
                 .zIndex(2f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -478,6 +486,14 @@ private fun ZoomRepeatButton48(
     Box(
         modifier = modifier
             .size(48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                if (!enabled) disabled()
+                onClick(label = contentDescription) {
+                    if (enabled) currentOnAction()
+                    enabled
+                }
+            }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

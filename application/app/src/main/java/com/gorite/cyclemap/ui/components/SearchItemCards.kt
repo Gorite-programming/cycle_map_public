@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,7 @@ internal fun SearchResultItemCard(
     /** 一覧のいちばん下 (親指の近く) に置く最有力の候補なら、その理由 (「いちばん近い」など)。強調して出す。 */
     highlightLabel: String? = null,
     origin: Pair<Double, Double>? = null,
+    enabled: Boolean = true,
 ) {
     val distance = result.distanceMeters ?: origin?.let {
         haversineMeters(it.first, it.second, result.latitude, result.longitude)
@@ -59,11 +61,11 @@ internal fun SearchResultItemCard(
     ).joinToString(" ・ ")
 
     if (highlightLabel == null) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.35f)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onResultSelected(result) }
+                    .clickable(enabled = enabled) { onResultSelected(result) }
                     .heightIn(min = 56.dp)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -89,7 +91,7 @@ internal fun SearchResultItemCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                FavoriteButton(isFavorite, onToggleFavorite)
+                FavoriteButton(isFavorite, onToggleFavorite, enabled)
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
@@ -99,8 +101,9 @@ internal fun SearchResultItemCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.35f)
             .padding(vertical = 4.dp)
-            .clickable { onResultSelected(result) },
+            .clickable(enabled = enabled) { onResultSelected(result) },
         shape = RoundedCornerShape(12.dp),
         color = CycleMapTheme.palette.accentContainer,
         border = BorderStroke(1.5.dp, CycleMapTheme.palette.accent),
@@ -136,7 +139,7 @@ internal fun SearchResultItemCard(
                     DistanceAndDirection(distance, bearing)
                 }
             }
-            FavoriteButton(isFavorite, onToggleFavorite)
+            FavoriteButton(isFavorite, onToggleFavorite, enabled)
         }
     }
 }
@@ -195,8 +198,8 @@ internal fun FavoriteSpotItemCard(
 }
 
 @Composable
-private fun FavoriteButton(isFavorite: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+private fun FavoriteButton(isFavorite: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
         Icon(
             painterResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
             contentDescription = if (isFavorite) "お気に入り解除" else "お気に入り追加",

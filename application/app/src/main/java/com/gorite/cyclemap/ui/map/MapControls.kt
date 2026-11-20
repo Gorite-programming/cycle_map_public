@@ -27,6 +27,9 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -170,7 +173,8 @@ fun FloatingCircleButton(
         modifier = modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick)
+            .semantics { this.contentDescription = contentDescription }
+            .clickable(role = Role.Button, onClick = onClick)
     ) {
         Box(
             modifier = Modifier.size(48.dp),

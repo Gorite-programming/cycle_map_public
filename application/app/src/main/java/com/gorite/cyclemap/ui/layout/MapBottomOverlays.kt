@@ -468,7 +468,7 @@ internal fun BoxScope.MapBottomOverlays(
                 }
             }
 
-            if (!isLandscape && onBackToDashboard != null) {
+            if (onBackToDashboard != null) {
                 // 地図を広げた状態: 地名シートとタブの代わりに、盤面へ戻るボタンだけを親指の位置に置く
                 Surface(
                     shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),

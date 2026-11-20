@@ -88,6 +88,7 @@ internal fun BoxScope.MapTopOverlays(
     /** 上部オーバーレイ全体のコンテンツ高さ (px、effectiveTopPadding + 8.dp は含まない)。横画面の操作列をその下に置くために使う。 */
     onTopOverlayHeightChanged: (Int) -> Unit = {},
     roadRuleBadge: (@Composable () -> Unit)? = null,
+    hasNavigationFooter: Boolean = false,
 ) {
     val isSimple = com.gorite.cyclemap.ui.state.isSimpleMode()
     val showTopBar = !isNavigationActive && !isRoutePreviewActive && com.gorite.cyclemap.ui.state.SimpleModeVisibility.of(
@@ -263,6 +264,8 @@ internal fun BoxScope.MapTopOverlays(
             ) {
                 if (isLandscape) {
                     com.gorite.cyclemap.ui.map.LandscapeNavHudBar(
+                        // フッターが出るときは終了操作を下側に集約する。
+                        showStopNavigation = !hasNavigationFooter,
                         currentStep = com.gorite.cyclemap.contract.GuidanceStep(
                             turnType = display.turnType,
                             instructionText = display.instructionText,

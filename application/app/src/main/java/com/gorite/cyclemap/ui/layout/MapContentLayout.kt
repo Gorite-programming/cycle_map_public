@@ -30,6 +30,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -188,7 +192,8 @@ internal fun MapContentLayout(
             if (simple) com.gorite.cyclemap.ui.state.DisplayMode.SIMPLE else com.gorite.cyclemap.ui.state.DisplayMode.NORMAL,
             isNavigationActive,
         )
-        val homeVisible = !isLandscape && isIdle && !mapExpanded && simpleVisibility.homePanel
+        val homeVisible = isIdle && !mapExpanded && simpleVisibility.homePanel
+        val landscapeDashboardMaxHeight = (LocalConfiguration.current.screenHeightDp.dp - effectiveTopPadding - 84.dp).coerceAtLeast(48.dp)
         var homePanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         val homePanelHeight = with(density) { homePanelHeightPx.toDp() }
@@ -248,7 +253,7 @@ internal fun MapContentLayout(
                     onPoiClick = onSelectPoiSpot,
                     onVectorMapReady = onVectorMapReady,
                     onVectorMapDisposed = onVectorMapDisposed,
-                    homePanelBottomPadding = if (homeVisible) homePanelHeight else 0.dp,
+                    homePanelBottomPadding = if (homeVisible && !isLandscape) homePanelHeight else 0.dp,
                     placeTopPadding = placeTopHeight,
                     placeBottomPadding = placeDetailHeight,
                 )
@@ -344,8 +349,13 @@ internal fun MapContentLayout(
                     // 盤面のすぐ上の右: 地図を広げる・現在地
                     Column(
                         modifier = Modifier
-                            .align(com.gorite.cyclemap.ui.state.controlsBottomAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
-                            .padding(start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp, end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 12.dp, bottom = homePanelHeight + 12.dp),
+                            .align(if (isLandscape) Alignment.TopEnd else com.gorite.cyclemap.ui.state.controlsBottomAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                            .padding(
+                                start = if (!isLandscape && com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp,
+                                end = if (isLandscape || !com.gorite.cyclemap.ui.state.isLeftHanded()) 12.dp else 0.dp,
+                                top = if (isLandscape) effectiveTopPadding + 84.dp else 0.dp,
+                                bottom = if (isLandscape) 0.dp else homePanelHeight + 12.dp,
+                            ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         com.gorite.cyclemap.ui.map.FloatingCircleButton(
@@ -396,7 +406,14 @@ internal fun MapContentLayout(
                         onOpenSaved = onSavedClick,
                         bottomInset = systemInsets.calculateBottomPadding(),
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
+                            .align(if (isLandscape) Alignment.BottomStart else Alignment.BottomCenter)
+                            .then(
+                                if (isLandscape) Modifier
+                                    .widthIn(max = 400.dp)
+                                    .heightIn(max = landscapeDashboardMaxHeight)
+                                    .verticalScroll(rememberScrollState())
+                                else Modifier
+                            )
                             .onSizeChanged { homePanelHeightPx = it.height }
                             .zIndex(2f),
                     )
@@ -410,6 +427,7 @@ internal fun MapContentLayout(
                             .zIndex(2f),
                     ) {
                         MapTopOverlays(
+                            hasNavigationFooter = isNavigationActive && routeSummary != null,
                             isNavigationActive = isNavigationActive,
                             effectiveAnimationEnabled = effectiveAnimationEnabled,
                             effectiveTopPadding = effectiveTopPadding,
@@ -527,7 +545,7 @@ internal fun MapContentLayout(
                         onToggleMute = onToggleMute,
                         weatherUiState = weatherUiState,
                         onRefreshWeather = onRefreshWeather,
-                        onBackToDashboard = if (mapExpanded && isIdle && !isLandscape) {
+                        onBackToDashboard = if (mapExpanded && isIdle) {
                             { mapExpanded = false }
                         } else {
                             null
