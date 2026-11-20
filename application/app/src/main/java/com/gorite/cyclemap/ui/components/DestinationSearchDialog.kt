@@ -142,8 +142,8 @@ internal fun DestinationSearchDialog(
     val searchDb = searchDbInfo.first
     val searchDatabases = remember(searchDb) { availableSearchDatabases(cycleMapDataDir(context), searchDb) }
     val unsupportedPrefecture = searchDbInfo.second
-    val request = remember(query, selectedCategory, effectiveLocation, searchDatabases) {
-        DestinationSearchRequest(query, selectedCategory, effectiveLocation, searchDatabases.map { it.file.absolutePath })
+    val request = remember(query, selectedCategory, coarseSearchOrigin(effectiveLocation), searchDatabases) {
+        DestinationSearchRequest(query, selectedCategory, coarseSearchOrigin(effectiveLocation), searchDatabases.map { it.file.absolutePath })
     }
     var completedRequest by remember { mutableStateOf<DestinationSearchRequest?>(null) }
     val resultsEnabled = completedRequest == request

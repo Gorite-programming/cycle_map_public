@@ -30,4 +30,11 @@ class DestinationSearchRequestTest {
         val returned = DestinationSearchRequest(completed.query, completed.category, completed.origin, completed.databasePaths)
         assertNotEquals(completed, returned)
     }
+
+    @Test
+    fun smallLocationJitterDoesNotChangeTheCoarseOrigin() {
+        assertEquals(coarseSearchOrigin(34.39601 to 132.45902), coarseSearchOrigin(34.39640 to 132.45871))
+        assertNotEquals(coarseSearchOrigin(34.396 to 132.459), coarseSearchOrigin(34.398 to 132.459))
+        assertEquals(null, coarseSearchOrigin(null))
+    }
 }
