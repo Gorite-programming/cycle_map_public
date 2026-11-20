@@ -105,8 +105,9 @@ fun routeAcrossChainCh(
             val sources: IntArray; val costs: DoubleArray
             if (i == 0) { sources = intArrayOf(startIndex); costs = doubleArrayOf(0.0) }
             else { sources = IntArray(seeds.size) { seeds[it].index }; costs = DoubleArray(seeds.size) { seeds[it].cost } }
-            val many = ch.searchMany(sources, costs, portals.aIndices)
+            val many = ch.searchMany(sources, costs, portals.aIndices, isCancelled)
             if (i == 0) startNanos += System.nanoTime() - searchStarted else middleNanos += System.nanoTime() - searchStarted
+            if (many.wasCancelled) { stageMs[i] = (System.nanoTime() - started) / 1_000_000; return failed(true) }
             stageTimingSink?.invoke("CHAIN_DETAIL stage=$i ${ch.lastManyStats}")
             val outSeeds = ArrayList<ChSeed>()
             val ids = ArrayList<Long>(); val indices = ArrayList<Int>(); val seedIds = ArrayList<Long>(); val seedIndices = ArrayList<Int>()
@@ -140,15 +141,17 @@ fun routeAcrossChainCh(
         seeds = verifiedSeeds(last, seeds)
         if (seeds.isEmpty()) return failed()
         val searchStarted = System.nanoTime()
-        val many = ch.searchMany(IntArray(seeds.size) { seeds[it].index }, DoubleArray(seeds.size) { seeds[it].cost }, intArrayOf(goalIndex))
+        val many = ch.searchMany(IntArray(seeds.size) { seeds[it].index }, DoubleArray(seeds.size) { seeds[it].cost }, intArrayOf(goalIndex), isCancelled)
         goalNanos += System.nanoTime() - searchStarted
         stageMs[stageMs.lastIndex] = (System.nanoTime() - finalStarted) / 1_000_000
+        if (many.wasCancelled) return failed(true)
         if (many.bestCost[0].isInfinite()) return failed()
         totalCost = many.bestCost[0]
         val seed = seeds[many.bestSource[0]]; selectedId = seed.id
         val reconstructionStarted = System.nanoTime()
-        val route = ch.route(seed.index, goalIndex, last)
+        val route = ch.route(seed.index, goalIndex, last, isCancelled)
         reconstructionNanos += System.nanoTime() - reconstructionStarted
+        if (route.wasCancelled) return failed(true)
         if (!route.isReachable) return failed()
         partByStage[graphs.lastIndex] = chMakePart(last, route.nodeIndices); distances[graphs.lastIndex] = route.totalDistance
         nodeCounts[nodeCounts.lastIndex] = 1
@@ -172,8 +175,9 @@ fun routeAcrossChainCh(
         try {
             val ch = graph.attachedHierarchy ?: return null
             val a = System.nanoTime()
-            val route = ch.route(fromIndex, snapshot.indices[exitSlot], graph)
+            val route = ch.route(fromIndex, snapshot.indices[exitSlot], graph, isCancelled)
             val b = System.nanoTime(); tRoute = b - a
+            if (route.wasCancelled) return failed(true)
             if (!route.isReachable) return failed()
             pathLen = route.nodeIndices.size
             partByStage[i] = chMakePart(graph, route.nodeIndices); distances[i] = route.totalDistance

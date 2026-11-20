@@ -251,8 +251,27 @@ class ChainChRoutingTest {
         assertNotNull(none); assertFalse(none.isReachable)
         // キャンセル
         val specs = bands(3, 3); val gs = specs.map { build(it, true) }
+        val baseline = routeAcrossChainCh(gs.map { ChainGraph({ it }, borrowed = true) }, 0, 0)!!
+        val withFalse = routeAcrossChainCh(gs.map { ChainGraph({ it }, borrowed = true) }, 0, 0, isCancelled = { false })!!
+        assertEquals(baseline.isReachable, withFalse.isReachable)
+        assertEquals(baseline.nodeIds, withFalse.nodeIds)
+        assertEquals(baseline.totalCost, withFalse.totalCost)
+        assertEquals(baseline.totalDistanceMeters, withFalse.totalDistanceMeters)
         val cancelled = routeAcrossChainCh(gs.map { ChainGraph({ it }, borrowed = true) }, 0, 0, isCancelled = { true })
         assertNotNull(cancelled); assertTrue(cancelled.wasCancelled); assertFalse(cancelled.isReachable)
+
+        // ループ先頭の isCancelled を通過した後、CH 内部 (searchMany) でキャンセルされた場合も漏れなく終了・解放される
+        var opens = 0; var closes = 0; var checks = 0
+        val midCancelled = routeAcrossChainCh(
+            gs.map { g -> ChainGraph({ opens++; g }, { closes++ }) },
+            0, 0,
+            isCancelled = { ++checks >= 2 },
+        )
+        assertNotNull(midCancelled)
+        assertTrue(midCancelled.wasCancelled)
+        assertFalse(midCancelled.isReachable)
+        assertTrue(opens > 0)
+        assertEquals(opens, closes, "every opened temporary graph must be closed on CH cancellation")
     }
 
     @Test fun borrowedGraphsAreNotClosedAndTemporaryOnesAreClosedOnFailure() {

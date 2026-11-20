@@ -227,6 +227,129 @@ class ContractionHierarchyTest {
         }
     }
 
+    private fun linearChainCh(n: Int, upward: Boolean): Pair<LazyMappedRoadGraph, ContractionHierarchy> {
+        val out = List(n) { u -> if (u + 1 < n) listOf(E(u + 1, 10.0)) else emptyList() }
+        val graph = graphFrom(out)
+        val edgeN = n - 1
+        val ranks = IntArray(n) { if (upward) it else n - 1 - it }
+        val from = IntArray(edgeN) { it }
+        val to = IntArray(edgeN) { it + 1 }
+        val cost = DoubleArray(edgeN) { 10.0 }
+        val dist = DoubleArray(edgeN) { 10.0 }
+        val minusOne = IntArray(edgeN) { -1 }
+        val ch = ContractionHierarchy.create(n, edgeN, ranks, from, to, cost, dist, minusOne, minusOne, minusOne, GraphFingerprint.UNKNOWN)
+        return graph to ch
+    }
+
+    @Test fun routeCancellationStopsAndNonCancelledMatchesBaseline() {
+        fixture().use { graph ->
+            val ch = ContractionHierarchyBuilder(maxWitnessSettled = 2).build(graph, GraphFingerprint.UNKNOWN).hierarchy
+            for (s in 0 until graph.nodeCount) for (g in 0 until graph.nodeCount) {
+                val base = ch.route(s, g, graph)
+                val withFalse = ch.route(s, g, graph) { false }
+                assertFalse(base.wasCancelled)
+                assertFalse(withFalse.wasCancelled)
+                assertEquals(base.isReachable, withFalse.isReachable, "$s->$g")
+                assertTrue(base.nodeIndices.contentEquals(withFalse.nodeIndices), "$s->$g")
+                assertEquals(base.totalCost, withFalse.totalCost)
+                assertEquals(base.totalDistance, withFalse.totalDistance)
+                if (s != g) {
+                    val cancelled = ch.route(s, g, graph) { true }
+                    assertTrue(cancelled.wasCancelled, "$s->$g should be cancelled")
+                    assertFalse(cancelled.isReachable, "$s->$g cancelled must not be reachable")
+                    assertTrue(cancelled.nodeIndices.isEmpty())
+                    assertTrue(cancelled.totalCost.isInfinite())
+                }
+            }
+        }
+        // 1024 ステップ境界での途中キャンセル (2500 ノード上向き鎖)
+        val n = 2500
+        val (chainGraph, ch) = linearChainCh(n, upward = true)
+        chainGraph.use { graph ->
+            val baseline = ch.route(0, n - 1, graph)
+            val withFalse = ch.route(0, n - 1, graph) { false }
+            assertTrue(baseline.isReachable)
+            assertFalse(baseline.wasCancelled)
+            assertTrue(baseline.nodeIndices.contentEquals(withFalse.nodeIndices))
+            assertEquals(baseline.totalCost, withFalse.totalCost)
+            assertEquals(baseline.totalDistance, withFalse.totalDistance)
+
+            var checks = 0
+            val midCancelled = ch.route(0, n - 1, graph) { ++checks >= 2 }
+            assertEquals(2, checks, "route() should cancel at first 1024-step check inside loop")
+            assertTrue(midCancelled.wasCancelled)
+            assertFalse(midCancelled.isReachable)
+            assertTrue(midCancelled.nodeIndices.isEmpty())
+
+            // キャンセル後も同一 CH インスタンスの次回クエリが正しく動くこと
+            val afterCancel = ch.route(0, n - 1, graph)
+            assertTrue(afterCancel.isReachable)
+            assertTrue(baseline.nodeIndices.contentEquals(afterCancel.nodeIndices))
+            assertEquals(baseline.totalCost, afterCancel.totalCost)
+        }
+    }
+
+    @Test fun searchManyCancellationStopsInAllPhasesAndNonCancelledMatchesBaseline() {
+        val n = 2500
+        // (1) 前向き探索フェーズでのキャンセル
+        val (upGraph, upCh) = linearChainCh(n, upward = true)
+        upGraph.use {
+            val sources = intArrayOf(0); val costs = doubleArrayOf(0.0); val targets = intArrayOf(n - 1)
+            val base = upCh.searchMany(sources, costs, targets)
+            val withFalse = upCh.searchMany(sources, costs, targets) { false }
+            assertFalse(base.wasCancelled); assertFalse(withFalse.wasCancelled)
+            assertTrue(base.bestCost.contentEquals(withFalse.bestCost))
+            assertTrue(base.bestSource.contentEquals(withFalse.bestSource))
+
+            val immediate = upCh.searchMany(sources, costs, targets) { true }
+            assertTrue(immediate.wasCancelled)
+            assertTrue(immediate.bestCost[0].isInfinite())
+            assertEquals(-1, immediate.bestSource[0])
+
+            var fwdChecks = 0
+            val fwdCancelled = upCh.searchMany(sources, costs, targets) { ++fwdChecks >= 2 }
+            assertEquals(2, fwdChecks, "searchMany() should cancel at 1024-step check in forward loop")
+            assertTrue(fwdCancelled.wasCancelled)
+            assertTrue(fwdCancelled.bestCost[0].isInfinite())
+            assertEquals(-1, fwdCancelled.bestSource[0])
+
+            val afterCancel = upCh.searchMany(sources, costs, targets)
+            assertFalse(afterCancel.wasCancelled)
+            assertEquals(base.bestCost[0], afterCancel.bestCost[0])
+            assertEquals(base.bestSource[0], afterCancel.bestSource[0])
+        }
+
+        // (2) RPHAST 閉包収集・下向きスウィープフェーズでのキャンセル
+        val (downGraph, downCh) = linearChainCh(n, upward = false)
+        downGraph.use {
+            val sources = intArrayOf(0); val costs = doubleArrayOf(0.0); val targets = intArrayOf(n - 1)
+            val base = downCh.searchMany(sources, costs, targets)
+            val withFalse = downCh.searchMany(sources, costs, targets) { false }
+            assertTrue(base.bestCost.contentEquals(withFalse.bestCost))
+            assertTrue(base.bestSource.contentEquals(withFalse.bestSource))
+
+            var closureChecks = 0
+            val closureCancelled = downCh.searchMany(sources, costs, targets) { ++closureChecks >= 2 }
+            assertEquals(2, closureChecks, "searchMany() should cancel at 1024-step check in RPHAST closure loop")
+            assertTrue(closureCancelled.wasCancelled)
+            assertTrue(closureCancelled.bestCost[0].isInfinite())
+            assertEquals(-1, closureCancelled.bestSource[0])
+
+            // 開始前(1) + 閉包2500ノード(1024, 2048 で 2, 3) + 下向きスウィープ(1024 で 4)
+            var sweepChecks = 0
+            val sweepCancelled = downCh.searchMany(sources, costs, targets) { ++sweepChecks >= 4 }
+            assertEquals(4, sweepChecks, "searchMany() should cancel at 1024-step check in RPHAST downward sweep")
+            assertTrue(sweepCancelled.wasCancelled)
+            assertTrue(sweepCancelled.bestCost[0].isInfinite())
+            assertEquals(-1, sweepCancelled.bestSource[0])
+
+            val afterCancel = downCh.searchMany(sources, costs, targets)
+            assertFalse(afterCancel.wasCancelled)
+            assertEquals(base.bestCost[0], afterCancel.bestCost[0])
+            assertEquals(base.bestSource[0], afterCancel.bestSource[0])
+        }
+    }
+
     private fun graphFrom(out: List<List<E>>): LazyMappedRoadGraph {
         val bytes = ByteArrayOutputStream(); val starts = LongArray(out.size); val first = IntArray(out.size); val counts = IntArray(out.size); val targets = ArrayList<Int>()
         DataOutputStream(bytes).use { d -> out.forEachIndexed { u, edges ->

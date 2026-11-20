@@ -174,8 +174,13 @@ class ContractionHierarchyBuilder(
     }
 }
 
-data class ChRouteResult(val nodeIndices: IntArray, val totalCost: Double, val totalDistance: Double) {
-    val isReachable get() = nodeIndices.isNotEmpty()
+data class ChRouteResult(
+    val nodeIndices: IntArray,
+    val totalCost: Double,
+    val totalDistance: Double,
+    val wasCancelled: Boolean = false,
+) {
+    val isReachable get() = nodeIndices.isNotEmpty() && !wasCancelled
 }
 
 /** File-level identity stored with a hierarchy so it cannot be paired with another graph. */
@@ -268,9 +273,17 @@ class ContractionHierarchy private constructor(
      */
     @Synchronized fun releaseWorkspaces() { queryWs = null; manyWs = null }
 
-    @Synchronized fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult {
+    @Synchronized fun route(
+        start: Int,
+        goal: Int,
+        graph: LazyMappedRoadGraph,
+        isCancelled: (() -> Boolean)? = null,
+    ): ChRouteResult {
         require(start in 0 until nodeCount && goal in 0 until nodeCount && graph.nodeCount == nodeCount)
         if (start == goal) return ChRouteResult(intArrayOf(start), 0.0, 0.0)
+        if (isCancelled?.invoke() == true) {
+            return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
+        }
         val r0 = System.nanoTime(); var settledR = 0
         val ws = queryWs ?: QueryWorkspace(nodeCount).also { queryWs = it }
         ws.begin(); ws.setF(start, 0.0, -1); ws.setB(goal, 0.0, -1); ws.pushF(start, 0.0); ws.pushB(goal, 0.0)
@@ -279,6 +292,9 @@ class ContractionHierarchy private constructor(
             val expandF = ws.hasF() && ws.minF() < best; val expandB = ws.hasB() && ws.minB() < best
             if (!expandF && !expandB) break
             settledR++
+            if ((settledR and 1023) == 0 && isCancelled?.invoke() == true) {
+                return ChRouteResult(IntArray(0), Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, wasCancelled = true)
+            }
             if (expandF && (!expandB || ws.minF() <= ws.minB())) {
                 val (v, d) = ws.popF(); if (d > ws.fCost(v)) continue
                 if (d + ws.bCost(v) < best) { best = d + ws.bCost(v); meet = v }
@@ -316,7 +332,7 @@ class ContractionHierarchy private constructor(
     @Volatile internal var lastRouteStats: String = ""
 
     /** [searchMany] の結果。bestSource は sources 配列の添字 (到達不能は -1)。 */
-    class ManyResult(val bestCost: DoubleArray, val bestSource: IntArray)
+    class ManyResult(val bestCost: DoubleArray, val bestSource: IntArray, val wasCancelled: Boolean = false)
 
     private var manyWs: ManyWorkspace? = null
 
@@ -325,11 +341,17 @@ class ContractionHierarchy private constructor(
      * 1 回の多始点・上向き前向き探索 (全 source を初期コスト付きで投入、早期終了なし) の後、target ごとに
      * 下向き (後ろ向き) 探索を行い、前向きコストが確定済みのノードで合流候補を評価する。
      */
-    @Synchronized fun searchMany(sources: IntArray, sourceCosts: DoubleArray, targets: IntArray): ManyResult {
+    @Synchronized fun searchMany(
+        sources: IntArray,
+        sourceCosts: DoubleArray,
+        targets: IntArray,
+        isCancelled: (() -> Boolean)? = null,
+    ): ManyResult {
         require(sources.size == sourceCosts.size)
         val bestCost = DoubleArray(targets.size) { Double.POSITIVE_INFINITY }
         val bestSource = IntArray(targets.size) { -1 }
         if (sources.isEmpty() || targets.isEmpty()) return ManyResult(bestCost, bestSource)
+        if (isCancelled?.invoke() == true) return ManyResult(bestCost, bestSource, wasCancelled = true)
         val t0 = System.nanoTime()
         val w = manyWs ?: ManyWorkspace(nodeCount).also { manyWs = it }
         val t1 = System.nanoTime(); var settledF = 0
@@ -342,6 +364,9 @@ class ContractionHierarchy private constructor(
             val v = w.popF(); val d = w.poppedCost
             if (d > w.f(v)) continue
             val seed = w.seed(v); settledF++
+            if ((settledF and 1023) == 0 && isCancelled?.invoke() == true) {
+                return ManyResult(bestCost, bestSource, wasCancelled = true)
+            }
             for (e in store.off(v) until store.off(v + 1)) {
                 val x = store.upT(e); val nd = d + store.upC(e)
                 if (nd < w.f(x)) { w.setF(x, nd, seed); w.pushF(x, nd) }
@@ -351,8 +376,12 @@ class ContractionHierarchy private constructor(
         // RPHAST: targets から下向き弧を逆にたどった閉包 U を求める
         w.beginSweep()
         for (k in targets.indices) { val t = targets[k]; require(t in 0 until nodeCount); w.pushU(t) }
-        var sweepArcs = 0L
+        var sweepArcs = 0L; var sweepSteps = 0
         while (w.stackSize > 0) {
+            sweepSteps++
+            if ((sweepSteps and 1023) == 0 && isCancelled?.invoke() == true) {
+                return ManyResult(bestCost, bestSource, wasCancelled = true)
+            }
             val v = w.popU()
             for (e in store.roff(v) until store.roff(v + 1)) w.pushU(store.downT(e))
         }
@@ -361,7 +390,12 @@ class ContractionHierarchy private constructor(
         val t3 = System.nanoTime()
         w.sortUnion()
         val t4 = System.nanoTime()
+        var downSteps = 0
         for (i in unionSize - 1 downTo 0) {
+            downSteps++
+            if ((downSteps and 1023) == 0 && isCancelled?.invoke() == true) {
+                return ManyResult(bestCost, bestSource, wasCancelled = true)
+            }
             val v = w.unionNode(i)
             var bd = w.f(v); var bs = if (bd.isFinite()) w.seed(v) else -1
             val lo = store.roff(v); val hi = store.roff(v + 1); sweepArcs += hi - lo
