@@ -22,14 +22,6 @@ from . import overlay as overlay_mod
 from .kana import pykakasi_reading
 from .normalize import normalize_variants
 
-import json
-import os
-import sqlite3
-from datetime import datetime, timezone
-
-from . import config, masterdb
-from . import overlay as overlay_mod
-
 PLACES_SCHEMA = """
 CREATE TABLE places (
     id       INTEGER PRIMARY KEY,
@@ -56,6 +48,7 @@ CREATE TABLE places (
 PLACES_INDEXES = [
     "CREATE INDEX places_osm_idx ON places(osm_type, osm_id);",
     "CREATE INDEX places_coords_idx ON places(lat, lon);",
+    "CREATE INDEX idx_places_search_text ON places(search_text);",
 ]
 
 FTS_SCHEMA = """
@@ -164,9 +157,11 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
     db_path = db_path or config.MASTER_DB_PATH
     if out_path is None:
         out_path = config.search_db_path(prefecture)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    if os.path.exists(out_path):
-        os.remove(out_path)
+    out_abs = os.path.abspath(out_path)
+    os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+    tmp_path = out_abs + ".tmp"
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
 
     rows = overlay_mod.resolve(db_path, prefecture)
     named_excluded = 0
@@ -178,7 +173,7 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
     # 決定的順序: 取り込み順 (uid)。手動追加 (uid None) は末尾。
     rows.sort(key=lambda r: (r["uid"] is None, r["uid"] or 0))
 
-    conn = sqlite3.connect(out_path)
+    conn = sqlite3.connect(tmp_path)
     try:
         conn.execute(PLACES_SCHEMA)
         serial = 0
@@ -282,8 +277,13 @@ def export_search_db(db_path=None, prefecture=None, out_path=None,
         conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?)",
                          list(meta.items()))
         conn.commit()
-    finally:
+    except Exception:
         conn.close()
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    conn.close()
+    os.replace(tmp_path, out_abs)
 
     by_category = {}
     for r in rows:

@@ -1,6 +1,6 @@
 """出力 .search.db の検証 (SPEC 10) と現行DB比較レポート (SPEC 9 第1段階)。
 
-validate_search_db: 11項目を自動チェックし、不合格が1つでもあれば
+validate_search_db: 13項目を自動チェックし、不合格が1つでもあれば
 passed=False。結果は GUI・CLI で表示する。
 """
 
@@ -40,7 +40,7 @@ def _connect_ro(path):
 
 
 def validate_search_db(path, keyword=None):
-    """11項目を検証し、{"passed": bool, "results": [...]} を返す。"""
+    """13項目を検証し、{"passed": bool, "results": [...]} を返す。"""
     results = []
 
     def check(cid, name, ok, detail=""):
@@ -53,40 +53,61 @@ def validate_search_db(path, keyword=None):
 
     conn = _connect_ro(path)
     try:
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'")}
+        try:
+            integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
+            integrity_ok = integrity_rows == [("ok",)]
+            integrity_detail = "; ".join(str(r[0]) for r in integrity_rows[:5])
+        except sqlite3.Error as e:
+            check(13, "PRAGMA integrity_check が ok を返す", False, str(e))
+            return {"passed": False, "results": results}
+
+        try:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.Error as e:
+            check(1, "places / places_fts が存在する", False, str(e))
+            check(13, "PRAGMA integrity_check が ok を返す",
+                  integrity_ok, integrity_detail)
+            return {"passed": False, "results": results}
+
+        has_places = "places" in tables
+        has_fts = "places_fts" in tables
         check(1, "places / places_fts が存在する",
-              {"places", "places_fts"} <= tables,
+              has_places and has_fts,
               "tables=%s" % sorted(tables))
 
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(places)")]
+        cols = ([r[1] for r in conn.execute("PRAGMA table_info(places)")]
+                if has_places else [])
         head_ok = cols[:7] == EXPECTED_HEAD
         tail_ok = all(c in ALLOWED_TAIL for c in cols[7:])
         check(2, "places のカラム名・順序が SPEC 3.1 と一致",
-              head_ok and tail_ok, "columns=%s" % cols)
+              has_places and head_ok and tail_ok, "columns=%s" % cols)
 
         idx = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'")}
-        check(3, "places_coords_idx と places_osm_idx が存在する",
-              {"places_coords_idx", "places_osm_idx"} <= idx,
+        required_idx = {
+            "places_coords_idx", "places_osm_idx", "idx_places_search_text",
+        }
+        check(3, "places_coords_idx / places_osm_idx / idx_places_search_text が存在する",
+              required_idx <= idx,
               "indexes=%s" % sorted(idx))
 
-        n_places = conn.execute("SELECT COUNT(*) FROM places").fetchone()[0]
-        n_fts = conn.execute(
-            "SELECT COUNT(*) FROM places_fts").fetchone()[0] \
-            if "places_fts" in tables else -1
-        orphan = conn.execute(
-            "SELECT COUNT(*) FROM places_fts f LEFT JOIN places p"
-            " ON p.id = f.rowid WHERE p.id IS NULL").fetchone()[0] \
-            if "places_fts" in tables else -1
-        missing = conn.execute(
-            "SELECT COUNT(*) FROM places p LEFT JOIN places_fts f"
-            " ON f.rowid = p.id WHERE f.rowid IS NULL").fetchone()[0] \
-            if "places_fts" in tables else -1
-        check(4, "places_fts の行数 = places の行数・rowid 対応",
-              n_places == n_fts and orphan == 0 and missing == 0,
-              "places=%d fts=%d orphan=%d missing=%d"
-              % (n_places, n_fts, orphan, missing))
+        if has_places and has_fts:
+            n_places = conn.execute("SELECT COUNT(*) FROM places").fetchone()[0]
+            n_fts = conn.execute("SELECT COUNT(*) FROM places_fts").fetchone()[0]
+            orphan = conn.execute(
+                "SELECT COUNT(*) FROM places_fts f LEFT JOIN places p"
+                " ON p.id = f.rowid WHERE p.id IS NULL").fetchone()[0]
+            missing = conn.execute(
+                "SELECT COUNT(*) FROM places p LEFT JOIN places_fts f"
+                " ON f.rowid = p.id WHERE f.rowid IS NULL").fetchone()[0]
+            check(4, "places_fts の行数 = places の行数・rowid 対応",
+                  n_places == n_fts and orphan == 0 and missing == 0,
+                  "places=%d fts=%d orphan=%d missing=%d"
+                  % (n_places, n_fts, orphan, missing))
+        else:
+            check(4, "places_fts の行数 = places の行数・rowid 対応", False,
+                  "missing places or places_fts")
 
         try:
             conn.execute(
@@ -115,24 +136,42 @@ def validate_search_db(path, keyword=None):
             check(6, "FTS検索 (a) が実行でき既知語でヒットする",
                   False, str(e))
 
-        n_place = conn.execute(
-            "SELECT COUNT(*) FROM places WHERE category LIKE 'place:%%'"
-        ).fetchone()[0]
-        check(7, "category LIKE 'place:%%' の行が存在する (逆ジオコーディング用)",
-              n_place > 0, "place:*=%d" % n_place)
+        if has_places:
+            try:
+                n_place = conn.execute(
+                    "SELECT COUNT(*) FROM places WHERE category LIKE 'place:%%'"
+                ).fetchone()[0]
+                check(7, "category LIKE 'place:%%' の行が存在する (逆ジオコーディング用)",
+                      n_place > 0, "place:*=%d" % n_place)
+            except Exception as e:
+                check(7, "category LIKE 'place:%%' の行が存在する (逆ジオコーディング用)",
+                      False, str(e))
 
-        n_bad_geo = conn.execute(
-            "SELECT COUNT(*) FROM places"
-            " WHERE lat NOT BETWEEN 20 AND 46 OR lon NOT BETWEEN 122 AND 154"
-        ).fetchone()[0]
-        check(8, "lat 20〜46・lon 122〜154 の範囲外が無い", n_bad_geo == 0,
-              "out_of_range=%d" % n_bad_geo)
+            try:
+                n_bad_geo = conn.execute(
+                    "SELECT COUNT(*) FROM places"
+                    " WHERE lat NOT BETWEEN 20 AND 46 OR lon NOT BETWEEN 122 AND 154"
+                ).fetchone()[0]
+                check(8, "lat 20〜46・lon 122〜154 の範囲外が無い", n_bad_geo == 0,
+                      "out_of_range=%d" % n_bad_geo)
+            except Exception as e:
+                check(8, "lat 20〜46・lon 122〜154 の範囲外が無い", False, str(e))
 
-        n_empty = conn.execute(
-            "SELECT COUNT(*) FROM places WHERE name = '' OR name IS NULL"
-        ).fetchone()[0]
-        check(9, "name が空文字の行が無い", n_empty == 0,
-              "empty_name=%d" % n_empty)
+            try:
+                n_empty = conn.execute(
+                    "SELECT COUNT(*) FROM places WHERE name = '' OR name IS NULL"
+                ).fetchone()[0]
+                check(9, "name が空文字の行が無い", n_empty == 0,
+                      "empty_name=%d" % n_empty)
+            except Exception as e:
+                check(9, "name が空文字の行が無い", False, str(e))
+        else:
+            check(7, "category LIKE 'place:%%' の行が存在する (逆ジオコーディング用)",
+                  False, "places table missing")
+            check(8, "lat 20〜46・lon 122〜154 の範囲外が無い",
+                  False, "places table missing")
+            check(9, "name が空文字の行が無い",
+                  False, "places table missing")
 
         try:
             meta = dict(conn.execute("SELECT key, value FROM meta"))
@@ -149,13 +188,19 @@ def validate_search_db(path, keyword=None):
         has_search_text = "search_text" in cols
         n_empty_search = -1
         if has_search_text:
-            n_empty_search = conn.execute(
-                "SELECT COUNT(*) FROM places"
-                " WHERE search_text IS NULL OR search_text = ''"
-            ).fetchone()[0]
+            try:
+                n_empty_search = conn.execute(
+                    "SELECT COUNT(*) FROM places"
+                    " WHERE search_text IS NULL OR search_text = ''"
+                ).fetchone()[0]
+            except Exception:
+                n_empty_search = -1
         check(12, "search_text カラムが存在する (LIKEフォールバック用)",
               has_search_text and n_empty_search == 0,
               "empty=%s" % n_empty_search)
+
+        check(13, "PRAGMA integrity_check が ok を返す",
+              integrity_ok, integrity_detail)
     finally:
         conn.close()
 
