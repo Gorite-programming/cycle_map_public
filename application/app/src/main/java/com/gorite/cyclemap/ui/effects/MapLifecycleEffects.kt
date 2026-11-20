@@ -14,6 +14,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -62,6 +63,10 @@ internal fun MapLifecycleEffects(
     orientationAnimator: MapOrientationAnimator,
     selectedLayer: MapLayer,
 ) {
+    val latestLocation by rememberUpdatedState(currentLocation)
+    val latestFollowLocation by rememberUpdatedState(followLocation)
+    val latestSelectPoiSpot by rememberUpdatedState(onSelectPoiSpot)
+    val latestLocationLabelChanged by rememberUpdatedState(onLocationLabelChanged)
     // Location Animation & Map Centering
     LaunchedEffect(currentLocation, mapView, followLocation, locationMarker, accuracyCircle, appLifecycleState, effectiveAnimationEnabled) {
         val targetLocation = currentLocation ?: return@LaunchedEffect
@@ -124,157 +129,184 @@ internal fun MapLifecycleEffects(
     }
 
     // POIオーバーレイ (オフラインDB・選択カテゴリ・ズーム別ルール・件数上限)。
-    LaunchedEffect(poiVisible, poiSelected, poiRefreshTick, currentLocation, mapView, isNavigationActive) {
+    LaunchedEffect(poiVisible, poiSelected, mapView, isNavigationActive) {
         val view = mapView ?: return@LaunchedEffect
         if (!poiVisible || poiSelected.isEmpty() || isNavigationActive) {
             view.overlays.removeAll { it is Marker && (it.title?.startsWith("POI:") == true) }
             view.invalidate()
             return@LaunchedEffect
         }
-        delay(500L)
-        val zoom = view.zoomLevelDouble
-        val center = view.mapCenter as? GeoPoint ?: return@LaunchedEffect
-        val activeCategories = poiSelected
-        if (activeCategories.isEmpty()) {
-            view.overlays.removeAll { it is Marker && (it.title?.startsWith("POI:") == true) }
-            view.invalidate()
-            return@LaunchedEffect
-        }
-        val radius = when {
-            zoom >= 16.0 -> 1500.0
-            zoom >= 14.0 -> 4000.0
-            zoom >= 12.0 -> 12000.0
-            else -> 30000.0
-        }
-        val limit = 250
-        val dbSelection = SearchDbSelector.select(center.latitude, center.longitude)
-        val dataDir = cycleMapDataDir(context)
-        val dbFile = when (dbSelection) {
-            is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(dataDir, dbSelection.fileName)
-            is SearchDbSelection.Unavailable -> null
-        }
-        val pois = if (dbFile != null && dbFile.isFile) {
-            withContext(Dispatchers.IO) {
-                // バス停 (highway:bus_stop) の密集で画面が圧迫されるのを防ぎ、駅 (railway:station) を優先
-                val rawList = searchNearbyPlaces(dbFile, center.latitude, center.longitude, radius, limit = limit)
-                    .mapNotNull { spot ->
-                        if ((spot.category.startsWith("highway:bus_stop") || spot.category.startsWith("tourism:information")) && zoom < 16.0) return@mapNotNull null
-                        val cat = PoiCategory.forCategory(spot.category) ?: return@mapNotNull null
-                        if (cat !in activeCategories) null else spot to cat
-                    }
-                    .sortedWith(
-                        compareByDescending<Pair<NearbySpot, PoiCategory>> { (spot, _) ->
-                            com.gorite.cyclemap.search.SearchRanking.computePoiProminenceScore(spot.name, spot.category)
-                        }.thenBy { (spot, _) -> spot.distanceM },
-                    )
-                rawList
+        var lastQueryPosition: RefreshPosition? = null
+        var lastQueryZoom: Double? = null
+        // Poll the latest camera without cancelling an in-flight query on each animation frame/fix.
+        while (true) {
+            delay(500L)
+            val zoom = view.zoomLevelDouble
+            val center = view.mapCenter as? GeoPoint ?: return@LaunchedEffect
+            val queryPosition = RefreshPosition(center.latitude, center.longitude)
+            if (lastQueryZoom == zoom && !shouldRefreshMapLocation(lastQueryPosition, queryPosition)) continue
+            val activeCategories = poiSelected
+            if (activeCategories.isEmpty()) {
+                view.overlays.removeAll { it is Marker && (it.title?.startsWith("POI:") == true) }
+                view.invalidate()
+                return@LaunchedEffect
             }
-        } else {
-            emptyList()
-        }
-        view.overlays.removeAll { it is Marker && (it.title?.startsWith("POI:") == true) }
-        val showLabel = zoom >= 15.0
-        val density = context.resources.displayMetrics.density
-        val projection = view.projection ?: return@LaunchedEffect
-        val screenBounds = Rect(0, 0, view.width.coerceAtLeast(1080), view.height.coerceAtLeast(1920))
-        val placedRects = ArrayList<Rect>()
-        val point = Point()
-
-        for ((poi, cat) in pois) {
-            if (placedRects.size >= limit) break
-            val geo = GeoPoint(poi.latitude, poi.longitude)
-            projection.toPixels(geo, point)
-
-            // 画面外はスキップ
-            if (!screenBounds.contains(point.x, point.y)) continue
-
-            val visual = googlePoiMarker(context, cat, poi.name, showLabel = showLabel)
-            val w = visual.drawable.intrinsicWidth
-            val h = visual.drawable.intrinsicHeight
-            val left = (point.x - w * visual.anchorU).toInt()
-            val top = (point.y - h * visual.anchorV).toInt()
-            val right = left + w
-            val bottom = top + h
-            // Googleマップ風の適度な余白 (マージン) を持った衝突判定矩形
-            val margin = (5f * density).toInt()
-            val poiRect = Rect(left - margin, top - margin, right + margin, bottom + margin)
-
-            // 画面空間衝突判定 (Screen-Space Collision Detection): 既に配置されたPOIと重なる場合はスキップ
-            val collides = placedRects.any { Rect.intersects(it, poiRect) }
-            if (collides) continue
-
-            placedRects.add(poiRect)
-            val marker = Marker(view).apply {
-                title = "POI:${poi.name}"
-                position = geo
-                icon = visual.drawable
-                setAnchor(visual.anchorU, visual.anchorV)
-                infoWindow = null // osmdroid 標準吹き出しを完全に無効化
-                setOnMarkerClickListener { _, _ ->
-                    val dist = currentLocation?.let { loc ->
-                        haversineMeters(loc.latitude, loc.longitude, poi.latitude, poi.longitude)
-                    } ?: 0.0
-                    onSelectPoiSpot(
-                        NearbySpot(
-                            name = poi.name,
-                            category = poi.category,
-                            latitude = poi.latitude,
-                            longitude = poi.longitude,
-                            distanceM = dist,
-                        ),
-                    )
-                    true
+            val radius = when {
+                zoom >= 16.0 -> 1500.0
+                zoom >= 14.0 -> 4000.0
+                zoom >= 12.0 -> 12000.0
+                else -> 30000.0
+            }
+            val limit = 250
+            val dbSelection = SearchDbSelector.select(center.latitude, center.longitude)
+            val dataDir = cycleMapDataDir(context)
+            val dbFile = when (dbSelection) {
+                is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(dataDir, dbSelection.fileName)
+                is SearchDbSelection.Unavailable -> null
+            }
+            val pois = if (dbFile != null && dbFile.isFile) {
+                withContext(Dispatchers.IO) {
+                    // バス停 (highway:bus_stop) の密集で画面が圧迫されるのを防ぎ、駅 (railway:station) を優先
+                    val rawList = searchNearbyPlaces(dbFile, center.latitude, center.longitude, radius, limit = limit)
+                        .mapNotNull { spot ->
+                            if ((spot.category.startsWith("highway:bus_stop") || spot.category.startsWith("tourism:information")) && zoom < 16.0) return@mapNotNull null
+                            val cat = PoiCategory.forCategory(spot.category) ?: return@mapNotNull null
+                            if (cat !in activeCategories) null else spot to cat
+                        }
+                        .sortedWith(
+                            compareByDescending<Pair<NearbySpot, PoiCategory>> { (spot, _) ->
+                                com.gorite.cyclemap.search.SearchRanking.computePoiProminenceScore(spot.name, spot.category)
+                            }.thenBy { (spot, _) -> spot.distanceM },
+                        )
+                    rawList
                 }
+            } else {
+                emptyList()
             }
-            view.overlays.add(marker)
+            view.overlays.removeAll { it is Marker && (it.title?.startsWith("POI:") == true) }
+            val showLabel = zoom >= 15.0
+            val density = context.resources.displayMetrics.density
+            val projection = view.projection ?: return@LaunchedEffect
+            val screenBounds = Rect(0, 0, view.width.coerceAtLeast(1080), view.height.coerceAtLeast(1920))
+            val placedRects = ArrayList<Rect>()
+            val point = Point()
+
+            for ((poi, cat) in pois) {
+                if (placedRects.size >= limit) break
+                val geo = GeoPoint(poi.latitude, poi.longitude)
+                projection.toPixels(geo, point)
+
+                // 画面外はスキップ
+                if (!screenBounds.contains(point.x, point.y)) continue
+
+                val visual = googlePoiMarker(context, cat, poi.name, showLabel = showLabel)
+                val w = visual.drawable.intrinsicWidth
+                val h = visual.drawable.intrinsicHeight
+                val left = (point.x - w * visual.anchorU).toInt()
+                val top = (point.y - h * visual.anchorV).toInt()
+                val right = left + w
+                val bottom = top + h
+                // Googleマップ風の適度な余白 (マージン) を持った衝突判定矩形
+                val margin = (5f * density).toInt()
+                val poiRect = Rect(left - margin, top - margin, right + margin, bottom + margin)
+
+                // 画面空間衝突判定 (Screen-Space Collision Detection): 既に配置されたPOIと重なる場合はスキップ
+                val collides = placedRects.any { Rect.intersects(it, poiRect) }
+                if (collides) continue
+
+                placedRects.add(poiRect)
+                val marker = Marker(view).apply {
+                    title = "POI:${poi.name}"
+                    position = geo
+                    icon = visual.drawable
+                    setAnchor(visual.anchorU, visual.anchorV)
+                    infoWindow = null // osmdroid 標準吹き出しを完全に無効化
+                    setOnMarkerClickListener { _, _ ->
+                        val dist = latestLocation?.let { loc ->
+                            haversineMeters(loc.latitude, loc.longitude, poi.latitude, poi.longitude)
+                        } ?: 0.0
+                        latestSelectPoiSpot(
+                            NearbySpot(
+                                name = poi.name,
+                                category = poi.category,
+                                latitude = poi.latitude,
+                                longitude = poi.longitude,
+                                distanceM = dist,
+                            ),
+                        )
+                        true
+                    }
+                }
+                view.overlays.add(marker)
+            }
+            view.invalidate()
+            lastQueryPosition = queryPosition
+            lastQueryZoom = zoom
         }
-        view.invalidate()
     }
 
     // 上部住所表示 (オフライン逆ジオコーディング。GPS実測のみ・debounce付き)。
-    LaunchedEffect(currentLocation, mapView) {
-        delay(1_000L)
-        val location = currentLocation
-        if (location == null) {
-            onLocationLabelChanged(AddressDisplayController.ADDRESS_LOADING)
-            return@LaunchedEffect
-        }
-        val dbSelection = SearchDbSelector.select(location.latitude, location.longitude)
-        val dbFile = when (dbSelection) {
-            // 山口は search.db / Yamaguchi.search.db の両方があり得るので、名前の違いを解決してから開く
-            is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(cycleMapDataDir(context), dbSelection.fileName) ?: File(cycleMapDataDir(context), dbSelection.fileName)
-            is SearchDbSelection.Unavailable -> null
-        }
-        if (dbSelection is SearchDbSelection.Available) {
-            if (BuildConfig.DEBUG) {
-                Log.i(
-                    "CycleMapGeo",
-                    "GEO_DB location=${location.latitude},${location.longitude} " +
-                        "prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} exists=${dbFile?.isFile}",
-                )
+    LaunchedEffect(mapView, addressController, context) {
+        var lastQueryPosition: RefreshPosition? = null
+        var previousSample = latestLocation?.let { RefreshPosition(it.latitude, it.longitude) }
+        var pendingSince = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(1_000L)
+            val location = latestLocation
+            if (location == null) {
+                if (latestFollowLocation) latestLocationLabelChanged(AddressDisplayController.ADDRESS_LOADING)
+                previousSample = null
+                pendingSince = SystemClock.elapsedRealtime()
+                continue
             }
-        } else {
-            val unsupportedName = (dbSelection as? SearchDbSelection.Unavailable)?.prefectureName
-            if (BuildConfig.DEBUG) {
-                Log.w(
-                    "CycleMapGeo",
-                    "GEO_DB location=${location.latitude},${location.longitude} " +
-                        "reason=unsupported prefecture=${unsupportedName ?: "(unknown)"}",
-                )
+            val position = RefreshPosition(location.latitude, location.longitude)
+            val now = SystemClock.elapsedRealtime()
+            val settled = shouldResolveAddress(previousSample, position, pendingSince, now)
+            previousSample = position
+            if (!shouldRefreshMapLocation(lastQueryPosition, position)) {
+                pendingSince = now
+                continue
             }
-        }
-        val accuracy = if (location.hasAccuracy()) location.accuracy else Float.NaN
-        val prefectureName = (dbSelection as? SearchDbSelection.Available)?.prefectureName
-        val resolvedLabel = withContext(Dispatchers.IO) {
-            if (dbFile != null && dbFile.isFile && prefectureName != null) {
-                val geocoder = SearchDbReverseGeocoder(dbFile, prefectureName)
-                addressController.update(location.latitude, location.longitude, accuracy, geocoder)
+            if (!settled || (location.hasAccuracy() && location.accuracy > AddressDisplayController.MAX_ACCURACY_M)) continue
+            val dbSelection = SearchDbSelector.select(location.latitude, location.longitude)
+            val dbFile = when (dbSelection) {
+                // 山口は search.db / Yamaguchi.search.db の両方があり得るので、名前の違いを解決してから開く
+                is SearchDbSelection.Available -> SearchDbSelector.resolveDbFile(cycleMapDataDir(context), dbSelection.fileName) ?: File(cycleMapDataDir(context), dbSelection.fileName)
+                is SearchDbSelection.Unavailable -> null
+            }
+            if (dbSelection is SearchDbSelection.Available) {
+                if (BuildConfig.DEBUG) {
+                    Log.i(
+                        "CycleMapGeo",
+                        "GEO_DB location=${location.latitude},${location.longitude} " +
+                            "prefecture=${dbSelection.prefectureName} file=${dbSelection.fileName} exists=${dbFile?.isFile}",
+                    )
+                }
             } else {
-                AddressDisplayController.ADDRESS_UNKNOWN
+                val unsupportedName = (dbSelection as? SearchDbSelection.Unavailable)?.prefectureName
+                if (BuildConfig.DEBUG) {
+                    Log.w(
+                        "CycleMapGeo",
+                        "GEO_DB location=${location.latitude},${location.longitude} " +
+                            "reason=unsupported prefecture=${unsupportedName ?: "(unknown)"}",
+                    )
+                }
             }
+            val accuracy = if (location.hasAccuracy()) location.accuracy else Float.NaN
+            val prefectureName = (dbSelection as? SearchDbSelection.Available)?.prefectureName
+            val resolvedLabel = withContext(Dispatchers.IO) {
+                if (dbFile != null && dbFile.isFile && prefectureName != null) {
+                    val geocoder = SearchDbReverseGeocoder(dbFile, prefectureName)
+                    addressController.update(location.latitude, location.longitude, accuracy, geocoder)
+                } else {
+                    AddressDisplayController.ADDRESS_UNKNOWN
+                }
+            }
+            // 地図を動かして見ている間は、画面中心の地名を優先する (GPS の更新で上書きしない)
+            if (latestFollowLocation) latestLocationLabelChanged(resolvedLabel)
+            lastQueryPosition = position
+            pendingSince = now
         }
-        // 地図を動かして見ている間は、画面中心の地名を優先する (GPS の更新で上書きしない)
-        if (followLocation) onLocationLabelChanged(resolvedLabel)
     }
 
     // 現在地に追従していない (地図を動かして見ている) ときは、画面の中心の地名を出す (Google マップと同じ)。
