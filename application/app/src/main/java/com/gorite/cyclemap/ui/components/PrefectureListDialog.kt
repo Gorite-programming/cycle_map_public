@@ -162,9 +162,18 @@ internal fun PrefectureListDialog(
                         )
                     }
                 }
+                PrefectureFilterControls(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    selectedRegion = selectedRegion,
+                    onRegionChange = { selectedRegion = it },
+                )
+                val matchingIds = remember(selectedRegion, searchQuery) {
+                    PrefectureFilter.filterAndSort(region = selectedRegion, query = searchQuery).map { it.id }.toSet()
+                }
                 if (selectedTab == 0) {
-                    val sortedDataStatus = remember(dataStatus, currentPrefectureName) {
-                        PrefectureFilter.sortInstalledFirst(dataStatus, currentPrefectureName)
+                    val sortedDataStatus = remember(dataStatus, currentPrefectureName, matchingIds) {
+                        PrefectureFilter.sortInstalledFirst(dataStatus.filter { it.id in matchingIds }, currentPrefectureName)
                     }
                     LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
@@ -219,10 +228,10 @@ internal fun PrefectureListDialog(
                             }
                         }
                         if (dataLoaded) {
-                            if (dataStatus.isEmpty()) {
-                                item { Text("端末にデータが入っている県はまだありません", style = MaterialTheme.typography.bodySmall) }
+                            if (sortedDataStatus.isEmpty()) {
+                                item { Text("条件に一致する保存済みデータはありません", style = MaterialTheme.typography.bodySmall) }
                             }
-                            item { EmptyPrefecturesSection(dataStatus) }
+                            item { EmptyPrefecturesSection(dataStatus, matchingIds) }
                         }
                     }
                 } else {
@@ -237,57 +246,6 @@ internal fun PrefectureListDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("県名で検索 (例: 広島)") },
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_lucide_search),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.ic_lucide_x),
-                                            contentDescription = "検索をクリア",
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp),
-                        ) {
-                            item(key = "all") {
-                                FilterChip(
-                                    selected = selectedRegion == null,
-                                    onClick = { selectedRegion = null },
-                                    label = { Text("すべて") },
-                                )
-                            }
-                            items(PrefectureFilter.REGIONS, key = { it }) { regionName ->
-                                val isSelected = selectedRegion == regionName
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { selectedRegion = if (isSelected) null else regionName },
-                                    label = { Text(regionName) },
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
 
                         val prefectures = remember(selectedRegion, searchQuery, currentPrefectureName) {
                             PrefectureFilter.filterAndSort(
@@ -507,7 +465,7 @@ private fun OfflineDataStatusRow(
                 }
             }
             if (status.isComplete) {
-                Text("ルート・検索・地図が入っています", style = MaterialTheme.typography.bodySmall,
+                Text(offlineDataSummary(status), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -515,10 +473,10 @@ private fun OfflineDataStatusRow(
 }
 
 @Composable
-private fun EmptyPrefecturesSection(status: List<PrefectureDataStatus>) {
+private fun EmptyPrefecturesSection(status: List<PrefectureDataStatus>, matchingIds: Set<String>) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val installedIds = status.map { it.id }.toSet()
-    val empty = PrefectureData.ALL.filterNot { it.id in installedIds }
+    val empty = PrefectureData.ALL.filter { it.id !in installedIds && it.id in matchingIds }
     if (empty.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
@@ -542,4 +500,64 @@ private fun restartApp(context: Context) {
     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
     context.startActivity(intent)
     Runtime.getRuntime().exit(0)
+}
+
+@Composable
+private fun PrefectureFilterControls(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    selectedRegion: String?,
+    onRegionChange: (String?) -> Unit,
+) {
+    OutlinedTextField(
+        value = searchQuery,
+        onValueChange = { onSearchQueryChange(it) },
+        placeholder = { Text("県名で検索 (例: 広島)") },
+        leadingIcon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_lucide_search),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+        },
+        trailingIcon = {
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = { onSearchQueryChange("") }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lucide_x),
+                        contentDescription = "検索をクリア",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp),
+    ) {
+        item(key = "all") {
+            FilterChip(
+                selected = selectedRegion == null,
+                onClick = { onRegionChange(null) },
+                label = { Text("すべて") },
+            )
+        }
+        items(PrefectureFilter.REGIONS, key = { it }) { regionName ->
+            val isSelected = selectedRegion == regionName
+            FilterChip(
+                selected = isSelected,
+                onClick = { onRegionChange(if (isSelected) null else regionName) },
+                label = { Text(regionName) },
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(6.dp))
+
 }
