@@ -272,6 +272,27 @@ internal fun MapModalsHost(
         onCloseDeveloperOptions = onCloseDeveloperOptions,
     )
 
+    if (showDestinationSearch) {
+        DestinationSearchDialog(
+            context = context,
+            mapCenter = vectorMap?.cameraPosition?.target?.let { it.latitude to it.longitude }
+                ?: mapView?.mapCenter?.let { it.latitude to it.longitude },
+            liveLocation = currentLocation?.let { it.latitude to it.longitude },
+            onDismiss = onDismissDestinationSearch,
+            onResultSelected = { result ->
+                onSearchResultSelected(
+                    com.gorite.cyclemap.contract.NearbySpot(
+                        name = result.name,
+                        category = result.category,
+                        latitude = result.latitude,
+                        longitude = result.longitude,
+                        distanceM = result.distanceMeters ?: 0.0,
+                    ),
+                )
+            },
+        )
+    }
+
     MapDownloadDialogs(
         context = context,
         offlineDataUsage = {
@@ -310,7 +331,7 @@ internal fun MapModalsHost(
         isDownloading = isDownloading,
         onStartAreaDownload = onStartAreaDownload,
         onDismissAreaDownload = onDismissAreaDownload,
-        showDestinationSearch = showDestinationSearch,
+        showDestinationSearch = false, // Destination search is hosted above with the map camera center.
         currentLocation = currentLocation,
         onDismissDestinationSearch = onDismissDestinationSearch,
         onSearchResultSelected = onSearchResultSelected,

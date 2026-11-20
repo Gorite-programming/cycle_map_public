@@ -95,7 +95,9 @@ internal fun DestinationSearchDialog(
     liveLocation: Pair<Double, Double>?,
     onDismiss: () -> Unit,
     onResultSelected: (SearchResult) -> Unit,
+    mapCenter: Pair<Double, Double>? = null,
 ) {
+    var searchScope by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(DestinationSearchScope.NEARBY) }
     var query by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
@@ -117,10 +119,12 @@ internal fun DestinationSearchDialog(
     val userLocation = remember { mutableStateOf<Pair<Double, Double>?>(null) }
     // live位置を優先し、無ければ最終既知位置を使う。
     val effectiveLocation = liveLocation ?: userLocation.value
+    val searchOrigin = destinationSearchOrigin(searchScope, effectiveLocation, mapCenter)
+    val originLabel = if (searchScope == DestinationSearchScope.MAP) "地図の中心から" else "現在地から"
     // 県別search.db選択。位置確定前は従来の search.db、未対応県では番兵＋県名を保持する。
-    val searchDbInfo = remember(context, effectiveLocation) {
+    val searchDbInfo = remember(context, searchOrigin) {
         val dataDir = cycleMapDataDir(context)
-        val loc = effectiveLocation
+        val loc = searchOrigin
         if (loc == null) {
             val f = SearchDbSelector.findFirstAvailableDb(dataDir) ?: File(dataDir, "search.db")
             Pair(f, null)
@@ -140,12 +144,17 @@ internal fun DestinationSearchDialog(
         }
     }
     val searchDb = searchDbInfo.first
-    val searchDatabases = remember(searchDb) { availableSearchDatabases(cycleMapDataDir(context), searchDb) }
-    val unsupportedPrefecture = searchDbInfo.second
-    val request = remember(query, selectedCategory, coarseSearchOrigin(effectiveLocation), searchDatabases) {
-        DestinationSearchRequest(query, selectedCategory, coarseSearchOrigin(effectiveLocation), searchDatabases.map { it.file.absolutePath })
+    val nearbyDatabases = remember(searchDb) { availableSearchDatabases(cycleMapDataDir(context), searchDb) }
+    val installedDatabases = remember(context) { installedSearchDatabases(cycleMapDataDir(context)) }
+    val searchDatabases = destinationSearchDatabases(searchScope, nearbyDatabases, installedDatabases)
+    val unsupportedPrefecture = searchDbInfo.second.takeIf { searchScope != DestinationSearchScope.INSTALLED }
+    val request = remember(query, selectedCategory, coarseSearchOrigin(searchOrigin), searchDatabases, searchScope) {
+        ScopedDestinationSearchRequest(
+            DestinationSearchRequest(query, selectedCategory, coarseSearchOrigin(searchOrigin), searchDatabases.map { it.file.absolutePath }),
+            searchScope,
+        )
     }
-    var completedRequest by remember { mutableStateOf<DestinationSearchRequest?>(null) }
+    var completedRequest by remember { mutableStateOf<ScopedDestinationSearchRequest<DestinationSearchRequest>?>(null) }
     val resultsEnabled = completedRequest == request
 
     // FTS5およびsearch_textの対応状況をチェック (旧DBのみセッション1回案内)
@@ -198,11 +207,11 @@ internal fun DestinationSearchDialog(
             message = when {
                 unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
                 searchDatabases.isNotEmpty() -> null
-                else -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
+                else -> "検索範囲のデータが端末に入っていません (メニュー「オフラインデータ」で確認)"
             }
             return@LaunchedEffect
         }
-        val (uLat, uLon) = effectiveLocation?.let { it.first to it.second } ?: (null to null)
+        val (uLat, uLon) = searchOrigin?.let { it.first to it.second } ?: (null to null)
         // 「コンビニ」「近くのトイレ」のように語全体が種類名なら、名前では探さず、その種類の近い順の一覧にする
         // (名前に「コンビニ」を含む店を探すと 0 件になるため)。
         val genericPrefixes = GenreDictionary.genericCategoryPrefixes(trimmed)
@@ -226,13 +235,14 @@ internal fun DestinationSearchDialog(
             userLat = uLat,
             userLon = uLon,
             categoryPrefixesOverride = genericPrefixes,
+            restrictCategoryToOrigin = searchScope != DestinationSearchScope.INSTALLED,
         )
         val ranked = found
         results = ranked
         completedRequest = request
         message = when {
             unsupportedPrefecture != null -> "${unsupportedPrefecture}の検索データはありません"
-            searchDatabases.isEmpty() -> "この県の検索データが端末に入っていません (メニュー「オフラインデータ」で確認)"
+            searchDatabases.isEmpty() -> "検索範囲のデータが端末に入っていません (メニュー「オフラインデータ」で確認)"
             ranked.isEmpty() -> "該当する目的地がありません"
             else -> null
         }
@@ -325,6 +335,26 @@ internal fun DestinationSearchDialog(
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("検索範囲", style = MaterialTheme.typography.labelSmall)
+                DestinationSearchScope.entries.forEach { scope ->
+                    androidx.compose.material3.FilterChip(
+                        selected = searchScope == scope,
+                        onClick = { searchScope = scope },
+                        enabled = scope != DestinationSearchScope.MAP || mapCenter != null,
+                        label = { Text(scope.label) },
+                    )
+                }
+            }
+            if (searchOrigin != null) Text(
+                "${originLabel}の距離を表示", style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             // 中: 候補。reverseLayout で先頭 (いちばん近い・合うもの) を下端に置き、遠いものほど上へ積む
             AnimatedVisibility(
                 visible = contentVisible,
@@ -344,7 +374,7 @@ internal fun DestinationSearchDialog(
                                 items(history.take(5)) { entry ->
                                     SearchHistoryItemCard(
                                         entry = entry,
-                                        origin = effectiveLocation,
+                                        origin = searchOrigin,
                                         onSelected = { selectResult(entry.toSearchResult()) },
                                         onRemove = { historyManager.remove(entry) },
                                     )
@@ -391,7 +421,7 @@ internal fun DestinationSearchDialog(
                                                 )
                                             },
                                             onRemoveFavorite = { favoritesManager.removeFavorite(fav.id) },
-                                            origin = effectiveLocation,
+                                            origin = searchOrigin,
                                         )
                                     }
                                     item {
@@ -498,7 +528,7 @@ internal fun DestinationSearchDialog(
                                         enabled = resultsEnabled,
                                         isFavorite = favoritesManager.isFavorite(result.latitude, result.longitude),
                                         onResultSelected = {
-                                            if (completedRequest == request && query == request.query && selectedCategory == request.category) {
+                                            if (completedRequest == request && query == request.request.query && selectedCategory == request.request.category && searchScope == request.scope) {
                                                 selectResult(it)
                                             }
                                         },
@@ -518,8 +548,9 @@ internal fun DestinationSearchDialog(
                                         } else {
                                             null
                                         },
-                                        // 距離の横に方角 (北東など) を出すための現在地
-                                        origin = effectiveLocation,
+                                        distanceOriginLabel = originLabel,
+                                        // 距離の横に方角 (北東など) を出すための起点
+                                        origin = searchOrigin,
                                     )
                                   }
                                 }
@@ -581,7 +612,7 @@ internal fun DestinationSearchDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (effectiveLocation != null) {
+                if (searchOrigin != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             painterResource(R.drawable.ic_lucide_map_pin),
@@ -592,13 +623,13 @@ internal fun DestinationSearchDialog(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             // 検索語があるときは一致度・重要度・距離の総合順、カテゴリだけのときは近い順
-                            if (!sortedByDistance) "関連度順 (近さも考慮)" else "現在地から近い順",
+                            if (!sortedByDistance) "関連度順 (近さも考慮)" else "${originLabel}近い順",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 } else {
-                    Text("現在地なし", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (searchScope == DestinationSearchScope.MAP) "地図の中心なし" else "現在地なし", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (results.isNotEmpty()) {
                     Text("${results.size}件", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -48,6 +48,7 @@ internal fun SearchResultItemCard(
     highlightLabel: String? = null,
     origin: Pair<Double, Double>? = null,
     enabled: Boolean = true,
+    distanceOriginLabel: String? = null,
 ) {
     val distance = result.distanceMeters ?: origin?.let {
         haversineMeters(it.first, it.second, result.latitude, result.longitude)
@@ -81,7 +82,7 @@ internal fun SearchResultItemCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        DistanceAndDirection(distance, bearing)
+                        DistanceAndDirection(distance, bearing, originLabel = distanceOriginLabel)
                     }
                     Text(
                         details,
@@ -136,7 +137,7 @@ internal fun SearchResultItemCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    DistanceAndDirection(distance, bearing)
+                    DistanceAndDirection(distance, bearing, originLabel = distanceOriginLabel)
                 }
             }
             FavoriteButton(isFavorite, onToggleFavorite, enabled)
@@ -261,6 +262,7 @@ internal fun DistanceAndDirection(
     fontSize: TextUnit = 13.sp,
     iconSize: Dp = 14.dp,
     boldDistance: Boolean = true,
+    originLabel: String? = null,
 ) {
     if (distanceMeters == null) return
     Row(
@@ -283,7 +285,7 @@ internal fun DistanceAndDirection(
             )
         }
         Text(
-            formatShortDistance(distanceMeters),
+            listOfNotNull(originLabel, formatShortDistance(distanceMeters)).joinToString(" "),
             fontSize = fontSize,
             fontWeight = if (boldDistance) FontWeight.Bold else FontWeight.Normal,
             color = color,

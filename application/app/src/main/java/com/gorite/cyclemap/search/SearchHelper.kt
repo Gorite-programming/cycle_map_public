@@ -504,6 +504,7 @@ internal fun searchPlaces(
     userLon: Double? = null,
     limit: Int = 50,
     categoryPrefixesOverride: List<String>? = null,
+    restrictCategoryToOrigin: Boolean = true,
 ): List<SearchResult> {
     if (!dbFile.isFile) return emptyList()
 
@@ -632,8 +633,8 @@ internal fun searchPlaces(
         } else if (categoryPrefixes.isNotEmpty()) {
             // クエリ未入力でカテゴリ選択中 → 近傍カテゴリ一覧を表示。
             // 遠方行を拾わないよう現在地bboxで事前絞りする (逆ジオコーディングと同型の BETWEEN 方式)。
-            // 位置不明時は従来通り。名称検索 (上2分岐) には bbox を適用しない (遠方目的地の検索を壊さないため)。距離順ソートは名称検索にも適用する。
-            val bboxArgs = if (userLat != null && userLon != null) {
+            // 全県検索・位置不明時は bbox を使わない。名称検索 (上2分岐) にも bbox を適用しない。
+            val bboxArgs = if (restrictCategoryToOrigin && userLat != null && userLon != null) {
                 nearbyBboxArgs(userLat, userLon, NEARBY_CATEGORY_BBOX_HALF_M)
             } else {
                 emptyList()
