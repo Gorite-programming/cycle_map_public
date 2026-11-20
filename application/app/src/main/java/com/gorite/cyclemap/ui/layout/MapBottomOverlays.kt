@@ -120,10 +120,14 @@ internal fun BoxScope.MapBottomOverlays(
     onBackToDashboard: (() -> Unit)? = null,
     /** ルート確認シートの高さ (px、画面下端からシート上端まで)。シートが無いときは 0。 */
     onRoutePreviewSheetHeightChanged: (Int) -> Unit = {},
+    onNavigationPanelHeightChanged: (Int) -> Unit = {},
     /** 到着時の振り返り表示用。未指定時は [navigationProgress] / [navStats] / [routeSummary] から取れる項目のみ表示する。 */
     rideSnapshot: RideSnapshot? = null,
     onOpenOfflineData: (() -> Unit)? = null,
 ) {
+    DisposableEffect(isNavigationActive, isLandscape) {
+        onDispose { onNavigationPanelHeightChanged(0) }
+    }
     val isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived
     LaunchedEffect(isRoutePreviewActive) {
         if (!isRoutePreviewActive) {
@@ -154,6 +158,7 @@ internal fun BoxScope.MapBottomOverlays(
             onStopNavigation = onStopNavigation,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .onSizeChanged { onNavigationPanelHeightChanged(it.height) }
                 .zIndex(2f),
             bottomInset = systemInsets.calculateBottomPadding(),
         )

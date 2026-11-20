@@ -123,7 +123,6 @@ internal fun MapContentLayout(
     isSwitchingGraph: Boolean,
     isCalculatingRoute: Boolean,
     // Top overlays props
-    onHomeClick: () -> Unit,
     onSelectQuickSpot: (QuickSpotType) -> Unit,
     onSelectCategory: (String) -> Unit,
     navigationProgress: RouteProgress?,
@@ -202,6 +201,8 @@ internal fun MapContentLayout(
         val placeDetailHeight = with(density) { measuredDetailHeightPx.toDp() }
         var navHeaderHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val navHeaderHeight = with(density) { navHeaderHeightPx.toDp() }
+        var navigationPanelHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val navigationPanelHeight = with(density) { navigationPanelHeightPx.toDp() }
         var topOverlayHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val topOverlayHeight = with(density) { topOverlayHeightPx.toDp() }
         var mapAreaHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -466,7 +467,6 @@ internal fun MapContentLayout(
                             onMenuClick = { isDrawerOpenState.value = true },
                             onSearchClick = onOpenSearch,
                             onAvatarClick = onOpenDeveloperOptions,
-                            onHomeClick = onHomeClick,
                             onSelectQuickSpot = onSelectQuickSpot,
                             onSelectCategory = onSelectCategory,
                             notificationBannerGroup = notificationBanners,
@@ -525,6 +525,7 @@ internal fun MapContentLayout(
                         bottomHudVisible = isBottomHudVisible(isRecording, speedKmh),
                         isRoutePreviewActive = !isNavigationActive && routeSummary != null && !isArrived,
                         navHeaderHeight = navHeaderHeight,
+                        navigationPanelHeight = navigationPanelHeight,
                         topOverlayHeight = topOverlayHeight,
                         routePreviewSheetHeight = routePreviewSheetHeight,
                     )
@@ -581,6 +582,7 @@ internal fun MapContentLayout(
                             null
                         },
                         onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx = it },
+                        onNavigationPanelHeightChanged = { navigationPanelHeightPx = it },
                         rideSnapshot = rideSnapshot,
                         onOpenOfflineData = onOpenDownload,
                     )

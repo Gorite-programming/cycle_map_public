@@ -70,7 +70,6 @@ internal fun BoxScope.MapTopOverlays(
     onMenuClick: () -> Unit,
     onSearchClick: () -> Unit,
     onAvatarClick: () -> Unit,
-    onHomeClick: () -> Unit,
     onSelectQuickSpot: (QuickSpotType) -> Unit,
     onSelectCategory: (String) -> Unit,
     notificationBannerGroup: @Composable (Modifier) -> Unit,

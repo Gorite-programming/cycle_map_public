@@ -217,13 +217,6 @@ internal fun MapScreenScaffold(
             onDismissTileProgress = { state.currentTileProgressState.value = null },
             isSwitchingGraph = state.isSwitchingGraphState.value,
             isCalculatingRoute = state.isCalculatingRouteState.value,
-            onHomeClick = {
-                state.currentLocationState.value?.let { loc ->
-                    val start = GeoPoint(loc.latitude, loc.longitude)
-                    val homeDest = GeoPoint(FALLBACK_LATITUDE, FALLBACK_LONGITUDE)
-                    startRouteToDestination(homeDest)
-                }
-            },
             onSelectQuickSpot = { type ->
                 state.showFavoritesOnlyInSheetState.value = false
                 state.googleNavTabState.value = GoogleNavTab.EXPLORE

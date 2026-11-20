@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -108,6 +111,7 @@ internal fun BoxScope.MapControlsOverlay(
     isRoutePreviewActive: Boolean = false,
     /** 案内中の上部カードの高さ。0 なら未計測で、従来の固定位置 (104dp) を使う。 */
     navHeaderHeight: Dp = 0.dp,
+    navigationPanelHeight: Dp = 0.dp,
     /** 上部オーバーレイ全体の高さ (effectiveTopPadding + 8.dp は含まない)。0 なら非表示または未計測。 */
     topOverlayHeight: Dp = 0.dp,
     /** ルート確認シートの高さ (画面下端からシート上端まで)。0 なら未計測。 */
@@ -345,15 +349,19 @@ internal fun BoxScope.MapControlsOverlay(
         Column(
             modifier = Modifier
                 .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
+                // 下パネルの実測上端までを操作領域とし、狭い画面ではスクロールできる。
+                .fillMaxHeight()
                 // 案内カードは「そのあと」の帯・2 行の案内文・車線で高さが変わるので、測った高さの下に置く
                 .padding(
                     top = effectiveTopPadding + if (navHeaderHeight > 0.dp) navHeaderHeight + 8.dp + 12.dp else 104.dp,
+                    bottom = navigationPanelHeight + 12.dp,
                     start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp,
                     end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp,
                 )
-                .zIndex(2f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .zIndex(2f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
+            horizontalAlignment = if (com.gorite.cyclemap.ui.state.isLeftHanded()) Alignment.Start else Alignment.End,
         ) {
             TouchTargetCircleButton48(
                 onClick = onHeadingUpToggle,

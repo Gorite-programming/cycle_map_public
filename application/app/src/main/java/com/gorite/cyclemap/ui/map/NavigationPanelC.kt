@@ -632,7 +632,9 @@ private fun MetricCard(
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(text = label, style = TextStyle(fontSize = 13.sp, letterSpacing = 0.6.sp, color = palette.sub))
-        content()
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            content()
+        }
     }
 }
 
