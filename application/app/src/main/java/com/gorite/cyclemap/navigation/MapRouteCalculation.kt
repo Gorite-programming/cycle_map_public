@@ -401,22 +401,9 @@ internal fun executeRouteCalculation(
             // 表示・追従用の線は、射影点 (起点側・終点側) を端に足したもの。案内は最初のノードからの距離で
             // 組み立てているので、射影点から最初のノードまでの距離だけ後ろへずらす。
             // 起点側: 利用者の位置 → 射影点 → 最初のノード。終点側: 最後のノード → 射影点 → 目的地 (どちらも道から 200 m 以内のときだけ)。
-            fun pathLength(points: List<Pair<Double, Double>>): Double =
-                points.zipWithNext().sumOf { (a, b) -> haversineMeters(a.first, a.second, b.first, b.second) }
-            val first = result.coordinates.firstOrNull()
-            val last = result.coordinates.lastOrNull()
-            val headPoints: List<Pair<Double, Double>> = if (first == null || !rawResult.isReachable || usedCrossRoute) emptyList() else {
-                val seed = endTrim?.head?.takeIf { it.isNotEmpty() }
-                    ?: listOf(stops.first().latitude to stops.first().longitude)
-                if (pathLength(seed + first) in 3.0..200.0) seed else emptyList()
-            }
-            val tailPoints: List<Pair<Double, Double>> = if (last == null || !rawResult.isReachable || usedCrossRoute) emptyList() else {
-                val seed = endTrim?.tail?.takeIf { it.isNotEmpty() }
-                    ?: listOf(stops.last().latitude to stops.last().longitude)
-                if (pathLength(listOf(last) + seed) in 3.0..200.0) seed else emptyList()
-            }
-            val lineCoordinates = headPoints + result.coordinates + tailPoints
-            val headLen = if (first != null && headPoints.isNotEmpty()) pathLength(headPoints + first) else 0.0
+            val displayGeometry = connectRouteEndpoints(result, endTrim, stopCoords, enabled = !usedCrossRoute)
+            val lineCoordinates = displayGeometry.points
+            val headLen = displayGeometry.headLengthMeters
             val instructionsForRoute = if (headLen > 0.0) {
                 richInstructions.map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headLen) }
             } else richInstructions
@@ -555,7 +542,8 @@ internal fun executeRouteCalculation(
                             primaryResult = result,
                             preference = pref,
                             primaryDisplayPoints = lineCoordinates,
-                            primaryNodePointOffset = headPoints.size,
+                            primaryNodePointOffset = displayGeometry.nodePointOffset,
+                            endpointStops = stopCoords,
                             travelMode = com.gorite.cyclemap.contract.TravelModeType.Bicycle,
                             isCancelled = {
                                 routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||

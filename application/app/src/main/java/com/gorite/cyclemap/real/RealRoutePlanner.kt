@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.real
 
 import com.gorite.cyclemap.contract.RouteOption
+import com.gorite.cyclemap.navigation.connectRouteEndpoints
+import com.gorite.cyclemap.navigation.trimSingleGraphRouteSafe
 import com.gorite.cyclemap.navigation.displayedRouteDistance
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.contract.RoutePlanner
@@ -91,6 +93,7 @@ class RealRoutePlanner(
         preference: RoutePreference = RoutePreference.RECOMMENDED,
         primaryDisplayPoints: List<Pair<Double, Double>> = primaryResult.coordinates,
         primaryNodePointOffset: Int = 0,
+        endpointStops: List<Pair<Double, Double>> = emptyList(),
     ): List<RouteOption> {
         if (!primaryResult.isReachable || primaryResult.nodeIds.isEmpty()) return emptyList()
         val mode = when (travelMode) {
@@ -142,7 +145,7 @@ class RealRoutePlanner(
         }
 
         // 迂回/代替候補 (平坦・緩やかまたは別ルート)
-        val altResult = lazyGraph.route(
+        val rawAltResult = lazyGraph.route(
             startIndex,
             goalIndex,
             heuristicMultiplier = 1.15,
@@ -153,14 +156,17 @@ class RealRoutePlanner(
             preference = preference,
         )
 
+        val altTrim = trimSingleGraphRouteSafe(rawAltResult, endpointStops)
+        val altResult = altTrim?.result ?: rawAltResult
         if (altResult.isReachable && altResult.nodeIds.isNotEmpty()) {
             val primaryNodes = primaryResult.nodeIds.toSet()
             val altNodes = altResult.nodeIds.toSet()
             val intersection = primaryNodes.intersect(altNodes).size
-            val overlap = intersection.toDouble() / if (altNodes.isNotEmpty()) altNodes.size else 1
+            val overlap = intersection.toDouble() / minOf(primaryNodes.size, altNodes.size)
 
             if (overlap <= 0.70) {
-                val altDistance = displayedRouteDistance(altResult.coordinates)
+                val altDisplay = connectRouteEndpoints(altResult, altTrim, endpointStops)
+                val altDistance = displayedRouteDistance(altDisplay.points)
                 val altDuration = travelTimeEstimator.estimateSegmentSeconds(
                     distanceMeters = altDistance,
                     roadType = "tertiary",
@@ -181,9 +187,10 @@ class RealRoutePlanner(
                         distanceMeters = altDistance,
                         durationSeconds = altDuration,
                         elevationGainMeters = altElevGain,
-                        points = altResult.coordinates,
+                        points = altDisplay.points,
                         isPrimary = false,
                         nodeIds = altResult.nodeIds,
+                        nodePointOffset = altDisplay.nodePointOffset,
                     )
                 )
             }

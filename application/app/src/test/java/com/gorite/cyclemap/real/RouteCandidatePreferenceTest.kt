@@ -1,6 +1,8 @@
 package com.gorite.cyclemap.real
 
 import com.gorite.cyclemap.navigation.displayedRouteDistance
+import com.gorite.cyclemap.navigation.connectRouteEndpoints
+import com.gorite.cyclemap.navigation.trimSingleGraphRouteSafe
 import com.gorite.cyclemap.routing.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -81,6 +83,61 @@ class RouteCandidatePreferenceTest {
             assertEquals(primary.coordinates,
                 option.points.drop(option.nodePointOffset).take(option.nodeIds.size))
             assertTrue(option.distanceMeters < primary.totalDistanceMeters)
+        }
+    }
+
+    @Test fun alternativeContainingAllTrimmedPrimaryNodesIsExcluded() {
+        graph().use { graph ->
+            // The primary has lost endpoint nodes; the untrimmed alternative contains it entirely.
+            val trimmedPrimary = primary().copy(
+                nodeIds = listOf(3L, 5L), coordinates = listOf(points[2], points[4]), nodeIndices = listOf(2, 4),
+            )
+            val options = RealRoutePlanner({ graph }).buildOptionsFromPrimary(
+                graph, 0, 4, trimmedPrimary, preference = RoutePreference.FLAT,
+            )
+            assertEquals(1, options.size)
+        }
+    }
+
+    @Test fun alternativeAndPrimaryIncludeTheSameEndpointConnections() {
+        graph().use { graph ->
+            val stops = listOf(0.0 to -0.0001, 0.0 to 0.0021)
+            val primary = primary()
+            val display = connectRouteEndpoints(primary, null, stops)
+            val options = RealRoutePlanner({ graph }).buildOptionsFromPrimary(
+                graph, 0, 4, primary, preference = RoutePreference.FLAT,
+                primaryDisplayPoints = display.points, primaryNodePointOffset = display.nodePointOffset,
+                endpointStops = stops,
+            )
+            assertEquals(2, options.size)
+            val connectorDistance = displayedRouteDistance(listOf(stops.first(), points.first())) +
+                displayedRouteDistance(listOf(points.last(), stops.last()))
+            for (option in options) {
+                val nodes = option.points.drop(option.nodePointOffset).take(option.nodeIds.size)
+                assertEquals(stops.first(), option.points.first())
+                assertEquals(stops.last(), option.points.last())
+                assertEquals(1, option.nodePointOffset)
+                assertEquals(displayedRouteDistance(nodes) + connectorDistance, option.distanceMeters, 1e-6)
+            }
+        }
+    }
+
+    @Test fun alternativeIsTrimmedBeforeItsDisplayGeometryIsBuilt() {
+        graph().use { graph ->
+            val stops = listOf(-0.0005 to 0.0005, points.last())
+            val primaryTrim = trimSingleGraphRouteSafe(primary(), stops)!!
+            val display = connectRouteEndpoints(primaryTrim.result, primaryTrim, stops)
+            val options = RealRoutePlanner({ graph }).buildOptionsFromPrimary(
+                graph, 0, 4, primaryTrim.result, preference = RoutePreference.FLAT,
+                primaryDisplayPoints = display.points, primaryNodePointOffset = display.nodePointOffset,
+                endpointStops = stops,
+            )
+            assertEquals(2, options.size)
+            val alternative = options.last()
+            assertEquals(listOf(3L, 5L), alternative.nodeIds)
+            assertEquals(stops.first(), alternative.points.first())
+            assertEquals(listOf(points[2], points[4]), alternative.points.drop(alternative.nodePointOffset))
+            assertEquals(displayedRouteDistance(alternative.points), alternative.distanceMeters, 1e-6)
         }
     }
 }
