@@ -71,7 +71,7 @@ class WeatherRepository(
      * 座標が更新された際に呼び出し、地域コードを特定して天気情報を取得・更新する。
      */
     fun updateLocation(latitude: Double, longitude: Double, cityHint: String? = null, isOnline: Boolean) {
-        val normalizedHint = cityHint?.trim()?.takeIf { it.isNotEmpty() }
+        val normalizedHint = weatherCityHint(cityHint)
         val prevLat = lastLat
         val prevLon = lastLon
         if (currentArea != null &&
@@ -239,7 +239,8 @@ class WeatherRepository(
             val a = sin(dLat / 2) * sin(dLat / 2) +
                 cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
                 sin(dLon / 2) * sin(dLon / 2)
-            return r * 2 * atan2(sqrt(a), sqrt(1 - a))
+            val clampedA = a.coerceIn(0.0, 1.0)
+            return r * 2 * atan2(sqrt(clampedA), sqrt(1 - clampedA))
         }
 
         @Volatile
