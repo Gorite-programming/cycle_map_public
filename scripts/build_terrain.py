@@ -39,13 +39,13 @@ from scripts.prefectures import BY_NAME, resolve
 
 def _load_generation_dependencies():
     global np, contour_generator, Image, Compression, TileType, zxy_to_tileid
-    global pmtiles_write, LineString, MultiLineString, box, shape, unary_union, mvt
+    global pmtiles_write, GeometryCollection, LineString, MultiLineString, box, shape, unary_union, mvt
     import numpy as np
     from contourpy import contour_generator
     from PIL import Image
     from pmtiles.tile import Compression, TileType, zxy_to_tileid
     from pmtiles.writer import write as pmtiles_write
-    from shapely.geometry import LineString, MultiLineString, box, shape
+    from shapely.geometry import GeometryCollection, LineString, MultiLineString, box, shape
     from shapely.ops import unary_union
     import mapbox_vector_tile as mvt
 
@@ -250,14 +250,14 @@ def download_all(tiles, workers=6):
 
 @functools.lru_cache(maxsize=1200)
 def load_dem(x, y):
-    """z14 タイルの標高 (m, float32 256x256)。データなしは None、海などの欠測は 0m。"""
+    """z14 タイルの標高 (m, float32 256x256)。データなしは None、海などの欠測 (2**23) は NaN。"""
     path = cache_path(x, y)
     if not path.exists() or path.stat().st_size == 0:
         return None
     rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.int64)
     v = rgb[..., 0] * 65536 + rgb[..., 1] * 256 + rgb[..., 2]
     h = np.where(v < 2 ** 23, v, v - 2 ** 24).astype(np.float32) * 0.01
-    h[v == 2 ** 23] = 0.0
+    h[v == 2 ** 23] = np.nan
     return h
 
 
@@ -267,7 +267,7 @@ def dem_window(z, tx, ty, pad):
     size = (256 + 2 * pad) * scale
     px0 = tx * scale * 256 - pad * scale
     py0 = ty * scale * 256 - pad * scale
-    out = np.zeros((size, size), dtype=np.float32)
+    out = np.full((size, size), np.nan, dtype=np.float32)
     any_data = False
     for gx in range(px0 // 256, (px0 + size - 1) // 256 + 1):
         for gy in range(py0 // 256, (py0 + size - 1) // 256 + 1):
@@ -278,11 +278,15 @@ def dem_window(z, tx, ty, pad):
             sx0, sy0 = max(px0, gx * 256), max(py0, gy * 256)
             sx1, sy1 = min(px0 + size, gx * 256 + 256), min(py0 + size, gy * 256 + 256)
             out[sy0 - py0:sy1 - py0, sx0 - px0:sx1 - px0] = tile[sy0 - gy * 256:sy1 - gy * 256, sx0 - gx * 256:sx1 - gx * 256]
-    if not any_data:
+    if not any_data or not np.isfinite(out).any():
         return None
     if scale > 1:
         n = 256 + 2 * pad
-        out = out.reshape(n, scale, n, scale).mean(axis=(1, 3))
+        reshaped = out.reshape(n, scale, n, scale)
+        valid = np.isfinite(reshaped)
+        count = valid.sum(axis=(1, 3))
+        total = np.where(valid, reshaped, 0.0).sum(axis=(1, 3))
+        out = np.where(count > 0, total / np.maximum(count, 1), np.nan).astype(np.float32)
     return out
 
 
@@ -295,25 +299,30 @@ ZENITH_DEG = 45.0
 def hillshade_tile(z, x, y):
     """陰影起伏の PNG (LA, 256x256)。影のない平地・海だけのタイルは None。"""
     arr = dem_window(z, x, y, pad=1)
-    if arr is None:
+    if arr is None or not np.isfinite(arr).any():
         return None
     lat = math.radians((tile_bounds(x, y, z)[1] + tile_bounds(x, y, z)[3]) / 2)
     cell = 156543.03392 * math.cos(lat) / (2 ** z)  # 1px の実距離 (m)
     exaggeration = 1.5 * 2 ** ((Z_DEM - z) * 0.25)  # 引くほど地形が平らに見えるので少し強調する
-    dzdx = (arr[1:-1, 2:] - arr[1:-1, :-2]) / (2 * cell) * exaggeration
-    dzdy_north = -(arr[2:, 1:-1] - arr[:-2, 1:-1]) / (2 * cell) * exaggeration  # 画像は y が下向き
-    slope = np.arctan(np.hypot(dzdx, dzdy_north))
-    aspect = np.arctan2(dzdy_north, -dzdx)
-    zen = math.radians(ZENITH_DEG)
-    az = math.radians((360.0 - AZIMUTH_DEG + 90.0) % 360.0)
-    shade = math.cos(zen) * np.cos(slope) + math.sin(zen) * np.sin(slope) * np.cos(az - aspect)
-    flat = math.cos(zen)
-    dark = np.clip((flat - shade) / flat, 0.0, 1.0)
-    light = np.clip((shade - flat) / (1.0 - flat), 0.0, 1.0)
-    alpha = np.clip(dark * 0.65 + light * 0.22, 0.0, 1.0)
+    with np.errstate(invalid="ignore"):
+        dzdx = (arr[1:-1, 2:] - arr[1:-1, :-2]) / (2 * cell) * exaggeration
+        dzdy_north = -(arr[2:, 1:-1] - arr[:-2, 1:-1]) / (2 * cell) * exaggeration  # 画像は y が下向き
+        slope = np.arctan(np.hypot(dzdx, dzdy_north))
+        aspect = np.arctan2(dzdy_north, -dzdx)
+        zen = math.radians(ZENITH_DEG)
+        az = math.radians((360.0 - AZIMUTH_DEG + 90.0) % 360.0)
+        shade = math.cos(zen) * np.cos(slope) + math.sin(zen) * np.sin(slope) * np.cos(az - aspect)
+        flat = math.cos(zen)
+        dark = np.clip((flat - shade) / flat, 0.0, 1.0)
+        light = np.clip((shade - flat) / (1.0 - flat), 0.0, 1.0)
+        alpha = np.clip(dark * 0.65 + light * 0.22, 0.0, 1.0)
+    valid = np.isfinite(alpha)
+    if not valid.any():
+        return None
+    alpha = np.where(valid, alpha, 0.0)
     if float(alpha.max()) < 0.02:
         return None
-    gray = np.where(dark >= light, 0, 255).astype(np.uint8)
+    gray = np.where(valid & (dark >= light), 0, 255).astype(np.uint8)
     la = np.dstack([gray, (alpha * 255).astype(np.uint8)])
     buf = __import__("io").BytesIO()
     Image.fromarray(la, mode="LA").save(buf, format="PNG", optimize=True)
@@ -328,9 +337,32 @@ def hillshade_job(args):
 # ------------------------------- 等高線 -------------------------------
 
 def smooth(arr):
-    """3x3 の平均で標高の細かいノイズを均す (等高線のぎざぎざを抑える)。"""
+    """3x3 の平均で標高の細かいノイズを均す (等高線のぎざぎざを抑える。欠損 NaN は維持)。"""
     p = np.pad(arr, 1, mode="edge")
-    return sum(p[i:i + arr.shape[0], j:j + arr.shape[1]] for i in range(3) for j in range(3)) / 9.0
+    total = np.zeros_like(arr, dtype=np.float32)
+    count = np.zeros_like(arr, dtype=np.int32)
+    for i in range(3):
+        for j in range(3):
+            win = p[i:i + arr.shape[0], j:j + arr.shape[1]]
+            valid = np.isfinite(win)
+            total = np.where(valid, total + np.where(valid, win, 0.0), total)
+            count += valid
+    center_valid = np.isfinite(arr)
+    return np.where(center_valid & (count > 0), total / np.maximum(count, 1), np.nan).astype(np.float32)
+
+
+def _extract_linestrings(geom):
+    """LineString / MultiLineString / GeometryCollection から有効な LineString を抽出する。"""
+    if geom.is_empty:
+        return []
+    if isinstance(geom, LineString):
+        return [geom] if len(geom.coords) >= 2 else []
+    if isinstance(geom, (MultiLineString, GeometryCollection)):
+        out = []
+        for part in geom.geoms:
+            out.extend(_extract_linestrings(part))
+        return out
+    return []
 
 
 def contour_tile(z, x, y):
@@ -340,8 +372,11 @@ def contour_tile(z, x, y):
     if arr is None:
         return None
     arr = smooth(arr)
+    finite = np.isfinite(arr)
+    if not finite.any():
+        return None
     interval, index_interval = CONTOUR_ZOOMS[z]
-    lo, hi = float(arr.min()), float(arr.max())
+    lo, hi = float(arr[finite].min()), float(arr[finite].max())
     if hi - lo < 1.0 or hi <= interval:
         return None
     levels = np.arange(max(interval, math.floor(lo / interval) * interval), hi + 0.001, interval)
@@ -359,14 +394,11 @@ def contour_tile(z, x, y):
             xy = pts - pad + 0.5  # 配列の添字 → タイル内の px
             line = LineString(xy).simplify(0.3)
             clipped = line.intersection(clip)
-            if clipped.is_empty:
-                continue
-            if isinstance(clipped, (LineString, MultiLineString)):
-                geoms.append(clipped)
+            geoms.extend(_extract_linestrings(clipped))
         if not geoms:
             continue
         kind = "index" if int(level) % index_interval == 0 else "minor"
-        geometry = MultiLineString([g for geom in geoms for g in (geom.geoms if hasattr(geom, "geoms") else [geom])])
+        geometry = MultiLineString(geoms)
         features.append({"geometry": geometry.wkt, "properties": {"ele": int(level), "kind": kind}})
     if not features:
         return None

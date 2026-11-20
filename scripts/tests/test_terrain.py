@@ -160,3 +160,98 @@ def test_recheck_empty_caps_workers_and_preserves_empty_on_403(tmp_path, monkeyp
     assert p_err.read_bytes() == b""
     assert "失敗 1" in out
 
+
+def _write_dem_png(path: Path, elev_m: float, nodata_slice=None):
+    import numpy as np
+    from PIL import Image
+
+    raw_val = round(elev_m * 100.0)
+    if raw_val < 0:
+        raw_val += 2 ** 24
+    arr = np.empty((256, 256, 3), dtype=np.uint8)
+    arr[..., 0] = (raw_val >> 16) & 0xFF
+    arr[..., 1] = (raw_val >> 8) & 0xFF
+    arr[..., 2] = raw_val & 0xFF
+    if nodata_slice is not None:
+        arr[nodata_slice] = (128, 0, 0)  # v == 2**23 (GSI nodata)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(arr, mode="RGB").save(path, format="PNG")
+
+
+def test_load_dem_treats_nodata_as_nan_and_avoids_hillshade_cliff(tmp_path, monkeypatch):
+    import numpy as np
+
+    bt._load_generation_dependencies()
+    bt.load_dem.cache_clear()
+    monkeypatch.setattr(bt, "CACHE", tmp_path)
+
+    # Constant 500m plateau with an interior 4x4 nodata (v == 2**23) patch
+    _write_dem_png(bt.cache_path(100, 100), 500.0, nodata_slice=(slice(120, 124), slice(120, 124)))
+    dem = bt.load_dem(100, 100)
+    assert dem is not None
+    assert np.isnan(dem[120:124, 120:124]).all()
+    assert np.isclose(dem[0, 0], 500.0)
+
+    # Flat plateau with nodata patch must NOT create artificial cliff shadows
+    assert bt.hillshade_tile(14, 100, 100) is None
+    # Contours on flat plateau with nodata patch must NOT create spurious crater rings
+    assert bt.contour_tile(14, 100, 100) is None
+
+    # All-nodata tile returns None from dem_window
+    _write_dem_png(bt.cache_path(200, 200), 0.0, nodata_slice=(slice(None), slice(None)))
+    assert bt.dem_window(14, 200, 200, pad=1) is None
+
+
+def test_contour_extracts_linestrings_from_geometry_collection():
+    from shapely.geometry import GeometryCollection, LineString, Point
+
+    bt._load_generation_dependencies()
+    gc = GeometryCollection([
+        Point(1.0, 2.0),
+        LineString([(0.0, 0.0), (10.0, 10.0)]),
+        GeometryCollection([LineString([(20.0, 20.0), (30.0, 30.0)])]),
+    ])
+    lines = bt._extract_linestrings(gc)
+    assert len(lines) == 2
+    assert all(isinstance(g, LineString) for g in lines)
+
+
+def test_contour_tile_preserves_geometry_collection_intersections(tmp_path, monkeypatch):
+    import gzip
+    import mapbox_vector_tile as mvt
+    import numpy as np
+    from PIL import Image
+
+    bt._load_generation_dependencies()
+    bt.load_dem.cache_clear()
+    monkeypatch.setattr(bt, "CACHE", tmp_path)
+
+    # Ramp elevation from 0m to 100m across x so contours at 10m..90m cross the tile
+    xs = np.linspace(0.0, 100.0, 256, dtype=np.float32)
+    elev = np.broadcast_to(xs, (256, 256))
+    vals = np.round(elev * 100.0).astype(np.int64)
+    rgb = np.stack([(vals >> 16) & 0xFF, (vals >> 8) & 0xFF, vals & 0xFF], axis=-1).astype(np.uint8)
+    # Put a nodata strip on one side; contour lines still generate on the valid slope
+    rgb[:8, :8] = (128, 0, 0)
+    p = bt.cache_path(50, 50)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgb, mode="RGB").save(p, format="PNG")
+
+    # Force line.intersection(clip) to return a GeometryCollection (LineString + Point)
+    from shapely.geometry import GeometryCollection, Point
+
+    orig_intersection = bt.LineString.intersection
+
+    def gc_intersection(self, other):
+        res = orig_intersection(self, other)
+        if not res.is_empty:
+            return GeometryCollection([res, Point(0, 0)])
+        return res
+
+    monkeypatch.setattr(bt.LineString, "intersection", gc_intersection)
+    data = bt.contour_tile(14, 50, 50)
+    assert data is not None
+    decoded = mvt.decode(gzip.decompress(data))
+    assert "contour" in decoded
+    assert len(decoded["contour"]["features"]) > 0
+
