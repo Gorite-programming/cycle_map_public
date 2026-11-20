@@ -452,6 +452,27 @@ class LazyMappedRoadGraph private constructor(
         return result
     }
 
+    /** 通行ルール判定の候補列挙用に、ノードから出る辺を [RoadCandidate] として追加する ([bicycleInfoOfEdge] の意味は変えない)。 */
+    internal fun appendRoadCandidatesFrom(
+        index: Int,
+        includeOrdinary: Boolean,
+        out: MutableList<RoadCandidate>,
+    ) {
+        require(index in nodeIds.indices) { "Unknown node index: $index" }
+        val fromLat = latitudes[index]
+        val fromLon = longitudes[index]
+        val first = edgeFirstOrdinals[index]
+        val count = edgeCounts[index]
+        for (i in 0 until count) {
+            val ordinal = first + i
+            val target = edgeTargets[ordinal]
+            if (target < 0) continue
+            val info = bicycleInfoOfEdge(ordinal)
+            if (info == null && !includeOrdinary) continue
+            out.add(RoadCandidate(ordinal, fromLat, fromLon, latitudes[target], longitudes[target], info))
+        }
+    }
+
     /** CH 問い合わせの最小インターフェース (テストで差し替え可能にするため)。 */
     internal fun interface ChQuery {
         fun route(start: Int, goal: Int, graph: LazyMappedRoadGraph): ChRouteResult

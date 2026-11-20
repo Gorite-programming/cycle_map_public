@@ -174,9 +174,96 @@ class RoadRuleMatcherTest {
             assertEquals(2, graph.outgoingBranches(1).single().ordinal)
             assertEquals(info, graph.outgoingBranches(1).single().bicycleInfo)
             val candidates = graph.roadCandidatesNear(0.0, 0.0)
-            assertEquals(setOf(0, 2), candidates.map { it.ordinal }.toSet())
+            assertEquals(setOf(0, 1, 2), candidates.map { it.ordinal }.toSet())
             assertEquals(RoadCandidate(0, 0.0, 0.0, 0.0, .0001, info), candidates.single { it.ordinal == 0 })
-            assertEquals(listOf(0), graph.roadCandidatesNear(0.0, 0.0, maxNodes = 1).map { it.ordinal })
+            assertEquals(RoadCandidate(1, 0.0, 0.0, 0.0, .0002, null), candidates.single { it.ordinal == 1 })
+            assertEquals(listOf(0, 1), graph.roadCandidatesNear(0.0, 0.0, maxNodes = 1).map { it.ordinal })
+            assertEquals(setOf(0, 2), graph.roadCandidatesNear(0.0, 0.0, includeOrdinary = false).map { it.ordinal }.toSet())
+            assertEquals(listOf(0), graph.roadCandidatesNear(0.0, 0.0, maxNodes = 1, includeOrdinary = false).map { it.ordinal })
+        }
+    }
+
+    @Test fun parallelOrdinarySideRoadSuppressesFalseMotorOnlyWarningWhileBypassStillWarns() {
+        val motorOnly = classifyBicycleRoad(mapOf("highway" to "trunk", "motorroad" to "yes"), false)
+
+        fun buildTwoWaySideRoadGraph(includeBikeInfo: Boolean): Pair<File, File> {
+            val file = File.createTempFile("side-road", ".graph").apply { deleteOnExit() }
+            val index = File(file.path + ".idx").apply { deleteOnExit() }
+            val bytes = ByteArrayOutputStream()
+            val starts = LongArray(2) { -1 }
+            DataOutputStream(bytes).use { out ->
+                out.writeUTF("CYCLEMAP_GRAPH_V1")
+                out.writeInt(2)
+                out.writeLong(1L); out.writeDouble(-.001); out.writeDouble(0.0)
+                out.writeLong(2L); out.writeDouble(.001); out.writeDouble(0.0)
+                out.writeInt(2)
+                listOf(0 to 1, 1 to 0).forEach { (from, to) ->
+                    starts[from] = bytes.size().toLong()
+                    out.writeLong(1L + from); out.writeLong(1L + to); out.writeDouble(222.0)
+                    out.writeUTF("residential"); out.writeBoolean(false); out.writeBoolean(false)
+                }
+            }
+            file.writeBytes(bytes.toByteArray())
+            DataOutputStream(index.outputStream()).use { out ->
+                out.writeUTF("CYCLEMAP_INDEX_V2"); out.writeInt(2)
+                starts.forEach(out::writeLong)
+                intArrayOf(0, 1).forEach(out::writeInt)
+                intArrayOf(1, 1).forEach(out::writeInt)
+                out.writeInt(2); intArrayOf(1, 0).forEach(out::writeInt)
+                if (includeBikeInfo) {
+                    out.writeUTF("CYCLEMAP_BIKEINFO_V1"); out.writeInt(2)
+                    intArrayOf(0, 0).forEach(out::writeInt)
+                }
+            }
+            return file to index
+        }
+
+        for (includeBikeInfo in listOf(true, false)) {
+            val (graphFile, indexFile) = buildTwoWaySideRoadGraph(includeBikeInfo)
+            LazyMappedRoadGraph.load(graphFile, indexFile).use { graph ->
+                assertNull(graph.bicycleInfoOfEdge(0))
+                assertNull(graph.bicycleInfoOfEdge(1))
+
+                // 1) 僅差 (3m) で並走する自動車専用バイパス: 側道上でもGPSがバイパス寄りでも誤警告を出さない。
+                val closeBypassFile = File.createTempFile("bypass-3m", ".bikerules").apply { deleteOnExit() }
+                val closeLon = 3.0 / metersPerDegree
+                ExcludedRoadIndex.write(closeBypassFile, listOf(ExcludedSegment(-.001, closeLon, .001, closeLon, motorOnly)))
+                val closeBypass = assertNotNull(ExcludedRoadIndex.load(closeBypassFile))
+
+                val closeMatcher = RoadRuleMatcher()
+                repeat(4) { i ->
+                    val lon = if (i % 2 == 0) 0.0 else 2.0 / metersPerDegree
+                    val candidates = graph.roadCandidatesNear(0.0, lon) + closeBypass.candidatesNear(0.0, lon)
+                    assertNull(update(closeMatcher, candidates, time = i * 1_000L, lon = lon))
+                }
+
+                // 2) 8m 離れた並走バイパス: 側道を走るときは警告せず、バイパスを走るときは3回目で自動車専用を警告する。
+                val separatedBypassFile = File.createTempFile("bypass-8m", ".bikerules").apply { deleteOnExit() }
+                val bypassLon = 8.0 / metersPerDegree
+                ExcludedRoadIndex.write(separatedBypassFile, listOf(ExcludedSegment(-.001, bypassLon, .001, bypassLon, motorOnly)))
+                val separatedBypass = assertNotNull(ExcludedRoadIndex.load(separatedBypassFile))
+
+                val sideMatcher = RoadRuleMatcher()
+                repeat(4) { i ->
+                    val candidates = graph.roadCandidatesNear(0.0, 0.0) + separatedBypass.candidatesNear(0.0, 0.0)
+                    assertNull(update(sideMatcher, candidates, time = i * 1_000L, lon = 0.0))
+                }
+
+                val bypassMatcher = RoadRuleMatcher()
+                repeat(2) { i ->
+                    val candidates = graph.roadCandidatesNear(0.0, bypassLon) + separatedBypass.candidatesNear(0.0, bypassLon)
+                    assertNull(update(bypassMatcher, candidates, time = i * 1_000L, lon = bypassLon))
+                }
+                val warnCandidates = graph.roadCandidatesNear(0.0, bypassLon) + separatedBypass.candidatesNear(0.0, bypassLon)
+                val match = assertNotNull(update(bypassMatcher, warnCandidates, time = 2_000L, lon = bypassLon))
+                assertEquals(RoadRuleKind.MOTOR_ONLY, match.kind)
+
+                // 3) バイパスから側道へ移ったら、3回連続で側道が勝った時点で警告が消える。
+                val sideCandidates = graph.roadCandidatesNear(0.0, 0.0) + separatedBypass.candidatesNear(0.0, 0.0)
+                assertEquals(RoadRuleKind.MOTOR_ONLY, update(bypassMatcher, sideCandidates, time = 3_000L, lon = 0.0)?.kind)
+                assertEquals(RoadRuleKind.MOTOR_ONLY, update(bypassMatcher, sideCandidates, time = 4_000L, lon = 0.0)?.kind)
+                assertNull(update(bypassMatcher, sideCandidates, time = 5_000L, lon = 0.0))
+            }
         }
     }
 }
