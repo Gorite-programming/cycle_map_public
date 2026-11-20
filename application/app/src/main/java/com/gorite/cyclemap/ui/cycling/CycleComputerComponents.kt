@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -538,7 +539,7 @@ internal fun CycleComputerActionBar(
                     border = primaryBorder,
                     modifier = Modifier
                         .weight(1.3f)
-                        .height(64.dp),
+                        .heightIn(min = 64.dp),
                 ) {
                     Text(
                         text = primaryLabel,
@@ -556,7 +557,7 @@ internal fun CycleComputerActionBar(
                     },
                     modifier = Modifier
                         .weight(0.85f)
-                        .height(56.dp),
+                        .heightIn(min = 56.dp),
                 )
                 LongPressActionButton(
                     label = "通常へ",
@@ -567,7 +568,7 @@ internal fun CycleComputerActionBar(
                     },
                     modifier = Modifier
                         .weight(0.85f)
-                        .height(56.dp),
+                        .heightIn(min = 56.dp),
                 )
             }
         } else {
@@ -581,7 +582,7 @@ internal fun CycleComputerActionBar(
                 border = primaryBorder,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(68.dp),
+                    .heightIn(min = 68.dp),
             ) {
                 Text(
                     text = primaryLabel,
@@ -603,10 +604,10 @@ internal fun CycleComputerActionBar(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                 )
                 LongPressActionButton(
-                    label = "通常モードへ戻る",
+                    label = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f) "通常へ" else "通常モードへ戻る",
                     onShortTap = { hintTrigger++ },
                     onLongPress = {
                         showTapWarning = false
@@ -614,7 +615,7 @@ internal fun CycleComputerActionBar(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                 )
             }
         }
@@ -640,7 +641,7 @@ private fun LongPressActionButton(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .combinedClickable(
                     role = Role.Button,
                     onClickLabel = "長押ししてください",

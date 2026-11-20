@@ -1,14 +1,16 @@
 package com.gorite.cyclemap.ui.cycling
 
 import android.content.res.Configuration
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +71,13 @@ fun CycleComputerScreen(
     }
 }
 
+/** Height is the usable area after system insets; scrolling handles the remaining overflow. */
+internal fun cycleComputerSpeedFontSize(heightDp: Float, fontScale: Float, landscape: Boolean): Float {
+    val scale = fontScale.takeIf { it.isFinite() && it > 0f } ?: 1f
+    val height = heightDp.takeIf { it.isFinite() }?.coerceAtLeast(0f) ?: 0f
+    return (height * (if (landscape) 0.40f else 0.22f) / scale).coerceIn(36f, 124f)
+}
+
 @Composable
 private fun CycleComputerPortraitContent(
     snapshot: RideSnapshot,
@@ -79,49 +88,32 @@ private fun CycleComputerPortraitContent(
     onResetLongPress: () -> Unit,
     onExitMode: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().systemBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        // 時計行の下に警告の実寸を確保し、大きな速度表示と重ねない。
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
-            roadRuleContent?.invoke()
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            SpeedHeroDisplay(
-                speedKmh = snapshot.speedKmh,
-                isPaused = snapshot.state == RideState.PAUSED,
-                // 警告の行 (約 44dp) を足しても、下の操作ボタンがつぶれないよう、警告が出ている間は速度の数字を小さくする
-                // (S26 の実機で、124sp のままだと「リセット」「通常モードへ戻る」が高さ約 13dp につぶれた)
-                speedFontSize = if (roadRuleContent != null) 76.sp else 124.sp,
+        val speedSize = cycleComputerSpeedFontSize(maxHeight.value, LocalDensity.current.fontScale, false).sp
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Measure actions first; only the instruments may scroll out of view.
+            Column(
+                modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+                roadRuleContent?.invoke()
+                SpeedHeroDisplay(snapshot.speedKmh, snapshot.state == RideState.PAUSED, speedSize)
+                DestinationBand(destination = destination, bandHeight = 66.dp * LocalDensity.current.fontScale.coerceAtLeast(1f))
+                StatsGrid(snapshot = snapshot, compact = false)
+            }
+            CycleComputerActionBar(
+                state = snapshot.state,
+                isLandscape = false,
+                onStartPause = onStartPause,
+                onResetLongPress = onResetLongPress,
+                onExitMode = onExitMode,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            DestinationBand(
-                destination = destination,
-                bandHeight = 66.dp,
-            )
         }
-
-        StatsGrid(
-            snapshot = snapshot,
-            compact = false,
-        )
-
-        CycleComputerActionBar(
-            state = snapshot.state,
-            isLandscape = false,
-            onStartPause = onStartPause,
-            onResetLongPress = onResetLongPress,
-            onExitMode = onExitMode,
-        )
     }
 }
 
@@ -135,47 +127,26 @@ private fun CycleComputerLandscapeContent(
     onResetLongPress: () -> Unit,
     onExitMode: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().systemBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // 左半分: 時刻・状態 + 現在速度 + 目的地
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            // 時計行の下に警告の実寸を確保し、大きな速度表示と重ねない。
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
-                roadRuleContent?.invoke()
+        val speedSize = cycleComputerSpeedFontSize(maxHeight.value, LocalDensity.current.fontScale, true).sp
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+                    roadRuleContent?.invoke()
+                    SpeedHeroDisplay(snapshot.speedKmh, snapshot.state == RideState.PAUSED, speedSize)
+                    DestinationBand(destination = destination, bandHeight = 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f))
+                }
+                Column(Modifier.weight(1.15f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                    StatsGrid(snapshot = snapshot, compact = true)
+                }
             }
-            SpeedHeroDisplay(
-                speedKmh = snapshot.speedKmh,
-                isPaused = snapshot.state == RideState.PAUSED,
-                speedFontSize = 120.sp,
-            )
-            DestinationBand(
-                destination = destination,
-                bandHeight = 64.dp,
-            )
-        }
-
-        // 右半分: 走行項目 + 操作ボタン
-        Column(
-            modifier = Modifier
-                .weight(1.15f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            StatsGrid(
-                snapshot = snapshot,
-                compact = true,
-            )
             CycleComputerActionBar(
                 state = snapshot.state,
                 isLandscape = true,
@@ -285,6 +256,23 @@ private fun PreviewLandscapePausedNoDest() {
             snapshot = previewPausedSnapshot,
             destination = null,
             clockText = "15:10",
+            onStartPause = {},
+            onResetLongPress = {},
+            onExitMode = {},
+        )
+    }
+}
+
+@Preview(name = "Small portrait, 200% text", showBackground = true, widthDp = 320, heightDp = 480, fontScale = 2f)
+@Preview(name = "Small landscape, 200% text", showBackground = true, widthDp = 640, heightDp = 320, fontScale = 2f)
+@Composable
+private fun PreviewSmallScreenLargeText() {
+    CycleMapTheme {
+        CycleComputerScreen(
+            snapshot = previewRunningSnapshot,
+            destination = null,
+            clockText = "14:32",
+            roadRuleContent = { androidx.compose.material3.Text("Road rule warning") },
             onStartPause = {},
             onResetLongPress = {},
             onExitMode = {},
