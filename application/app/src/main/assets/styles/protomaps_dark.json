@@ -9938,10 +9938,16 @@
             [
               "forest",
               "marina",
+              "park",
               "garden",
               "bench",
+              "station",
+              "university",
+              "school",
               "animal",
+              "post_office",
               "building",
+              "bar",
               "books",
               "beauty",
               "electronics",
@@ -11393,19 +11399,7 @@
         "text-padding": 2,
         "icon-padding": 3,
         "icon-allow-overlap": false,
-        "text-allow-overlap": false,
-        "symbol-sort-key": [
-          "match",
-          [
-            "get",
-            "network"
-          ],
-          "JP:national",
-          0,
-          "JP:prefectural",
-          1,
-          2
-        ]
+        "text-allow-overlap": false
       },
       "paint": {
         "text-color": "#FFFFFF",

@@ -33,6 +33,7 @@ def test_covered_poi_kinds_sync_with_cycling_data_explicit_prefixes():
     kept_on_tiles = {
         "parking", "bar", "pub", "information", "clinic", "doctors", "dentist", "pharmacy", "chemist",
         "post_office", "bank", "atm", "school", "college", "university",
+        "station", "halt", "park",  # タイルの名前ラベルを残す方針
     }
     missing = explicit_kinds - pms.POI_KINDS_COVERED_BY_PINS - kept_on_tiles
     assert not missing, f"PoiCategory kinds missing from POI_KINDS_COVERED_BY_PINS: {sorted(missing)}"
@@ -68,9 +69,8 @@ def test_shields_disable_overlap_and_prioritize_national_routes(theme):
     assert layout["text-allow-overlap"] is False
     assert layout["icon-padding"] >= 2
     assert layout["text-padding"] >= 2
-    assert layout["symbol-sort-key"] == [
-        "match", ["get", "network"], "JP:national", 0, "JP:prefectural", 1, 2,
-    ]
+    # symbol-sort-key は MapLibre native (エミュレーター) の描画スレッドを落とすため付けない
+    assert "symbol-sort-key" not in layout
     assert ids.index("roads_shields") > ids.index("pois")
     assert ids.index("roads_shields") > ids.index("roads_labels_major")
     assert ids.index("roads_shields") < ids.index("places_subplace")
@@ -81,7 +81,7 @@ def test_patch_pois_handles_nested_filter_and_rejects_missing():
         "filter": [
             "all",
             [">=", ["zoom"], 12],
-            ["any", ["in", ["get", "kind"], ["literal", ["park", "forest", "station"]]]],
+            ["any", ["in", ["get", "kind"], ["literal", ["restaurant", "forest", "toilets"]]]],
         ]
     }
     pms.patch_pois(layer)

@@ -37,12 +37,13 @@ THEMES = ("light", "dark")
 POI_KINDS_COVERED_BY_PINS = {
     # 既定でオンのカテゴリ、または従来から外していたものだけ。既定オフのカテゴリ (駐車場・学校・銀行・薬局・
     # 診療所・郵便局・バー・観光案内) は、ピンが出ない既定設定で地図から消えないようタイル側に残す。
-    "station", "halt", "bus_station", "ferry_terminal", "bus_stop", "tram_stop", "fuel", "charging_station",
+    # 駅 (station/halt) と公園 (park) は、タイルの名前ラベルを残す従来の方針 (MapStyleAssetsTest) のまま外さない。
+    "bus_station", "ferry_terminal", "bus_stop", "tram_stop", "fuel", "charging_station",
     "bicycle", "bicycle_rental", "bicycle_parking", "bicycle_repair_station",
     "convenience", "supermarket", "department_store", "mall", "restaurant", "fast_food", "cafe", "bakery",
     "attraction", "museum", "zoo", "artwork", "theme_park", "aquarium", "viewpoint", "gallery", "picnic_site",
     "place_of_worship", "aerodrome", "beach", "peak", "volcano", "waterfall", "castle", "monument", "memorial", "ruins",
-    "park", "public_bath", "hotel", "guest_house", "hostel", "motel", "resort",
+    "public_bath", "hotel", "guest_house", "hostel", "motel", "resort",
     "camp_site", "alpine_hut", "wilderness_hut",
     "stadium", "sports_centre", "swimming_pool", "golf_course",
     "toilets", "drinking_water", "hospital",
@@ -279,7 +280,7 @@ def raise_shields(style):
 
     MapLibre は上の層から順にラベルを置き、重なるものは後の層が消える。標識は道路名・POI より下に
     あったため、市街地では z15 でも標識がほとんど出なかった (Google マップは z12 から出す)。冪等。
-    allow-overlap は無効にしてバッジ同士や地名との重なりを防ぎ、symbol-sort-key で国道を優先する。
+    allow-overlap は無効にしてバッジ同士や地名との重なりを防ぎ、国道の優先づけ (symbol-sort-key) は MapLibre native が描画スレッドで落ちるため使わない。
     """
     layers = style["layers"]
     shield = next(l for l in layers if l["id"] == "roads_shields")
@@ -292,8 +293,6 @@ def raise_shields(style):
     layout["text-padding"] = 2
     layout["icon-allow-overlap"] = False
     layout["text-allow-overlap"] = False
-    # 重複区間や交差点で重なる場合は国道 > 県道 > その他の順に優先する (値が小さいほど先)
-    layout["symbol-sort-key"] = ["match", ["get", "network"], "JP:national", 0, "JP:prefectural", 1, 2]
 
 
 def patch_style(theme):
