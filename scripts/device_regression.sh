@@ -36,6 +36,17 @@ adb get-state >/dev/null 2>&1 || { echo "adb 端末が見つかりません" >&2
 focus_ok() { adb shell dumpsys window | grep mCurrentFocus | grep -q "$PKG"; }
 sim() { adb shell am broadcast -a $ACTION.SIMLOC -p $PKG --ed lat "$1" --ed lon "$2" >/dev/null 2>&1; }
 
+LP=""
+cleanup() {
+  if [ -n "${LP:-}" ]; then
+    kill "$LP" 2>/dev/null || true
+    wait "$LP" 2>/dev/null || true
+    LP=""
+    adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
 printf "%-10s %-8s %-9s %-10s %-12s %-12s %s\n" case result totalMs distM cost pathHash notes
 fail=0
 for c in "${CASES[@]}"; do
@@ -56,7 +67,7 @@ for c in "${CASES[@]}"; do
     res=$(adb logcat -d | grep -E "ROUTE_RESULT|ROUTE_FAILURE" | tail -1)
     [ -n "$res" ] && break; sleep 2
   done
-  kill $LP 2>/dev/null; wait $LP 2>/dev/null
+  kill $LP 2>/dev/null; wait $LP 2>/dev/null; LP=""
   log=$(adb logcat -d)
   total=$(grep -o "totalMs=[0-9]*" <<<"$log" | tail -1 | cut -d= -f2)
   if grep -q "ROUTE_RESULT.*success=true" <<<"$res"; then
