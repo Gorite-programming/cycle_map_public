@@ -14,11 +14,26 @@ SEARCH_SCHEMA_VERSION = "2"  # 2: opening_hours / phone / website / wheelchair �
 BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
+REPO_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RAW_DIR = os.path.join(DATA_DIR, "raw")
 WORK_DIR = os.path.join(DATA_DIR, "work")
 OUT_DIR = os.path.join(BASE_DIR, "out")
-BOUNDARIES_DIR = os.path.join(RAW_DIR, "boundaries")
+ROOT_BOUNDARIES_DIR = os.path.join(REPO_ROOT, "boundaries")
+
+
+def resolve_boundaries_dir(raw_dir=RAW_DIR, repo_root=REPO_ROOT):
+    """行政界ディレクトリを解決する。data/raw/boundaries に無ければルートの boundaries/ へフォールバック。"""
+    local = os.path.join(raw_dir, "boundaries")
+    root = os.path.join(repo_root, "boundaries")
+    if os.path.isdir(local) and any(name.endswith(".geojson") for name in os.listdir(local)):
+        return local
+    if os.path.isdir(root):
+        return root
+    return local
+
+
+BOUNDARIES_DIR = resolve_boundaries_dir()
 REFERENCE_DIR = os.path.join(RAW_DIR, "reference")
 MASTER_DB_PATH = os.path.join(WORK_DIR, "master.db")
 BACKUP_DIR = os.path.join(WORK_DIR, "backup")
@@ -76,26 +91,77 @@ PREFECTURES = {
     "okinawa": {"id": "okinawa", "name_ja": "沖縄県", "name_en": "Okinawa", "search_db": "okinawa.search.db", "boundary": "Okinawa.geojson", "bbox": (122.93382, 24.04588, 131.33196, 27.88545)},
 }
 
-# SPEC 4.2: アプリが前方一致 LIKE で判定するカテゴリプレフィックス
+# SPEC 4.2: アプリが前方一致 LIKE で判定するカテゴリプレフィックス (CyclingData.kt PoiCategory と同期)
 APP_CATEGORY_PREFIXES = [
-    "shop:convenience",
-    "amenity:toilets",
+    # 交通
     "railway:station",
-    "public_transport",
-    "amenity:bus",
+    "railway:halt",
+    "public_transport:station",
+    "amenity:bus_station",
+    "amenity:ferry_terminal",
     "highway:bus_stop",
+    "railway:tram_stop",
+    "amenity:parking",
+    "amenity:fuel",
+    "amenity:charging_station",
+    # 自転車
+    "shop:bicycle",
+    "amenity:bicycle_rental",
+    "amenity:bicycle_parking",
+    "amenity:bicycle_repair_station",
+    # 食・買い物
+    "shop:convenience",
+    "shop:supermarket",
+    "shop:department_store",
+    "shop:mall",
     "amenity:restaurant",
     "amenity:cafe",
     "amenity:fast_food",
+    "shop:bakery",
+    "amenity:bar",
+    "amenity:pub",
+    # 観光・休憩
     "tourism:",
-    "amenity:parking",
+    "amenity:place_of_worship",
+    "historic:",
+    "natural:",
+    "aeroway:aerodrome",
+    "leisure:park",
+    "amenity:public_bath",
+    "tourism:hotel",
+    "tourism:guest_house",
+    "tourism:hostel",
+    "tourism:motel",
+    "tourism:resort",
+    "tourism:camp_site",
+    "tourism:alpine_hut",
+    "tourism:wilderness_hut",
+    "tourism:information",
+    "leisure:stadium",
+    "leisure:sports_centre",
+    "leisure:swimming_pool",
+    "leisure:golf_course",
+    # 生活インフラ
+    "amenity:toilets",
+    "amenity:drinking_water",
     "amenity:hospital",
     "amenity:clinic",
     "amenity:doctors",
-    "amenity:dentist",  # 第3段階から (国土数値情報の歯科診療所)。アプリ側の対応要否はHANDOFF参照
-    "amenity:fuel",
-    "leisure:park",
-    "amenity:drinking_water",
+    "amenity:dentist",
+    "amenity:pharmacy",
+    "shop:chemist",
+    "amenity:post_office",
+    "amenity:bank",
+    "amenity:atm",
+    "amenity:school",
+    "amenity:college",
+    "amenity:university",
+    "amenity:townhall",
+    "amenity:police",
+    "amenity:fire_station",
+    "amenity:library",
+    "amenity:public_building",
+    # 非ピンカテゴリ: 逆ジオコーディング (place:)・フォールバック (named)
     "place:",
     "named",
 ]

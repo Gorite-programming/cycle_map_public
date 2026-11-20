@@ -72,8 +72,7 @@ def adapt_medical(props, lon, lat, prefecture, imported_at):
         "address": address,
         "prefecture": prefecture,
         "source": "kokudo:medical",
-        # P04に固有IDは無い。名称+住所の複合を安定IDにする
-        # (広島実績: 重複0件。HANDOFF参照)
+        # P04に固有IDは無い。名称+住所の複合を基本IDにし、重複時は後で枝番を振る
         "source_id": "medical:%s@%s" % (name, address or ""),
         "priority": config.source_priority("kokudo:medical"),
         "imported_at": imported_at,
@@ -109,23 +108,30 @@ def adapt_school(props, lon, lat, prefecture, imported_at):
     }
 
 
-def _assign_school_ids(rows):
-    """学校コード重複 (分校・キャンパス) に決定論的な枝番を振る。
+def _deduplicate_source_ids(rows):
+    """source_id 重複 (分校・キャンパスや同名同住所の医療機関) に決定論的な枝番を振る。
 
-    (名称, 住所, lat, lon) の昇順で1件目は素のコード、2件目以降は #2, #3…。
+    (名称, 住所, カテゴリ, lat, lon) の昇順で1件目は素の ID、2件目以降は #2, #3…。
     同一ファイルの再取り込みでは同じ結果になる。
     """
     from collections import defaultdict
     groups = defaultdict(list)
     for r in rows:
         groups[r["source_id"]].append(r)
-    for code in sorted(groups):
-        members = sorted(groups[code],
-                         key=lambda r: (r["name"], r["address"] or "",
-                                        r["lat"], r["lon"]))
+    for base_id in sorted(groups):
+        members = sorted(
+            groups[base_id],
+            key=lambda r: (r["name"], r["address"] or "", r["category"],
+                           r["lat"], r["lon"]),
+        )
         for i, r in enumerate(members[1:], start=2):
-            r["source_id"] = "%s#%d" % (code, i)
+            r["source_id"] = "%s#%d" % (base_id, i)
     return rows
+
+
+def _assign_school_ids(rows):
+    """学校コード重複 (分校・キャンパス) に決定論的な枝番を振る。"""
+    return _deduplicate_source_ids(rows)
 
 
 def import_kokudo(dataset, prefecture, db_path=None, path=None):
@@ -166,8 +172,7 @@ def import_kokudo(dataset, prefecture, db_path=None, path=None):
                 skipped_noname += 1
             continue
         rows.append(row)
-    if dataset == "school":
-        rows = _assign_school_ids(rows)
+    rows = _deduplicate_source_ids(rows)
 
     conn = masterdb.connect(db_path)
     try:

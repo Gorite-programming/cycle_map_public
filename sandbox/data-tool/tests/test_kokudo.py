@@ -124,3 +124,40 @@ def test_import_kokudo_missing_file(tmp_db):
     with pytest.raises(kk.KokudoError):
         kk.import_kokudo("medical", "hiroshima", tmp_db,
                          path="/nonexistent.geojson")
+
+
+def test_import_kokudo_medical_duplicate_source_id_disambiguated(tmp_path, tmp_db):
+    path = str(tmp_path / "med_dup.geojson")
+    feats = [
+        {"type": "Feature", "properties": _med(3, name="さくら医院", addr="広島市中区1-1"),
+         "geometry": {"type": "Point", "coordinates": [132.45, 34.39]}},
+        {"type": "Feature", "properties": _med(2, name="さくら医院", addr="広島市中区1-1"),
+         "geometry": {"type": "Point", "coordinates": [132.45, 34.39]}},
+        {"type": "Feature", "properties": _med(2, name="さくら医院", addr="広島市中区1-1"),
+         "geometry": {"type": "Point", "coordinates": [132.46, 34.40]}},
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": feats}, f, ensure_ascii=False)
+
+    s = kk.import_kokudo("medical", "hiroshima", tmp_db, path=path)
+    assert s["inserted"] == 3
+
+    conn = masterdb.connect(tmp_db)
+    try:
+        rows = masterdb.query_pois(conn, prefecture="hiroshima", source="kokudo:medical")
+    finally:
+        conn.close()
+
+    ids = sorted(r["source_id"] for r in rows)
+    assert ids == [
+        "medical:さくら医院@広島市中区1-1",
+        "medical:さくら医院@広島市中区1-1#2",
+        "medical:さくら医院@広島市中区1-1#3",
+    ]
+    by_id = {r["source_id"]: r for r in rows}
+    # (name, address, category, lat, lon) 昇順で amenity:clinic (34.39) -> clinic (34.40) -> dentist (34.39)
+    assert by_id["medical:さくら医院@広島市中区1-1"]["category"] == "amenity:clinic"
+    assert by_id["medical:さくら医院@広島市中区1-1"]["lat"] == 34.39
+    assert by_id["medical:さくら医院@広島市中区1-1#2"]["category"] == "amenity:clinic"
+    assert by_id["medical:さくら医院@広島市中区1-1#2"]["lat"] == 34.40
+    assert by_id["medical:さくら医院@広島市中区1-1#3"]["category"] == "amenity:dentist"
