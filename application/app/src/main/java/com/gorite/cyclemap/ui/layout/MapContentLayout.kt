@@ -307,12 +307,6 @@ internal fun MapContentLayout(
                 }
 
                 if (homeVisible) {
-                    StatusBarScrim(
-                        topInset = effectiveTopPadding,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .zIndex(1f),
-                    )
                     // 上: メニュー、現在地の県データ状態ピル、通知バナー、道路ルール通知 (縦積みで重ならない)
                     Column(
                         modifier = Modifier
@@ -591,6 +585,9 @@ internal fun MapContentLayout(
                         onOpenOfflineData = onOpenDownload,
                     )
                 }
+            }
+            if (!isCycleComputer) {
+                MapAttribution(selectedLayer, Modifier.fillMaxWidth())
             }
         }
         val show3dSimulationState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }

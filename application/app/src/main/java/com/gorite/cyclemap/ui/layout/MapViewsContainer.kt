@@ -7,6 +7,8 @@ import android.graphics.drawable.Drawable
 import android.location.Location
 import com.gorite.cyclemap.ui.mapview.VectorMapView
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -383,6 +385,13 @@ internal fun MapViewsContainer(
                             )
                         }
                     },
+            )
+        }
+        if (!mapsSuspended) {
+            StatusBarScrim(
+                topInset = androidx.compose.foundation.layout.WindowInsets.statusBars
+                    .asPaddingValues().calculateTopPadding(),
+                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(2f),
             )
         }
     }

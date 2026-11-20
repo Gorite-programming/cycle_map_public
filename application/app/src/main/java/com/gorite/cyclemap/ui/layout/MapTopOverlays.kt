@@ -178,17 +178,6 @@ internal fun BoxScope.MapTopOverlays(
         }
     }
 
-    // 案内中: 地図の地名ラベルがステータスバーの時計・アイコンと重ならないよう、上端に薄い影を敷く
-    if (isNavigationActive) {
-        StatusBarScrim(
-            // systemInsets は Scaffold の内側で 0 になるので、ステータスバーの実際の高さを含む effectiveTopPadding を使う
-            topInset = effectiveTopPadding,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .zIndex(1f),
-        )
-    }
-
     // Top Center: Active Navigation Guidance & Banners (isNavigationActive: GoogleNavHeader)
     AnimatedVisibility(
         visible = isNavigationActive,
