@@ -63,6 +63,8 @@ import kotlinx.coroutines.delay
 internal fun gpxStatusBadgeLabel(isGpxRecording: Boolean): String =
     if (isGpxRecording) "GPX記録中" else "GPX停止中"
 
+internal fun shouldShowFinishAndSave(isGpxRecording: Boolean): Boolean = isGpxRecording
+
 internal fun finishAndSaveButtonLabel(fontScale: Float): String =
     if (fontScale > 1.3f) "保存して終了" else "記録を終了して保存"
 
@@ -530,12 +532,14 @@ internal fun CycleComputerActionBar(
     onExitMode: () -> Unit,
     modifier: Modifier = Modifier,
     onFinishAndSave: () -> Unit = onResetLongPress,
+    isGpxRecording: Boolean,
 ) {
     val palette = CycleMapTheme.palette
     val fontScale = LocalDensity.current.fontScale
+    val showFinishAndSave = shouldShowFinishAndSave(isGpxRecording)
     var hintTrigger by remember { mutableIntStateOf(0) }
     var showTapWarning by remember { mutableStateOf(false) }
-    var showFinishConfirm by remember { mutableStateOf(false) }
+    var showFinishConfirm by remember(showFinishAndSave) { mutableStateOf(false) }
 
     LaunchedEffect(hintTrigger) {
         if (hintTrigger > 0) {
@@ -562,8 +566,6 @@ internal fun CycleComputerActionBar(
         RideState.IDLE, RideState.PAUSED -> null
         RideState.RUNNING -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline)
     }
-    val finishSaveLabel = finishAndSaveButtonLabel(fontScale)
-
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
@@ -596,39 +598,25 @@ internal fun CycleComputerActionBar(
                         contentColor = primaryContent,
                     ),
                     border = primaryBorder,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    contentPadding = if (showFinishAndSave) PaddingValues(horizontal = 8.dp, vertical = 6.dp) else ButtonDefaults.ContentPadding,
                     modifier = Modifier
-                        .weight(1.05f)
+                        .weight(if (showFinishAndSave) 1.05f else 1.3f)
                         .heightIn(min = 64.dp),
                 ) {
                     Text(
                         text = primaryLabel,
-                        fontSize = 18.sp,
+                        fontSize = if (showFinishAndSave) 18.sp else 20.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = if (showFinishAndSave) TextOverflow.Ellipsis else TextOverflow.Clip,
                     )
                 }
-                Button(
-                    onClick = { showFinishConfirm = true },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.dangerContainer,
-                        contentColor = palette.danger,
-                    ),
-                    border = BorderStroke(1.dp, palette.danger),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier
-                        .weight(1.25f)
-                        .heightIn(min = 64.dp),
-                ) {
-                    Text(
-                        text = finishSaveLabel,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                if (showFinishAndSave) {
+                    FinishAndSaveButton(
+                        label = finishAndSaveButtonLabel(fontScale),
+                        shape = RoundedCornerShape(16.dp),
+                        onClick = { showFinishConfirm = true },
+                        modifier = Modifier.weight(1.25f),
                     )
                 }
                 LongPressActionButton(
@@ -639,7 +627,7 @@ internal fun CycleComputerActionBar(
                         onResetLongPress()
                     },
                     modifier = Modifier
-                        .weight(0.75f)
+                        .weight(if (showFinishAndSave) 0.75f else 0.85f)
                         .heightIn(min = 56.dp),
                 )
                 LongPressActionButton(
@@ -650,7 +638,7 @@ internal fun CycleComputerActionBar(
                         onExitMode()
                     },
                     modifier = Modifier
-                        .weight(0.75f)
+                        .weight(if (showFinishAndSave) 0.75f else 0.85f)
                         .heightIn(min = 56.dp),
                 )
             }
@@ -668,39 +656,25 @@ internal fun CycleComputerActionBar(
                         contentColor = primaryContent,
                     ),
                     border = primaryBorder,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    contentPadding = if (showFinishAndSave) PaddingValues(horizontal = 8.dp, vertical = 6.dp) else ButtonDefaults.ContentPadding,
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 64.dp),
+                        .heightIn(min = if (showFinishAndSave) 64.dp else 68.dp),
                 ) {
                     Text(
                         text = primaryLabel,
-                        fontSize = 20.sp,
+                        fontSize = if (showFinishAndSave) 20.sp else 22.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = if (showFinishAndSave) TextOverflow.Ellipsis else TextOverflow.Clip,
                     )
                 }
-                Button(
-                    onClick = { showFinishConfirm = true },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.dangerContainer,
-                        contentColor = palette.danger,
-                    ),
-                    border = BorderStroke(1.dp, palette.danger),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 64.dp),
-                ) {
-                    Text(
-                        text = finishSaveLabel,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                if (showFinishAndSave) {
+                    FinishAndSaveButton(
+                        label = finishAndSaveButtonLabel(fontScale),
+                        shape = RoundedCornerShape(18.dp),
+                        onClick = { showFinishConfirm = true },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -734,7 +708,7 @@ internal fun CycleComputerActionBar(
         }
     }
 
-    if (showFinishConfirm) {
+    if (showFinishAndSave && showFinishConfirm) {
         AlertDialog(
             onDismissRequest = { showFinishConfirm = false },
             title = { Text("記録を終了して保存") },
@@ -754,6 +728,36 @@ internal fun CycleComputerActionBar(
                     Text("キャンセル")
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun FinishAndSaveButton(
+    label: String,
+    shape: RoundedCornerShape,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = CycleMapTheme.palette
+    Button(
+        onClick = onClick,
+        shape = shape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = palette.dangerContainer,
+            contentColor = palette.danger,
+        ),
+        border = BorderStroke(1.dp, palette.danger),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+        modifier = modifier.heightIn(min = 64.dp),
+    ) {
+        Text(
+            text = label,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

@@ -24,6 +24,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -68,13 +70,13 @@ internal fun MapScreen(
         }
     }
     val arrivalRide = remember { mutableStateOf<com.gorite.cyclemap.tracking.RideSnapshot?>(null) }
-    val hadActiveNavigation = remember { mutableStateOf(false) }
+    val navigationEndPrompt = rememberSaveable(
+        saver = Saver(
+            save = { it.didStartNavigation },
+            restore = { NavigationEndPromptTracker(it) },
+        ),
+    ) { NavigationEndPromptTracker() }
     val showContinueRecordingConfirm = remember { mutableStateOf(false) }
-    LaunchedEffect(state.isNavigationActiveState.value) {
-        if (state.isNavigationActiveState.value) {
-            hadActiveNavigation.value = true
-        }
-    }
     val waitingDestination = remember { mutableStateOf<GeoPoint?>(null) }
     val restoredDestination = remember { mutableStateOf<GeoPoint?>(null) }
     val manualRestoreOrigin = remember { mutableStateOf<GeoPoint?>(null) }
@@ -122,6 +124,7 @@ internal fun MapScreen(
                             val current = route[index]
                             distance += com.gorite.cyclemap.utils.haversineMeters(previous.latitude, previous.longitude, current.latitude, current.longitude)
                         }
+                        navigationEndPrompt.onRouteReplaced()
                         state.routeOverlayState.value = null
                         state.navigationRouteState.value = route
                         state.navigationManeuversState.value = com.gorite.cyclemap.routing.extractManeuvers(route)
@@ -210,6 +213,7 @@ internal fun MapScreen(
         },
         onWarningMessageChanged = { state.warningMessageState.value = it },
         onRouteCalculated = { overlay, route, maneuvers, instructions, summary, isReroute, crossElevation ->
+            navigationEndPrompt.onRouteReplaced(isReroute = isReroute)
             state.routeOverlayState.value = overlay
             state.navigationRouteState.value = route
             state.navigationManeuversState.value = maneuvers
@@ -816,6 +820,7 @@ internal fun MapScreen(
                 if (state.calculatedRouteOptionsState.value !== options || state.isNavigationActiveState.value) {
                     return@withContext
                 }
+                navigationEndPrompt.onRouteReplaced()
                 state.navigationRouteState.value = navRoute
                 state.navigationManeuversState.value = maneuvers
                 state.navigationInstructionsState.value = instructions
@@ -851,6 +856,7 @@ internal fun MapScreen(
             state.navStatsState.value = null
             state.offRouteDetector.reset()
             state.voiceNavigator.reset()
+            navigationEndPrompt.onNavigationStarted()
             state.isNavigationActiveState.value = true
             state.mapViewState.value?.controller?.setZoom(NAVIGATION_ZOOM)
             loc?.let { location ->
@@ -914,11 +920,7 @@ internal fun MapScreen(
     }
 
     val clearRoute: () -> Unit = {
-        val shouldAskContinueRecording = shouldPromptContinueRecordingOnNavigationEnd(
-            hadActiveNavigation = hadActiveNavigation.value || state.isNavigationActiveState.value,
-            isRecording = state.isRecordingState.value,
-        )
-        hadActiveNavigation.value = false
+        val shouldAskContinueRecording = navigationEndPrompt.shouldPromptOnClear(state.isRecordingState.value)
         waitingDestination.value = null
         restoredDestination.value = null
         routeExecutionGeneration.incrementAndGet()
@@ -1113,12 +1115,6 @@ internal fun MapScreen(
     }
     }
 }
-
-/** ナビを一度開始したあとのルート消去時に、GPX 記録が続いていれば継続確認を出す。 */
-internal fun shouldPromptContinueRecordingOnNavigationEnd(
-    hadActiveNavigation: Boolean,
-    isRecording: Boolean,
-): Boolean = hadActiveNavigation && isRecording
 
 /** ルートプレビューで引く下限のズーム。これ未満はタイルが粗い陸地ポリゴンだけになる。 */
 private const val PREVIEW_MIN_ZOOM = 6.0

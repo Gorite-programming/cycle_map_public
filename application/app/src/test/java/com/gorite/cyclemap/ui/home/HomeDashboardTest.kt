@@ -1,6 +1,6 @@
 package com.gorite.cyclemap.ui.home
 
-import com.gorite.cyclemap.ui.screens.shouldPromptContinueRecordingOnNavigationEnd
+import com.gorite.cyclemap.ui.screens.NavigationEndPromptTracker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,9 +15,15 @@ class HomeDashboardTest {
 
     @Test
     fun navigationEndPromptsContinueRecordingOnlyWhenNavigatingAndRecording() {
-        assertTrue(shouldPromptContinueRecordingOnNavigationEnd(hadActiveNavigation = true, isRecording = true))
-        assertFalse(shouldPromptContinueRecordingOnNavigationEnd(hadActiveNavigation = true, isRecording = false))
-        assertFalse(shouldPromptContinueRecordingOnNavigationEnd(hadActiveNavigation = false, isRecording = true))
-        assertFalse(shouldPromptContinueRecordingOnNavigationEnd(hadActiveNavigation = false, isRecording = false))
+        val tracker = NavigationEndPromptTracker()
+        assertFalse(tracker.shouldPromptOnClear(isRecording = true))
+        assertFalse(tracker.shouldPromptOnClear(isRecording = false))
+
+        tracker.onNavigationStarted()
+        assertTrue(tracker.shouldPromptOnClear(isRecording = true))
+
+        tracker.onNavigationStarted()
+        assertFalse(tracker.shouldPromptOnClear(isRecording = false))
+        assertFalse(tracker.shouldPromptOnClear(isRecording = true))
     }
 }

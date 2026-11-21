@@ -121,6 +121,7 @@ private fun CycleComputerPortraitContent(
             CycleComputerActionBar(
                 state = snapshot.state,
                 isLandscape = false,
+                isGpxRecording = isGpxRecording,
                 onStartPause = onStartPause,
                 onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
@@ -169,6 +170,7 @@ private fun CycleComputerLandscapeContent(
             CycleComputerActionBar(
                 state = snapshot.state,
                 isLandscape = true,
+                isGpxRecording = isGpxRecording,
                 onStartPause = onStartPause,
                 onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
@@ -288,12 +290,24 @@ private fun PreviewLandscapePausedNoDest() {
 @Preview(name = "Small landscape, 200% text", showBackground = true, widthDp = 640, heightDp = 320, fontScale = 2f)
 @Composable
 private fun PreviewSmallScreenLargeText() {
+    PreviewSmallScreenLargeTextContent(isGpxRecording = true)
+}
+
+@Preview(name = "Small portrait, 200% text, no GPX", showBackground = true, widthDp = 320, heightDp = 480, fontScale = 2f)
+@Preview(name = "Small landscape, 200% text, no GPX", showBackground = true, widthDp = 640, heightDp = 320, fontScale = 2f)
+@Composable
+private fun PreviewSmallScreenLargeTextWithoutGpx() {
+    PreviewSmallScreenLargeTextContent(isGpxRecording = false)
+}
+
+@Composable
+private fun PreviewSmallScreenLargeTextContent(isGpxRecording: Boolean) {
     CycleMapTheme {
         CycleComputerScreen(
             snapshot = previewRunningSnapshot,
             destination = null,
             clockText = "14:32",
-            isGpxRecording = true,
+            isGpxRecording = isGpxRecording,
             roadRuleContent = { androidx.compose.material3.Text("Road rule warning") },
             onStartPause = {},
             onResetLongPress = {},

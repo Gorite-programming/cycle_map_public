@@ -20,6 +20,10 @@ class CycleComputerLayoutTest {
         assertEquals("GPX記録中", gpxStatusBadgeLabel(true))
         assertEquals("GPX停止中", gpxStatusBadgeLabel(false))
     }
+    @Test fun finishAndSaveIsShownOnlyDuringGpxRecording() {
+        assertTrue(shouldShowFinishAndSave(true))
+        assertFalse(shouldShowFinishAndSave(false))
+    }
     @Test fun finishAndSaveLabelShortensWhenFontScaleExceedsThreshold() {
         assertEquals("記録を終了して保存", finishAndSaveButtonLabel(1.0f))
         assertEquals("記録を終了して保存", finishAndSaveButtonLabel(1.3f))
