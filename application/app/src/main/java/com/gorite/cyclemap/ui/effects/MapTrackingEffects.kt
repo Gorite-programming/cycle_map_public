@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.location.LocationManagerCompat
 import com.gorite.cyclemap.routing.AdaptiveRerouteManager
 import com.gorite.cyclemap.routing.DeadReckoningResult
@@ -139,13 +140,17 @@ internal fun MapTrackingEffects(
 
     // 最後に再計算を要求した地点。道路から離れた場所 (建物内など) では、再計算しても同じ経路が返り
     // 「経路から外れた」判定が続くため、ほとんど動いていない間は再計算を繰り返さない。
-    val lastRerouteFrom = remember { arrayOfNulls<RoutePoint>(1) }
+    // 画面の再生成 (文字サイズ変更・回転など) で消えないよう rememberSaveable で保持する。
+    var lastRerouteLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var lastRerouteLon by rememberSaveable { mutableStateOf<Double?>(null) }
+    val initialRerouteGuard = remember(navigationRoute, isNavigationActive) { InitialRerouteGuard() }
 
     LaunchedEffect(isNavigationActive) {
         if (!isNavigationActive) {
             adaptiveRerouteManager.reset()
+            lastRerouteLat = null
+            lastRerouteLon = null
         }
-        lastRerouteFrom[0] = null
     }
 
     // 位置追跡サービス (Foreground Service) の起動・停止ポリシー制御
@@ -216,6 +221,8 @@ internal fun MapTrackingEffects(
                     )
                 }
             } else if (progress != null && !isRerouting) {
+                val here = RoutePoint(location.latitude, location.longitude)
+                initialRerouteGuard.onLocationFix(here, progress.distanceToRouteMeters)
                 adaptiveRerouteManager.onLocationUpdate(
                     distanceToRouteMeters = progress.distanceToRouteMeters,
                     currentSpeedMps = location.speed,
@@ -233,11 +240,17 @@ internal fun MapTrackingEffects(
                 if (offRoute && autoRerouteEnabled) {
                     val now = SystemClock.elapsedRealtime()
                     val dest = destination
-                    val here = RoutePoint(location.latitude, location.longitude)
-                    val from = lastRerouteFrom[0]
+                    val from = if (lastRerouteLat != null && lastRerouteLon != null) {
+                        RoutePoint(lastRerouteLat!!, lastRerouteLon!!)
+                    } else null
                     val movedSinceReroute = from == null || haversineMeters(from.latitude, from.longitude, here.latitude, here.longitude) >= REROUTE_MIN_MOVE_METERS
-                    if (dest != null && movedSinceReroute && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
-                        lastRerouteFrom[0] = here
+                    val allowedByInitialGuard = initialRerouteGuard.shouldAllowReroute(
+                        currentLocation = here,
+                        routeFirstPoint = navigationRoute.firstOrNull(),
+                    )
+                    if (dest != null && allowedByInitialGuard && movedSinceReroute && now - lastRerouteElapsedMs >= REROUTE_MIN_INTERVAL_MS) {
+                        lastRerouteLat = here.latitude
+                        lastRerouteLon = here.longitude
                         onTriggerReroute(
                             GeoPoint(location.latitude, location.longitude),
                             dest,
@@ -410,3 +423,48 @@ internal fun MapTrackingEffects(
 
 // 停止時の不安定な GPS 方位を区間選択に使わない。
 private const val PROGRESS_BEARING_MIN_SPEED_MPS = 1.5f
+
+/**
+ * ナビ開始直後の静止状態で不要な自動再計算が起きるのを防ぐガード。
+ * 一度も経路の近く (30m 以内) に入っていない間は自動再計算を要求しない。
+ * ただし出発地から経路の最初の点までが 200m を超えるとき、または開始位置から 50m 以上動いたときは許可する。
+ */
+internal class InitialRerouteGuard(
+    private val joinDistanceMeters: Double = 30.0,
+    private val maxStartToRouteFirstMeters: Double = 200.0,
+    private val minMoveToRerouteMeters: Double = 50.0,
+) {
+    private var startLocation: RoutePoint? = null
+    var hasJoinedRoute: Boolean = false
+        private set
+
+    fun onLocationFix(location: RoutePoint, distanceToRouteMeters: Double) {
+        if (startLocation == null) {
+            startLocation = location
+        }
+        if (distanceToRouteMeters.isFinite() && distanceToRouteMeters <= joinDistanceMeters) {
+            hasJoinedRoute = true
+        }
+    }
+
+    fun shouldAllowReroute(currentLocation: RoutePoint, routeFirstPoint: RoutePoint?): Boolean {
+        if (hasJoinedRoute) return true
+        val origin = startLocation ?: currentLocation
+        if (routeFirstPoint != null) {
+            val startToFirst = haversineMeters(
+                origin.latitude,
+                origin.longitude,
+                routeFirstPoint.latitude,
+                routeFirstPoint.longitude,
+            )
+            if (startToFirst > maxStartToRouteFirstMeters) return true
+        }
+        val moved = haversineMeters(
+            origin.latitude,
+            origin.longitude,
+            currentLocation.latitude,
+            currentLocation.longitude,
+        )
+        return moved >= minMoveToRerouteMeters
+    }
+}

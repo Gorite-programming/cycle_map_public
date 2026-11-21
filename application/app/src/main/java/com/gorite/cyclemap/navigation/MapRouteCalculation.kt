@@ -399,14 +399,13 @@ internal fun executeRouteCalculation(
                 }
             }
             // 表示・追従用の線は、射影点 (起点側・終点側) を端に足したもの。案内は最初のノードからの距離で
-            // 組み立てているので、射影点から最初のノードまでの距離だけ後ろへずらす。
-            // 起点側: 利用者の位置 → 射影点 → 最初のノード。終点側: 最後のノード → 射影点 → 目的地 (どちらも道から 200 m 以内のときだけ)。
-            val displayGeometry = connectRouteEndpoints(result, endTrim, stopCoords, enabled = !usedCrossRoute)
+            // 組み立てているので、先頭の接続線の長さ (headLen) だけ後ろへずらす。
+            // 起点側: 利用者の位置 → (射影点 →) 最初のノード。終点側: 最後のノード → (射影点 →) 目的地 (どちらも道から 200 m 以内のときだけ)。
+            // 県またぎでも案内は distanceFromStartMeters、経由地通過は RouteProgressIndex 基準のため安全に接続できる。
+            val displayGeometry = connectRouteEndpoints(result, endTrim, stopCoords, enabled = true)
             val lineCoordinates = displayGeometry.points
             val headLen = displayGeometry.headLengthMeters
-            val instructionsForRoute = if (headLen > 0.0) {
-                richInstructions.map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headLen) }
-            } else richInstructions
+            val instructionsForRoute = shiftInstructionsForHead(richInstructions, headLen)
 
             // 線の距離と案内の組立ては UI スレッドへ戻る前に済ませる。
             val navigationRoute = lineCoordinates.map { (lat, lon) -> RoutePoint(lat, lon) }

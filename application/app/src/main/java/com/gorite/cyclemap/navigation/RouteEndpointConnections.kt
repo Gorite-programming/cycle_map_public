@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.navigation
 
 import com.gorite.cyclemap.routing.MappedRouteResult
+import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.TrimmedRoute
 
 internal data class RouteDisplayGeometry(
@@ -27,4 +28,13 @@ internal fun connectRouteEndpoints(
     val head = if (headLength in 3.0..200.0) headSeed else emptyList()
     val tail = if (displayedRouteDistance(listOf(last) + tailSeed) in 3.0..200.0) tailSeed else emptyList()
     return RouteDisplayGeometry(head + result.coordinates + tail, head.size, if (head.isEmpty()) 0.0 else headLength)
+}
+
+/** 先頭に付けた接続線 (headLengthMeters) の分だけ、各案内の起点からの距離を後ろへずらす。 */
+internal fun shiftInstructionsForHead(
+    instructions: List<RouteInstruction>,
+    headLengthMeters: Double,
+): List<RouteInstruction> {
+    if (headLengthMeters <= 0.0) return instructions
+    return instructions.map { it.copy(distanceFromStartMeters = it.distanceFromStartMeters + headLengthMeters) }
 }
