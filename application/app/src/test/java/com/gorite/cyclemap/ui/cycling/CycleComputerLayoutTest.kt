@@ -16,4 +16,14 @@ class CycleComputerLayoutTest {
         assertEquals(36f, cycleComputerSpeedFontSize(Float.NaN, Float.NaN, false), 0f)
         assertTrue(cycleComputerSpeedFontSize(400f, 0f, true).isFinite())
     }
+    @Test fun gpxStatusBadgeLabelDistinguishesRecordingFromStopped() {
+        assertEquals("GPX記録中", gpxStatusBadgeLabel(true))
+        assertEquals("GPX停止中", gpxStatusBadgeLabel(false))
+    }
+    @Test fun finishAndSaveLabelShortensWhenFontScaleExceedsThreshold() {
+        assertEquals("記録を終了して保存", finishAndSaveButtonLabel(1.0f))
+        assertEquals("記録を終了して保存", finishAndSaveButtonLabel(1.3f))
+        assertEquals("保存して終了", finishAndSaveButtonLabel(1.31f))
+        assertEquals("保存して終了", finishAndSaveButtonLabel(2.0f))
+    }
 }

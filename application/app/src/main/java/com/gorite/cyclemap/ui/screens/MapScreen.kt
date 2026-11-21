@@ -68,6 +68,13 @@ internal fun MapScreen(
         }
     }
     val arrivalRide = remember { mutableStateOf<com.gorite.cyclemap.tracking.RideSnapshot?>(null) }
+    val hadActiveNavigation = remember { mutableStateOf(false) }
+    val showContinueRecordingConfirm = remember { mutableStateOf(false) }
+    LaunchedEffect(state.isNavigationActiveState.value) {
+        if (state.isNavigationActiveState.value) {
+            hadActiveNavigation.value = true
+        }
+    }
     val waitingDestination = remember { mutableStateOf<GeoPoint?>(null) }
     val restoredDestination = remember { mutableStateOf<GeoPoint?>(null) }
     val manualRestoreOrigin = remember { mutableStateOf<GeoPoint?>(null) }
@@ -907,6 +914,11 @@ internal fun MapScreen(
     }
 
     val clearRoute: () -> Unit = {
+        val shouldAskContinueRecording = shouldPromptContinueRecordingOnNavigationEnd(
+            hadActiveNavigation = hadActiveNavigation.value || state.isNavigationActiveState.value,
+            isRecording = state.isRecordingState.value,
+        )
+        hadActiveNavigation.value = false
         waitingDestination.value = null
         restoredDestination.value = null
         routeExecutionGeneration.incrementAndGet()
@@ -950,6 +962,9 @@ internal fun MapScreen(
                 state.corridorTileProgressTextState.value = null
             },
         )
+        if (shouldAskContinueRecording) {
+            showContinueRecordingConfirm.value = true
+        }
     }
 
     val exportPlannedRoute: () -> Unit = {
@@ -1064,6 +1079,7 @@ internal fun MapScreen(
             onStartRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.startRecording(state.context) },
             onPauseRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.pauseRecording(state.context) },
             onFinishRecording = { com.gorite.cyclemap.tracking.LocationTrackingService.stopRecording(state.context) },
+            isGpxRecording = state.isRecordingState.value,
             location = state.currentLocationState.value,
             destLat = state.destinationState.value?.latitude,
             destLon = state.destinationState.value?.longitude,
@@ -1071,8 +1087,38 @@ internal fun MapScreen(
             onExit = { displayModeController.set(com.gorite.cyclemap.ui.state.DisplayMode.NORMAL) },
         )
     }
+    if (showContinueRecordingConfirm.value) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showContinueRecordingConfirm.value = false },
+            title = { androidx.compose.material3.Text("記録は続けますか?") },
+            text = { androidx.compose.material3.Text("ナビは終了しましたが、GPXの走行記録は続いています。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showContinueRecordingConfirm.value = false },
+                ) {
+                    androidx.compose.material3.Text("記録を続ける")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showContinueRecordingConfirm.value = false
+                        com.gorite.cyclemap.tracking.LocationTrackingService.stopRecording(state.context)
+                    },
+                ) {
+                    androidx.compose.material3.Text("記録を終えて保存")
+                }
+            },
+        )
+    }
     }
 }
+
+/** ナビを一度開始したあとのルート消去時に、GPX 記録が続いていれば継続確認を出す。 */
+internal fun shouldPromptContinueRecordingOnNavigationEnd(
+    hadActiveNavigation: Boolean,
+    isRecording: Boolean,
+): Boolean = hadActiveNavigation && isRecording
 
 /** ルートプレビューで引く下限のズーム。これ未満はタイルが粗い陸地ポリゴンだけになる。 */
 private const val PREVIEW_MIN_ZOOM = 6.0

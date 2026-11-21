@@ -8,6 +8,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,11 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -54,12 +60,20 @@ import com.gorite.cyclemap.tracking.RideState
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import kotlinx.coroutines.delay
 
-/** サイコン画面上端の時計と走行状態バッジ。 */
+internal fun gpxStatusBadgeLabel(isGpxRecording: Boolean): String =
+    if (isGpxRecording) "GPX記録中" else "GPX停止中"
+
+internal fun finishAndSaveButtonLabel(fontScale: Float): String =
+    if (fontScale > 1.3f) "保存して終了" else "記録を終了して保存"
+
+/** サイコン画面上端の時計と走行状態・GPX記録状態バッジ。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CycleComputerStatusBar(
     clockText: String,
     state: RideState,
     modifier: Modifier = Modifier,
+    isGpxRecording: Boolean = false,
 ) {
     val palette = CycleMapTheme.palette
     val (stateLabel, dotColor, containerColor, textColor) = when (state) {
@@ -83,6 +97,11 @@ internal fun CycleComputerStatusBar(
         )
     }
 
+    val gpxLabel = gpxStatusBadgeLabel(isGpxRecording)
+    val gpxContainer = if (isGpxRecording) palette.dangerContainer else MaterialTheme.colorScheme.surface
+    val gpxContent = if (isGpxRecording) palette.danger else MaterialTheme.colorScheme.onSurfaceVariant
+    val gpxBorderColor = if (isGpxRecording) palette.danger else MaterialTheme.colorScheme.outlineVariant
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -98,28 +117,64 @@ internal fun CycleComputerStatusBar(
             ),
             maxLines = 1,
         )
-        Surface(
-            shape = CircleShape,
-            color = containerColor,
+        Spacer(modifier = Modifier.width(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.weight(1f, fill = false),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // GPX 記録状態バッジ (角丸矩形＋枠線で、走行状態の丸ピルと一目で区別する)
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = gpxContainer,
+                border = BorderStroke(1.dp, gpxBorderColor),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(dotColor),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stateLabel,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = textColor,
-                    maxLines = 1,
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(gpxContent),
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = gpxLabel,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = gpxContent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            // サイコンの走行状態バッジ (自動一時停止/一時停止など)
+            Surface(
+                shape = CircleShape,
+                color = containerColor,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(dotColor),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stateLabel,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -474,10 +529,13 @@ internal fun CycleComputerActionBar(
     onResetLongPress: () -> Unit,
     onExitMode: () -> Unit,
     modifier: Modifier = Modifier,
+    onFinishAndSave: () -> Unit = onResetLongPress,
 ) {
     val palette = CycleMapTheme.palette
+    val fontScale = LocalDensity.current.fontScale
     var hintTrigger by remember { mutableIntStateOf(0) }
     var showTapWarning by remember { mutableStateOf(false) }
+    var showFinishConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(hintTrigger) {
         if (hintTrigger > 0) {
@@ -504,6 +562,7 @@ internal fun CycleComputerActionBar(
         RideState.IDLE, RideState.PAUSED -> null
         RideState.RUNNING -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline)
     }
+    val finishSaveLabel = finishAndSaveButtonLabel(fontScale)
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -537,15 +596,39 @@ internal fun CycleComputerActionBar(
                         contentColor = primaryContent,
                     ),
                     border = primaryBorder,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     modifier = Modifier
-                        .weight(1.3f)
+                        .weight(1.05f)
                         .heightIn(min = 64.dp),
                 ) {
                     Text(
                         text = primaryLabel,
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Button(
+                    onClick = { showFinishConfirm = true },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.dangerContainer,
+                        contentColor = palette.danger,
+                    ),
+                    border = BorderStroke(1.dp, palette.danger),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1.25f)
+                        .heightIn(min = 64.dp),
+                ) {
+                    Text(
+                        text = finishSaveLabel,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 LongPressActionButton(
@@ -556,7 +639,7 @@ internal fun CycleComputerActionBar(
                         onResetLongPress()
                     },
                     modifier = Modifier
-                        .weight(0.85f)
+                        .weight(0.75f)
                         .heightIn(min = 56.dp),
                 )
                 LongPressActionButton(
@@ -567,29 +650,59 @@ internal fun CycleComputerActionBar(
                         onExitMode()
                     },
                     modifier = Modifier
-                        .weight(0.85f)
+                        .weight(0.75f)
                         .heightIn(min = 56.dp),
                 )
             }
         } else {
-            Button(
-                onClick = onStartPause,
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = primaryContainer,
-                    contentColor = primaryContent,
-                ),
-                border = primaryBorder,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 68.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = primaryLabel,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
+                Button(
+                    onClick = onStartPause,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primaryContainer,
+                        contentColor = primaryContent,
+                    ),
+                    border = primaryBorder,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 64.dp),
+                ) {
+                    Text(
+                        text = primaryLabel,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Button(
+                    onClick = { showFinishConfirm = true },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.dangerContainer,
+                        contentColor = palette.danger,
+                    ),
+                    border = BorderStroke(1.dp, palette.danger),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 64.dp),
+                ) {
+                    Text(
+                        text = finishSaveLabel,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -607,7 +720,7 @@ internal fun CycleComputerActionBar(
                         .heightIn(min = 48.dp),
                 )
                 LongPressActionButton(
-                    label = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f) "通常へ" else "通常モードへ戻る",
+                    label = if (fontScale > 1.3f) "通常へ" else "通常モードへ戻る",
                     onShortTap = { hintTrigger++ },
                     onLongPress = {
                         showTapWarning = false
@@ -619,6 +732,29 @@ internal fun CycleComputerActionBar(
                 )
             }
         }
+    }
+
+    if (showFinishConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFinishConfirm = false },
+            title = { Text("記録を終了して保存") },
+            text = { Text("記録を終えて GPX に保存します") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFinishConfirm = false
+                        onFinishAndSave()
+                    },
+                ) {
+                    Text("保存して終える")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFinishConfirm = false }) {
+                    Text("キャンセル")
+                }
+            },
+        )
     }
 }
 

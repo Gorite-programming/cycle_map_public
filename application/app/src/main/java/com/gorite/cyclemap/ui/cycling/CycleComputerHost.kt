@@ -45,6 +45,7 @@ fun CycleComputerHost(
     onStartRecording: () -> Unit = {},
     onPauseRecording: () -> Unit = {},
     onFinishRecording: () -> Unit = {},
+    isGpxRecording: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -90,6 +91,7 @@ fun CycleComputerHost(
         courseDegrees = location?.takeIf { it.hasBearing() && it.hasSpeed() && it.speed >= 1f }?.bearing?.toDouble(),
         progress = progress,
     )
+    val finishAndReset = { onFinishRecording(); rideSession.reset(); store.clear() }
     val ruleKind = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CycleComputerScreen(
@@ -118,8 +120,10 @@ fun CycleComputerHost(
                 }
                 store.save(rideSession)
             },
-            onResetLongPress = { onFinishRecording(); rideSession.reset(); store.clear() },
+            onResetLongPress = finishAndReset,
+            onFinishAndSave = finishAndReset,
             onExitMode = onExit,
+            isGpxRecording = isGpxRecording,
         )
     }
 }

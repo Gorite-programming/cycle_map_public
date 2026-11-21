@@ -244,6 +244,18 @@ internal fun HomeDashboard(
                     }
                 }
             }
+            if (!isRecording) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = HOME_FREE_RIDE_RECORDING_HINT,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Text(
                 text = "今日 ${formatKm(totals.todayMeters)} km ・ 今週 ${formatKm(totals.weekMeters)} km　記録を見る ›",
@@ -281,3 +293,5 @@ private fun Shortcut(title: String, icon: Int, modifier: Modifier = Modifier, on
 }
 
 internal fun formatKm(meters: Double): String = "%.1f".format(Locale.US, meters / 1000.0)
+
+internal const val HOME_FREE_RIDE_RECORDING_HINT = "押すと記録が始まります"

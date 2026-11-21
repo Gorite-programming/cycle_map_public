@@ -40,6 +40,8 @@ fun CycleComputerScreen(
     onExitMode: () -> Unit,                   // 長押しで通常モードへ戻る
     modifier: Modifier = Modifier,
     roadRuleContent: (@Composable () -> Unit)? = null,
+    isGpxRecording: Boolean = false,
+    onFinishAndSave: () -> Unit = onResetLongPress,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -53,7 +55,9 @@ fun CycleComputerScreen(
                 roadRuleContent = roadRuleContent,
                 destination = destination,
                 clockText = clockText,
+                isGpxRecording = isGpxRecording,
                 onStartPause = onStartPause,
+                onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
                 onExitMode = onExitMode,
             )
@@ -63,7 +67,9 @@ fun CycleComputerScreen(
                 roadRuleContent = roadRuleContent,
                 destination = destination,
                 clockText = clockText,
+                isGpxRecording = isGpxRecording,
                 onStartPause = onStartPause,
+                onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
                 onExitMode = onExitMode,
             )
@@ -84,7 +90,9 @@ private fun CycleComputerPortraitContent(
     roadRuleContent: (@Composable () -> Unit)?,
     destination: CycleComputerDestination?,
     clockText: String,
+    isGpxRecording: Boolean,
     onStartPause: () -> Unit,
+    onFinishAndSave: () -> Unit,
     onResetLongPress: () -> Unit,
     onExitMode: () -> Unit,
 ) {
@@ -100,7 +108,11 @@ private fun CycleComputerPortraitContent(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+                CycleComputerStatusBar(
+                    clockText = clockText,
+                    state = snapshot.state,
+                    isGpxRecording = isGpxRecording,
+                )
                 roadRuleContent?.invoke()
                 SpeedHeroDisplay(snapshot.speedKmh, snapshot.state == RideState.PAUSED, speedSize)
                 DestinationBand(destination = destination, bandHeight = 66.dp * LocalDensity.current.fontScale.coerceAtLeast(1f))
@@ -110,6 +122,7 @@ private fun CycleComputerPortraitContent(
                 state = snapshot.state,
                 isLandscape = false,
                 onStartPause = onStartPause,
+                onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
                 onExitMode = onExitMode,
             )
@@ -123,7 +136,9 @@ private fun CycleComputerLandscapeContent(
     roadRuleContent: (@Composable () -> Unit)?,
     destination: CycleComputerDestination?,
     clockText: String,
+    isGpxRecording: Boolean,
     onStartPause: () -> Unit,
+    onFinishAndSave: () -> Unit,
     onResetLongPress: () -> Unit,
     onExitMode: () -> Unit,
 ) {
@@ -138,7 +153,11 @@ private fun CycleComputerLandscapeContent(
                     modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    CycleComputerStatusBar(clockText = clockText, state = snapshot.state)
+                    CycleComputerStatusBar(
+                        clockText = clockText,
+                        state = snapshot.state,
+                        isGpxRecording = isGpxRecording,
+                    )
                     roadRuleContent?.invoke()
                     SpeedHeroDisplay(snapshot.speedKmh, snapshot.state == RideState.PAUSED, speedSize)
                     DestinationBand(destination = destination, bandHeight = 64.dp * LocalDensity.current.fontScale.coerceAtLeast(1f))
@@ -151,6 +170,7 @@ private fun CycleComputerLandscapeContent(
                 state = snapshot.state,
                 isLandscape = true,
                 onStartPause = onStartPause,
+                onFinishAndSave = onFinishAndSave,
                 onResetLongPress = onResetLongPress,
                 onExitMode = onExitMode,
             )
@@ -206,6 +226,7 @@ private fun PreviewPortraitPausedRouteDest() {
                 nextTurnDistanceM = 180.0,
             ),
             clockText = "15:10",
+            isGpxRecording = true,
             onStartPause = {},
             onResetLongPress = {},
             onExitMode = {},
@@ -272,6 +293,7 @@ private fun PreviewSmallScreenLargeText() {
             snapshot = previewRunningSnapshot,
             destination = null,
             clockText = "14:32",
+            isGpxRecording = true,
             roadRuleContent = { androidx.compose.material3.Text("Road rule warning") },
             onStartPause = {},
             onResetLongPress = {},
