@@ -482,6 +482,7 @@ internal fun MapContentLayout(
                             onNavHeaderHeightChanged = { navHeaderHeightPx = it },
                             onTopOverlayHeightChanged = { topOverlayHeightPx = it },
                             roadRuleBadge = roadRuleBadgeSlot,
+                            navStats = navStats,
                         )
                     }
 

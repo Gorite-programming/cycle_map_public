@@ -73,8 +73,6 @@ import com.gorite.cyclemap.ui.cycling.elevationAt
 import com.gorite.cyclemap.ui.cycling.gradeAhead
 import com.gorite.cyclemap.ui.cycling.gradeAt
 import com.gorite.cyclemap.ui.cycling.remainingElevationGain
-import java.time.Instant
-import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -449,7 +447,7 @@ internal fun NavBottomPanelC(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                                text = data.etaEpochMillis?.let { "${formatArrivalClock(it)}着" } ?: "到着時刻計算中",
                                 style = TextStyle(fontSize = 14.sp, color = p.sub),
                                 modifier = Modifier.padding(bottom = 1.dp),
                                 maxLines = 1,
@@ -530,7 +528,7 @@ internal fun NavBottomPanelC(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = data.etaEpochMillis?.let { "${formatClock(it)}着" } ?: "到着時刻計算中",
+                                text = data.etaEpochMillis?.let { "${formatArrivalClock(it)}着" } ?: "到着時刻計算中",
                                 style = TextStyle(fontSize = 14.sp, color = p.sub),
                                 maxLines = 1,
                                 softWrap = false,
@@ -610,11 +608,6 @@ internal fun formatGradePct(g: Double?): String {
     if (g == null || !g.isFinite()) return "--"
     val r = g.roundToInt()
     return if (r == 0) "0" else String.format("%+d", r)
-}
-
-private fun formatClock(epochMillis: Long): String {
-    val t = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalTime()
-    return String.format("%02d:%02d", t.hour, t.minute)
 }
 
 @Composable

@@ -165,15 +165,7 @@ internal fun BoxScope.MapBottomOverlays(
     } else if (isNavigationActive && routeSummary != null) {
         // 横画面: コンパクトなフッター (GoogleNavFooterView)
         com.gorite.cyclemap.ui.map.GoogleNavFooterView(
-            eta = navStats?.let {
-                val nowMs = System.currentTimeMillis()
-                com.gorite.cyclemap.contract.EtaInfo(
-                    remainingDistanceMeters = it.remainingMeters,
-                    remainingSeconds = it.durationRemainingSeconds,
-                    arrivalEpochMillis = nowMs + (it.durationRemainingSeconds * 1000).toLong(),
-                    currentSpeedKmh = speedKmh
-                )
-            },
+            eta = navStats?.let { com.gorite.cyclemap.ui.map.etaInfoFromNavStats(it, speedKmh) },
             remainingDistanceMeters = routeSummary.distanceMeters,
             remainingSeconds = routeSummary.distanceMeters / 4.2,
             isMuted = isVoiceMuted,

@@ -88,6 +88,7 @@ internal fun BoxScope.MapTopOverlays(
     onTopOverlayHeightChanged: (Int) -> Unit = {},
     roadRuleBadge: (@Composable () -> Unit)? = null,
     hasNavigationFooter: Boolean = false,
+    navStats: com.gorite.cyclemap.routing.NavigationStats? = null,
 ) {
     val isSimple = com.gorite.cyclemap.ui.state.isSimpleMode()
     val showTopBar = !isNavigationActive && !isRoutePreviewActive && com.gorite.cyclemap.ui.state.SimpleModeVisibility.of(
@@ -260,7 +261,8 @@ internal fun BoxScope.MapTopOverlays(
                             streetName = null,
                             distanceToTurnMeters = display.distanceMeters
                         ),
-                        eta = null,
+                        // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。
+                        eta = navStats?.let { com.gorite.cyclemap.ui.map.etaInfoFromNavStats(it, 0.0) },
                         remainingSeconds = (remaining ?: 0.0) / 4.2,
                         onStopNavigation = onStopNavigation,
                         animationEnabled = effectiveAnimationEnabled,

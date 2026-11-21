@@ -249,8 +249,50 @@ fun formatDuration(seconds: Double): String {
     }
 }
 
-fun formatEta(seconds: Double): String {
-    val now = java.time.LocalTime.now()
-    val eta = now.plusSeconds(seconds.toLong())
-    return String.format("%02d:%02d 到着", eta.hour, eta.minute)
+/**
+ * 到着予定時刻 (エポックミリ秒) を "HH:mm" に整形する。
+ * 最も近い分 (30 秒以上は繰り上げ) に丸め、23:59:30 以降は翌日 "00:00" とする。
+ * 上段 (LandscapeNavHudBar) と下段 (GoogleNavFooterV2 / NavBottomPanelC) で共通利用する。
+ */
+internal fun formatArrivalClock(
+    epochMillis: Long,
+    zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): String {
+    val zoned = java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId)
+    val rounded = if (zoned.second >= 30) {
+        zoned.plusMinutes(1).withSecond(0).withNano(0)
+    } else {
+        zoned.withSecond(0).withNano(0)
+    }
+    return String.format(java.util.Locale.US, "%02d:%02d", rounded.hour, rounded.minute)
+}
+
+internal fun formatEta(
+    seconds: Double,
+    nowEpochMillis: Long,
+    zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): String {
+    val deltaMillis = if (seconds.isFinite() && seconds > 0.0) kotlin.math.round(seconds * 1000.0).toLong() else 0L
+    return "${formatArrivalClock(nowEpochMillis + deltaMillis, zoneId)} 到着"
+}
+
+fun formatEta(seconds: Double): String = formatEta(seconds, System.currentTimeMillis())
+
+/**
+ * 走行統計から、横画面の上段・下段が共有する到着予測を作る。
+ * 到着時刻は統計の etaEpochMillis をそのまま使う (縦画面の数値パネルと同じ値)。速度が得られず
+ * 算出できないとき (到着時刻が null、残り時間が有限でない) は null を返し、呼び出し側は「計算中」を出す。
+ */
+internal fun etaInfoFromNavStats(
+    stats: com.gorite.cyclemap.routing.NavigationStats,
+    currentSpeedKmh: Double,
+): com.gorite.cyclemap.contract.EtaInfo? {
+    val arrival = stats.etaEpochMillis ?: return null
+    if (!stats.durationRemainingSeconds.isFinite()) return null
+    return com.gorite.cyclemap.contract.EtaInfo(
+        remainingDistanceMeters = stats.remainingMeters,
+        remainingSeconds = stats.durationRemainingSeconds,
+        arrivalEpochMillis = arrival,
+        currentSpeedKmh = currentSpeedKmh,
+    )
 }

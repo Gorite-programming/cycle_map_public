@@ -214,12 +214,7 @@ fun GoogleNavFooterV2(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val duration = formatDuration(eta?.remainingSeconds ?: remainingSeconds)
-                val arrivalText = eta?.let {
-                    val time = java.time.Instant.ofEpochMilli(it.arrivalEpochMillis)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalTime()
-                    String.format("%02d:%02d", time.hour, time.minute)
-                } ?: "到着時刻を計算中"
+                val arrivalText = eta?.let { formatArrivalClock(it.arrivalEpochMillis) } ?: "到着時刻を計算中"
 
                 Text(
                     text = duration,
@@ -343,10 +338,7 @@ fun LandscapeNavHudBar(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val etaText = if (eta != null) {
-                    val dt = java.time.Instant.ofEpochMilli(eta.arrivalEpochMillis)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalTime()
-                    String.format("%02d:%02d 到着", dt.hour, dt.minute)
+                    "${formatArrivalClock(eta.arrivalEpochMillis)} 到着"
                 } else {
                     formatEta(remainingSeconds)
                 }
