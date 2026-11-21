@@ -108,6 +108,12 @@ internal fun executeDownloadCorridorTiles(
         MapLayer.OSM -> MapSourceType.OSM
         MapLayer.TERRAIN -> MapSourceType.GSI
     }
+    // OpenStreetMap の公式タイルサーバーは一括保存を禁じている。地理院の地図に切り替えてもらう。
+    if (!TileDownloader.isBulkDownloadAllowed(sourceType, source.name())) {
+        updateProgress("OSM のタイルは保存できません。「地理院標準」に切り替えて保存してください")
+        finished()
+        return
+    }
     Thread {
         try {
             TileDownloader.downloadRouteCorridor(

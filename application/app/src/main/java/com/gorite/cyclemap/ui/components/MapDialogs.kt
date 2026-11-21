@@ -58,7 +58,7 @@ internal fun AreaDownloadConfirmDialog(
                 Text("タイル枚数: 約 $areaTileCount 枚")
                 Text("推定サイズ: 約 ${"%.1f".format(Locale.US, areaSizeMb)} MB")
                 HorizontalDivider()
-                Text("ダウンロードする地図の種類を選択してください:", fontWeight = FontWeight.Medium)
+                Text("保存できるのは地理院地図（標準）です:", fontWeight = FontWeight.Medium)
             }
         },
         confirmButton = {
@@ -73,13 +73,7 @@ internal fun AreaDownloadConfirmDialog(
                 ) {
                     Text("地理院地図（標準）をDL")
                 }
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isDownloading,
-                    onClick = { onStartDownload(MapSourceType.OSM) },
-                ) {
-                    Text("OpenStreetMapをDL")
-                }
+                // OpenStreetMap の公式タイルサーバーは一括保存を禁じているので、保存の選択肢には出さない (TileDownloader.isBulkDownloadAllowed)。
                 TextButton(
                     modifier = Modifier.align(Alignment.End),
                     onClick = onDismiss,
@@ -184,7 +178,7 @@ internal fun PrefectureDownloadConfirmDialog(
                 Text("保存範囲: ズームレベル 7〜14（低ズーム含む）")
                 Text("タイル枚数: 約 ${totalTiles} 枚 (約 %.1f MB)".format(Locale.US, sizeMb))
                 HorizontalDivider()
-                Text("ダウンロードする地図の種類を選択してください:", fontWeight = FontWeight.Medium)
+                Text("保存できるのは地理院地図（標準）です:", fontWeight = FontWeight.Medium)
             }
         },
         confirmButton = {
@@ -199,13 +193,7 @@ internal fun PrefectureDownloadConfirmDialog(
                 ) {
                     Text("地理院地図（標準）をDL")
                 }
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isDownloading,
-                    onClick = onDownloadOsm,
-                ) {
-                    Text("OpenStreetMapをDL")
-                }
+                // OpenStreetMap の公式タイルサーバーは一括保存を禁じているので、保存の選択肢には出さない (TileDownloader.isBulkDownloadAllowed)。
                 TextButton(
                     modifier = Modifier.align(Alignment.End),
                     onClick = onDismiss,

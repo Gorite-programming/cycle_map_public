@@ -178,6 +178,14 @@ object TileDownloader {
     private const val MAX_RETRIES = 1
     private const val THREADS = 8
 
+    /**
+     * 事前の一括保存 (県全体・エリア・経路沿い) をしてよい配信元か。
+     * OpenStreetMap の公式タイルサーバー (tile.openstreetmap.org) は、利用方針で一括取得・事前取得 (プリフェッチ) を禁じているので、
+     * 通信しながら見るだけにして、保存はしない。保存できるのは国土地理院のタイルだけ。
+     */
+    fun isBulkDownloadAllowed(sourceType: MapSourceType, sourceName: String? = null): Boolean =
+        sourceType != MapSourceType.OSM && sourceName != "OpenStreetMap"
+
     fun download(
         context: Context,
         pref: Prefecture,
@@ -252,7 +260,7 @@ object TileDownloader {
         onProgress: (TileProgress) -> Unit,
         onDone: ((successCount: Int, failCount: Int) -> Unit)? = null,
     ) {
-        if (routePoints.isEmpty()) {
+        if (routePoints.isEmpty() || !isBulkDownloadAllowed(sourceType, source.name())) {
             onDone?.invoke(0, 0)
             return
         }
@@ -387,6 +395,10 @@ object TileDownloader {
         onProgress: (TileProgress) -> Unit,
         onDone: ((successCount: Int, failCount: Int) -> Unit)?,
     ) {
+        if (!isBulkDownloadAllowed(sourceType, source.name())) {
+            onDone?.invoke(0, 0)
+            return
+        }
         val dataDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "CycleMap").apply { mkdirs() }
         val tileDir = File(dataDir, "tiles").apply { mkdirs() }
         Configuration.getInstance().apply {

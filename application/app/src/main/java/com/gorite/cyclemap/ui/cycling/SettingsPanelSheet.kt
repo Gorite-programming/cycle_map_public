@@ -217,7 +217,8 @@ fun SettingsPanelSheet(
                             Text(label)
                             val description = when {
                                 "ベクター" in label -> "標準。データを入れた県は通信なしで見られます"
-                                "地理院標準" in label || "自転車向け" in label -> "通信するか、事前に保存した範囲で見られます"
+                                "地理院標準" in label -> "通信するか、事前に保存した範囲で見られます"
+                                "OpenStreetMap" in label -> "通信が必要です (保存はできません)"
                                 "地形起伏" in label -> "通信が必要です"
                                 else -> null
                             }

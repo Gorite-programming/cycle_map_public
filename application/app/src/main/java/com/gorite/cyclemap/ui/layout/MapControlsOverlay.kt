@@ -132,7 +132,7 @@ internal fun BoxScope.MapControlsOverlay(
     val currentLayerLabel = when (selectedLayer) {
         MapLayer.VECTOR_LIBERTY -> "3Dベクター"
         MapLayer.GSI -> "標準"
-        MapLayer.OSM -> "自転車"
+        MapLayer.OSM -> "OSM"
         MapLayer.TERRAIN -> "地形"
     }
     val mapBearing = if (selectedLayer == MapLayer.VECTOR_LIBERTY) {
