@@ -250,20 +250,47 @@ internal fun searchScore(result: SearchResult, queries: List<String>): Double {
     return text + prominenceBonus(result.category) - distancePenalty(result.distanceMeters)
 }
 
+/** 鉄道駅として扱うカテゴリか (カテゴリ不明やバス停は含めない)。 */
+private fun isRailwayStationCategory(category: String): Boolean =
+    category.startsWith("railway:station") ||
+        category.startsWith("railway:halt") ||
+        category.startsWith("public_transport:station")
+
+/** 正規化・空白除去済みの 2 つの駅名が「末尾の『駅』の有無」だけで一致するか。 */
+private fun isStationSuffixVariant(a: String, b: String): Boolean {
+    if (a.isEmpty() || b.isEmpty()) return false
+    return (a.endsWith("駅") && a.length > 1 && a.removeSuffix("駅") == b) ||
+        (b.endsWith("駅") && b.length > 1 && b.removeSuffix("駅") == a)
+}
+
 /**
  * 同じ名前で近い (既定 150m 以内) 結果を 1 件にまとめる。複数の出典 (OSM・Overture など) の
  * 同じ場所や、駅の複数のホームが重なって並ぶのを防ぐ。[items] は良い順に並んでいること (先の方を残す)。
+ * また、2 件とも鉄道駅カテゴリで距離が [stationRadiusM] (既定 50m) 以内かつ末尾の「駅」の有無だけで
+ * 名前が一致する場合 (例:「岩国」と「岩国駅」) も同一施設として先の方を残す。
  */
 @VisibleForTesting
-internal fun dedupeNearbySameName(items: List<SearchResult>, radiusM: Double = 150.0): List<SearchResult> {
+internal fun dedupeNearbySameName(
+    items: List<SearchResult>,
+    radiusM: Double = 150.0,
+    stationRadiusM: Double = 50.0,
+): List<SearchResult> {
     val kept = ArrayList<SearchResult>(items.size)
+    val keptKeys = ArrayList<String>(items.size)
     for (r in items) {
         val key = SearchNormalizer.normalize(r.name).replace(" ", "")
-        val dup = kept.any {
-            SearchNormalizer.normalize(it.name).replace(" ", "") == key &&
-                haversineMeters(it.latitude, it.longitude, r.latitude, r.longitude) <= radiusM
+        val rIsStation = isRailwayStationCategory(r.category)
+        val dup = kept.indices.any { idx ->
+            val existing = kept[idx]
+            val existingKey = keptKeys[idx]
+            val dist = haversineMeters(existing.latitude, existing.longitude, r.latitude, r.longitude)
+            (existingKey == key && dist <= radiusM) ||
+                (rIsStation && isRailwayStationCategory(existing.category) && dist <= stationRadiusM && isStationSuffixVariant(existingKey, key))
         }
-        if (!dup) kept += r
+        if (!dup) {
+            kept += r
+            keptKeys += key
+        }
     }
     return kept
 }

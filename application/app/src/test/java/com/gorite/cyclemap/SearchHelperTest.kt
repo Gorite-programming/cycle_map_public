@@ -160,6 +160,52 @@ class SearchHelperTest {
     }
 
     @Test
+    fun dedupeNearbySameName_mergesStationNameWithAndWithoutEkiWithin50m() {
+        // 座標差約 6m の「岩国」と「岩国駅」(両方とも駅カテゴリ) -> 先の方だけ残る
+        val first = SearchResult("岩国駅", "railway:station", 34.17260, 132.22620, 25800.0)
+        val second = SearchResult("岩国", "public_transport:station", 34.17265, 132.22622, 25806.0)
+
+        val deduped = dedupeNearbySameName(listOf(first, second))
+        assertEquals(1, deduped.size)
+        assertEquals("岩国駅", deduped[0].name)
+
+        // 逆順でも先の方 (ランク上位) を残す
+        val reversed = dedupeNearbySameName(listOf(second, first))
+        assertEquals(1, reversed.size)
+        assertEquals("岩国", reversed[0].name)
+    }
+
+    @Test
+    fun dedupeNearbySameName_doesNotMergeNonStationOrUnknownCategory() {
+        val station = SearchResult("岩国駅", "railway:station", 34.17260, 132.22620, 100.0)
+        val postOffice = SearchResult("岩国駅前郵便局", "amenity:post_office", 34.17275, 132.22625, 120.0) // ~20m
+        val unknownCategory = SearchResult("岩国", "named", 34.17262, 132.22621, 102.0) // ~3m, カテゴリ不明
+
+        val dedupedPost = dedupeNearbySameName(listOf(station, postOffice))
+        assertEquals(2, dedupedPost.size)
+
+        val dedupedUnknown = dedupeNearbySameName(listOf(station, unknownCategory))
+        assertEquals(2, dedupedUnknown.size)
+    }
+
+    @Test
+    fun dedupeNearbySameName_keepsSameNameStationsBeyondDistanceAndDistinctExits() {
+        // 300m 離れた同名の駅 -> 2 件のまま
+        val st1 = SearchResult("岩国駅", "railway:station", 34.17260, 132.22620, 100.0)
+        val st2 = SearchResult("岩国駅", "railway:station", 34.17530, 132.22620, 400.0) // ~300m
+        assertEquals(2, dedupeNearbySameName(listOf(st1, st2)).size)
+
+        // 50m を超える「岩国」と「岩国駅」(~80m) -> 2 件のまま
+        val stFar = SearchResult("岩国", "railway:station", 34.17332, 132.22620, 180.0)
+        assertEquals(2, dedupeNearbySameName(listOf(st1, stFar)).size)
+
+        // 東口・西口など名前が異なる出入口 -> 2 件のまま
+        val east = SearchResult("岩国駅 東口", "railway:station", 34.17260, 132.22620, 100.0)
+        val west = SearchResult("岩国駅 西口", "railway:station", 34.17262, 132.22621, 102.0)
+        assertEquals(2, dedupeNearbySameName(listOf(east, west)).size)
+    }
+
+    @Test
     fun searchPoisInBounds_returnsEmptyForInvalidBounds() {
         val nonExistent = File("/tmp/non_existent_pois.db")
         // minLat >= maxLat
