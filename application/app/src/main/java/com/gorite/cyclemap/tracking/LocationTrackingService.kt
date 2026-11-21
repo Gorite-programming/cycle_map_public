@@ -61,6 +61,8 @@ class LocationTrackingService : Service() {
     private var tracking = false
     private var previousLocation: Location? = null
     private var smoothedSpeed = 0.0
+    private val qualityGate = LocationQualityGate()
+    @Volatile private var diagLog: LocationDiagLog? = null
 
     private val gpsHealthMonitor = GpsHealthMonitor()
     private val healthHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -208,6 +210,7 @@ class LocationTrackingService : Service() {
         }
         recorder = GpxRecorder(GpxJournal(File(filesDir, "gpx-journals/${java.util.UUID.randomUUID()}.journal")))
         recording = true
+        openDiagLog()
         startForeground(NOTIFICATION_ID, trackingNotification())
         sendBroadcast(Intent(ACTION_RECORDING_STARTED).setPackage(packageName))
     }
@@ -217,6 +220,7 @@ class LocationTrackingService : Service() {
         val snapshot = recorder ?: return
         snapshot.pause()
         recording = false
+        closeDiagLog()
         recoveryPending = false
         val outputDir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), "CycleMap/gpx")
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
@@ -273,6 +277,8 @@ class LocationTrackingService : Service() {
         tracking = false
         previousLocation = null
         smoothedSpeed = 0.0
+        qualityGate.reset()
+        closeDiagLog()
         saveCoordinator.requestStop()
     }
 
@@ -287,6 +293,8 @@ class LocationTrackingService : Service() {
         tracking = false
         previousLocation = null
         smoothedSpeed = 0.0
+        qualityGate.reset()
+        closeDiagLog()
         destroyed = true
         saveExecutor.shutdown()
         super.onDestroy()
@@ -298,14 +306,76 @@ class LocationTrackingService : Service() {
         }
     }
 
+    /** GPX の記録中だけ、届いた測位のすべてを端末内の CSV に残す (位置のぶれの原因を後で調べるため)。 */
+    private fun openDiagLog() {
+        closeDiagLog()
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val dir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), "CycleMap/diag")
+        diagLog = LocationDiagLog.open(File(dir, "fixes_$stamp.csv"))
+    }
+
+    private fun closeDiagLog() {
+        diagLog?.close()
+        diagLog = null
+    }
+
+    /** 停止中 (ドップラー速度が 0) の測位は、位置を動かさず、最後に採用した位置のまま速度 0 を通知する。軌跡・距離には足さない。 */
+    private fun holdPositionWhileStationary(newLocation: Location) {
+        val previous = previousLocation ?: return
+        val held = Location(previous).apply {
+            time = newLocation.time
+            elapsedRealtimeNanos = newLocation.elapsedRealtimeNanos
+            speed = 0f
+        }
+        smoothedSpeed = 0.0
+        gpsHealthMonitor.onValidFix()
+        notifyStatus(GpsSignalStatus.HEALTHY)
+        previousLocation = held
+        lastLocation = held
+        listeners.forEach { it(held) }
+    }
+
     private fun considerLocation(newLocation: Location) {
         if (!LocationFixPolicy.accepts(newLocation.elapsedRealtimeNanos, SystemClock.elapsedRealtimeNanos(),
                 lastLocation?.elapsedRealtimeNanos)) return
-        val isTooInaccurate = newLocation.hasAccuracy() && newLocation.accuracy > 100f
-        if (isTooInaccurate) {
-            gpsHealthMonitor.onAccuracyDegraded()
-            notifyStatus(gpsHealthMonitor.status)
-            return
+        // 精度・位置の飛び・停止中の往復を判定する (実走で、停止中に位置が 60〜70 m 往復して距離に約 460 m 加わった)。
+        val verdict = qualityGate.evaluate(
+            GateFix(
+                latitude = newLocation.latitude,
+                longitude = newLocation.longitude,
+                elapsedNanos = newLocation.elapsedRealtimeNanos,
+                accuracyMeters = if (newLocation.hasAccuracy()) newLocation.accuracy else null,
+                speedMps = if (newLocation.hasSpeed()) newLocation.speed else null,
+                speedAccuracyMps = if (newLocation.hasSpeedAccuracy()) newLocation.speedAccuracyMetersPerSecond else null,
+            ),
+        )
+        diagLog?.append(
+            DiagFix(
+                elapsedMillis = newLocation.elapsedRealtimeNanos / 1_000_000L,
+                epochMillis = newLocation.time,
+                latitude = newLocation.latitude,
+                longitude = newLocation.longitude,
+                accuracyMeters = if (newLocation.hasAccuracy()) newLocation.accuracy else null,
+                speedMps = if (newLocation.hasSpeed()) newLocation.speed else null,
+                speedAccuracyMps = if (newLocation.hasSpeedAccuracy()) newLocation.speedAccuracyMetersPerSecond else null,
+                bearingDegrees = if (newLocation.hasBearing()) newLocation.bearing else null,
+                provider = newLocation.provider,
+                satellites = newLocation.extras?.getInt("satellites", -1)?.takeIf { it >= 0 },
+            ),
+            verdict,
+        )
+        when (verdict) {
+            GateVerdict.REJECT_INACCURATE -> {
+                gpsHealthMonitor.onAccuracyDegraded()
+                notifyStatus(gpsHealthMonitor.status)
+                return
+            }
+            GateVerdict.REJECT_JUMP -> return
+            GateVerdict.STATIONARY -> {
+                holdPositionWhileStationary(newLocation)
+                return
+            }
+            GateVerdict.ACCEPT -> Unit
         }
 
         val oldLocation = previousLocation
@@ -316,13 +386,8 @@ class LocationTrackingService : Service() {
         if (!isLostOrStale && oldLocation != null) {
             val elapsedSeconds = timeDiffMs / 1_000.0
             val distanceMeters = oldLocation.distanceTo(newLocation).toDouble()
-            val calculatedSpeed = if (elapsedSeconds > 0.0) distanceMeters / elapsedSeconds else Double.POSITIVE_INFINITY
             
-            val isTooFast = calculatedSpeed > 25.0
-            if (isTooFast && elapsedSeconds < 3.0) {
-                // Short-interval jump is noise; drop it
-                return
-            }
+            // 位置の飛び (速度の上限超え・ドップラーとの食い違い) は、品質ゲートが先に捨てている。
 
             // 1. Calculate raw speed
             val rawSpeed = when {

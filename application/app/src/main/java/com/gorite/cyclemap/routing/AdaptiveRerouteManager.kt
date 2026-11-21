@@ -12,6 +12,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** 測位の速度が「停止中」(0.5 m/s 未満、自動一時停止の 2 km/h 未満) か。停止中は、経路から外れたかの判定を進めない。 */
+fun isStationaryForOffRoute(hasSpeed: Boolean, speedMps: Float): Boolean = hasSpeed && speedMps < STATIONARY_SPEED_MPS
+
+private const val STATIONARY_SPEED_MPS = 0.5f
+
 data class RerouteState(
     val isOffRoute: Boolean = false,
     val isRerouting: Boolean = false,
@@ -67,14 +72,19 @@ class AdaptiveRerouteManager(
         distanceToRouteMeters: Double,
         currentSpeedMps: Float,
         currentNodeId: Long,
-        goalNodeId: Long
+        goalNodeId: Long,
+        accuracyMeters: Double = 0.0,
     ) {
         // 速度に応じた可変閾値 (BUG防止: 高速走行時はGPSジッターを吸収)
-        val dynamicThreshold = if (currentSpeedMps > 8.0f) {
+        val speedThreshold = if (currentSpeedMps > 8.0f) {
             (currentSpeedMps * 2.0).toDouble().coerceIn(30.0, 60.0)
         } else {
             rerouteDistanceThreshold
         }
+        // 測位の精度が悪いときは、その誤差の分だけ「経路から外れた」と判定する距離を広げる。
+        // 実走 (2026-11-21) で、精度の悪い位置が数十 m 往復し、経路から外れたと誤判定されるおそれが見つかった。
+        val accuracyThreshold = (accuracyMeters * ACCURACY_THRESHOLD_FACTOR).coerceIn(0.0, MAX_ACCURACY_THRESHOLD_METERS)
+        val dynamicThreshold = maxOf(speedThreshold, accuracyThreshold)
 
         val jobToStart = synchronized(lock) {
             val wasOffRoute = detector.isOffRoute
@@ -100,6 +110,12 @@ class AdaptiveRerouteManager(
         }
         // Start outside the lock, even when the supplied scope runs undispatched.
         jobToStart?.start()
+    }
+
+    private companion object {
+        /** 精度 (68% が収まる半径) の 1.5 倍までは、誤差の範囲として「外れた」とみなさない。 */
+        const val ACCURACY_THRESHOLD_FACTOR = 1.5
+        const val MAX_ACCURACY_THRESHOLD_METERS = 80.0
     }
 
     // Called with lock held. Register the lazy job before allowing it to run.

@@ -23,6 +23,7 @@ import androidx.core.location.LocationManagerCompat
 import com.gorite.cyclemap.routing.AdaptiveRerouteManager
 import com.gorite.cyclemap.routing.DeadReckoningResult
 import com.gorite.cyclemap.routing.DeadReckoner
+import com.gorite.cyclemap.routing.isStationaryForOffRoute
 import com.gorite.cyclemap.routing.Maneuver
 import com.gorite.cyclemap.routing.NavigationStats
 import com.gorite.cyclemap.routing.OffRouteDetector
@@ -223,12 +224,16 @@ internal fun MapTrackingEffects(
             } else if (progress != null && !isRerouting) {
                 val here = RoutePoint(location.latitude, location.longitude)
                 initialRerouteGuard.onLocationFix(here, progress.distanceToRouteMeters)
-                adaptiveRerouteManager.onLocationUpdate(
-                    distanceToRouteMeters = progress.distanceToRouteMeters,
-                    currentSpeedMps = location.speed,
-                    currentNodeId = progress.distanceFromStartMeters.toLong(),
-                    goalNodeId = navigationRoute.lastIndex.toLong(),
-                )
+                // 停止中 (信号待ちなど) は、位置が往復して見えても「経路から外れた」と数えない。精度が悪いときは、その誤差の分だけ判定を緩める。
+                if (!isStationaryForOffRoute(location.hasSpeed(), location.speed)) {
+                    adaptiveRerouteManager.onLocationUpdate(
+                        distanceToRouteMeters = progress.distanceToRouteMeters,
+                        currentSpeedMps = location.speed,
+                        currentNodeId = progress.distanceFromStartMeters.toLong(),
+                        goalNodeId = navigationRoute.lastIndex.toLong(),
+                        accuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
+                    )
+                }
                 val offRoute = adaptiveRerouteManager.state.value.isOffRoute
                 val remaining = (progress.routeDistanceMeters - progress.distanceFromStartMeters).coerceAtLeast(0.0)
                 voiceNavigator.onLocationUpdated(
