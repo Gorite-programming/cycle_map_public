@@ -228,6 +228,12 @@ internal fun BoxScope.MapTopOverlays(
             }
         }
 
+        val routeHazards = com.gorite.cyclemap.ui.hazard.LocalRouteHazards.current
+        val traveledMeters = progress?.distanceFromStartMeters
+        val hazardAhead = remember(routeHazards, traveledMeters) {
+            if (traveledMeters == null) null else com.gorite.cyclemap.hazard.nextHazardAhead(routeHazards, traveledMeters)
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -251,41 +257,50 @@ internal fun BoxScope.MapTopOverlays(
                     // padding より後ろなので、カード自体の高さ (上の余白を含まない) が届く
                     .onSizeChanged { onNavHeaderHeightChanged(it.height) },
             ) {
-                if (isLandscape) {
-                    com.gorite.cyclemap.ui.map.LandscapeNavHudBar(
-                        // フッターが出るときは終了操作を下側に集約する。
-                        showStopNavigation = !hasNavigationFooter,
-                        currentStep = com.gorite.cyclemap.contract.GuidanceStep(
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (isLandscape) {
+                        com.gorite.cyclemap.ui.map.LandscapeNavHudBar(
+                            // フッターが出るときは終了操作を下側に集約する。
+                            showStopNavigation = !hasNavigationFooter,
+                            currentStep = com.gorite.cyclemap.contract.GuidanceStep(
+                                turnType = display.turnType,
+                                instructionText = display.instructionText,
+                                streetName = null,
+                                distanceToTurnMeters = display.distanceMeters
+                            ),
+                            // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。
+                            eta = navStats?.let { com.gorite.cyclemap.ui.map.etaInfoFromNavStats(it, 0.0) },
+                            remainingSeconds = (remaining ?: 0.0) / 4.2,
+                            onStopNavigation = onStopNavigation,
+                            animationEnabled = effectiveAnimationEnabled,
+                            laneHints = activeLaneHints,
+                            isRerouting = isRerouting,
+                        )
+                    } else {
+                        com.gorite.cyclemap.ui.map.NavTopBarC(
                             turnType = display.turnType,
+                            distanceMeters = display.distanceMeters,
                             instructionText = display.instructionText,
-                            streetName = null,
-                            distanceToTurnMeters = display.distanceMeters
-                        ),
-                        // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。
-                        eta = navStats?.let { com.gorite.cyclemap.ui.map.etaInfoFromNavStats(it, 0.0) },
-                        remainingSeconds = (remaining ?: 0.0) / 4.2,
-                        onStopNavigation = onStopNavigation,
-                        animationEnabled = effectiveAnimationEnabled,
-                        laneHints = activeLaneHints,
-                        isRerouting = isRerouting,
-                    )
-                } else {
-                    com.gorite.cyclemap.ui.map.NavTopBarC(
-                        turnType = display.turnType,
-                        distanceMeters = display.distanceMeters,
-                        instructionText = display.instructionText,
-                        // 道路名 (「県道41号」など) があればそれを、無ければ道路の区分 (「住宅街の道」など) を出す
-                        roadLabel = targetInstruction?.outgoingRoadName
-                            ?: com.gorite.cyclemap.ui.map.roadClassLabel(targetInstruction?.outgoingRoadType),
-                        next = if (display.nextInstruction != null && display.distanceToNextMeters != null) {
-                            com.gorite.cyclemap.ui.map.NavNextHint(
-                                turnType = display.nextInstruction.toGuidanceTurnType(),
-                                distanceMeters = display.distanceToNextMeters,
-                            )
-                        } else null,
-                        isRerouting = isRerouting,
-                        laneHints = activeLaneHints,
-                    )
+                            // 道路名 (「県道41号」など) があればそれを、無ければ道路の区分 (「住宅街の道」など) を出す
+                            roadLabel = targetInstruction?.outgoingRoadName
+                                ?: com.gorite.cyclemap.ui.map.roadClassLabel(targetInstruction?.outgoingRoadType),
+                            next = if (display.nextInstruction != null && display.distanceToNextMeters != null) {
+                                com.gorite.cyclemap.ui.map.NavNextHint(
+                                    turnType = display.nextInstruction.toGuidanceTurnType(),
+                                    distanceMeters = display.distanceToNextMeters,
+                                )
+                            } else null,
+                            isRerouting = isRerouting,
+                            laneHints = activeLaneHints,
+                        )
+                    }
+                    if (hazardAhead != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        com.gorite.cyclemap.ui.map.HazardChip(ahead = hazardAhead)
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))

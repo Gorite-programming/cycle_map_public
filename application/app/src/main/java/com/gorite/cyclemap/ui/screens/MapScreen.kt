@@ -1037,10 +1037,12 @@ internal fun MapScreen(
         }
     }
 
+    val routeHazards = com.gorite.cyclemap.ui.hazard.rememberRouteHazards(state.navigationRouteState.value)
     androidx.compose.runtime.CompositionLocalProvider(
         com.gorite.cyclemap.ui.state.LocalDisplayModeController provides displayModeController,
         com.gorite.cyclemap.ui.state.LocalHandednessController provides handednessController,
         com.gorite.cyclemap.ui.state.LocalRoadRuleController provides roadRuleController,
+        com.gorite.cyclemap.ui.hazard.LocalRouteHazards provides routeHazards,
     ) {
     MapScreenScaffold(
         state = state,
