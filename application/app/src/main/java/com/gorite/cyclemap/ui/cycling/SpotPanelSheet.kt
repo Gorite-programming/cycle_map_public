@@ -73,6 +73,18 @@ fun SpotPanelSheet(
     val favoritesManager = remember(context) { FavoritesManager.getInstance(context) }
     val favorites by favoritesManager.favorites.collectAsState()
     var showFavoritesOnly by remember(initialShowFavoritesOnly) { mutableStateOf(initialShowFavoritesOnly) }
+    var showSaveCurrentDialog by remember { mutableStateOf(false) }
+    if (showSaveCurrentDialog && origin != null) {
+        com.gorite.cyclemap.ui.components.SaveFavoriteDialog(
+            title = "現在地をお気に入りに追加",
+            initialName = "自宅",
+            onSave = { name ->
+                favoritesManager.addFavorite(com.gorite.cyclemap.data.customFavorite(name, origin.first, origin.second))
+                showSaveCurrentDialog = false
+            },
+            onDismiss = { showSaveCurrentDialog = false },
+        )
+    }
 
     // ステータスバーより下で止める (端末がダーク設定でアプリがライトのとき、白い時計が明るいシートに溶けるため)
     ModalBottomSheet(modifier = Modifier.statusBarsPadding(), onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -142,6 +154,12 @@ fun SpotPanelSheet(
             }
             HorizontalDivider()
             if (showFavoritesOnly) {
+                if (origin != null) {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { showSaveCurrentDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("現在地をお気に入りに追加 (自宅など)") }
+                }
                 if (favorites.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -150,7 +168,7 @@ fun SpotPanelSheet(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "お気に入りはまだ登録されていません。\nスポット一覧の★アイコンから登録できます。",
+                            "お気に入りはまだ登録されていません。\nスポット一覧の★、ルート確認の★、上のボタンから登録できます。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,

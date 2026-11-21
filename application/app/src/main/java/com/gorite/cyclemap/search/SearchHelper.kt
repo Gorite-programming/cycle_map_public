@@ -85,6 +85,7 @@ fun formatCategoryLabel(category: String): String {
         category.startsWith("amenity:fire_station") -> "消防署"
         category.startsWith("place:city") || category.startsWith("place:town") -> "市区町村"
         category == ADDRESS_RESULT_CATEGORY -> "住所"
+        category == com.gorite.cyclemap.data.CUSTOM_FAVORITE_CATEGORY -> "登録した地点"
         category.startsWith("shop:mall") || category.startsWith("shop:department_store") -> "ショッピングモール"
         category.startsWith("amenity:bicycle_rental") -> "レンタサイクル"
         category.startsWith("amenity:bicycle_parking") -> "駐輪場"

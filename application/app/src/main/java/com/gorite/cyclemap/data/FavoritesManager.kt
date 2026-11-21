@@ -18,6 +18,27 @@ data class FavoriteSpot(
     val addedAt: Long = System.currentTimeMillis(),
 ) : Serializable
 
+/** 地図上の好きな地点を、自分で名前をつけて登録したお気に入りの区分。 */
+const val CUSTOM_FAVORITE_CATEGORY = "custom"
+
+private const val MAX_FAVORITE_NAME_LENGTH = 30
+const val DEFAULT_FAVORITE_NAME = "登録した地点"
+
+/** 入力された名前を整える (前後の空白を除き、空なら既定の名前、長すぎれば切る)。 */
+fun normalizeFavoriteName(input: String): String =
+    input.trim().take(MAX_FAVORITE_NAME_LENGTH).trim().ifEmpty { DEFAULT_FAVORITE_NAME }
+
+/** 地図上の任意の地点を、お気に入りの 1 件にする。同じ場所を登録し直すと名前だけが入れ替わる (id が場所で決まるため)。 */
+fun customFavorite(name: String, latitude: Double, longitude: Double, now: Long = System.currentTimeMillis()): FavoriteSpot =
+    FavoriteSpot(
+        id = String.format(java.util.Locale.US, "custom_%.5f_%.5f", latitude, longitude),
+        name = normalizeFavoriteName(name),
+        category = CUSTOM_FAVORITE_CATEGORY,
+        latitude = latitude,
+        longitude = longitude,
+        addedAt = now,
+    )
+
 class FavoritesManager(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

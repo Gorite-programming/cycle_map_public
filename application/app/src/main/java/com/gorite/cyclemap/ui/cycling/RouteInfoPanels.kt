@@ -57,6 +57,9 @@ internal fun RouteInfoCardContent(
     isCalculatingRoute: Boolean = false,
     onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     onRemoveWaypoint: (Int) -> Unit = {},
+    isDestinationFavorite: Boolean = false,
+    // null なら、目的地をお気に入りにするボタンを出さない
+    onToggleDestinationFavorite: (() -> Unit)? = null,
     offlineReadiness: @Composable () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -85,6 +88,26 @@ internal fun RouteInfoCardContent(
                     fontSize = 18.sp,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                if (onToggleDestinationFavorite != null) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onToggleDestinationFavorite),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painterResource(if (isDestinationFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline),
+                                contentDescription = if (isDestinationFavorite) "目的地をお気に入りから外す" else "目的地をお気に入りに追加",
+                                tint = if (isDestinationFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceVariant,

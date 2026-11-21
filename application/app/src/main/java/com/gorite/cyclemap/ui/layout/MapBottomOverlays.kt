@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -304,6 +305,27 @@ internal fun BoxScope.MapBottomOverlays(
                                 gradePct = gradeAt(elevProfile, 0.0),
                                 forwardGradePct = forwardGradeAt(elevProfile, 0.0),
                             )
+                            val favoritesManager = androidx.compose.runtime.remember(context) {
+                                com.gorite.cyclemap.data.FavoritesManager.getInstance(context)
+                            }
+                            val favoriteSpots by favoritesManager.favorites.collectAsState()
+                            var showSaveDestinationDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                            val existingDestinationFavorite = destination?.let { d ->
+                                favoriteSpots.firstOrNull {
+                                    kotlin.math.abs(it.latitude - d.latitude) < 0.0001 && kotlin.math.abs(it.longitude - d.longitude) < 0.0001
+                                }
+                            }
+                            if (showSaveDestinationDialog && destination != null) {
+                                com.gorite.cyclemap.ui.components.SaveFavoriteDialog(
+                                    onSave = { name ->
+                                        favoritesManager.addFavorite(
+                                            com.gorite.cyclemap.data.customFavorite(name, destination.latitude, destination.longitude),
+                                        )
+                                        showSaveDestinationDialog = false
+                                    },
+                                    onDismiss = { showSaveDestinationDialog = false },
+                                )
+                            }
                             RouteInfoCardContent(
                                 metrics = rideMetrics,
                                 profile = elevProfile,
@@ -322,6 +344,13 @@ internal fun BoxScope.MapBottomOverlays(
                                 isCalculatingRoute = isCalculatingRoute || isSwitchingGraph,
                                 onMoveWaypoint = onMoveWaypoint,
                                 onRemoveWaypoint = onRemoveWaypoint,
+                                isDestinationFavorite = existingDestinationFavorite != null,
+                                onToggleDestinationFavorite = if (destination == null) null else {
+                                    {
+                                        if (existingDestinationFavorite != null) favoritesManager.removeFavorite(existingDestinationFavorite.id)
+                                        else showSaveDestinationDialog = true
+                                    }
+                                },
                             ) {
                                 OfflineReadinessRow(
                                     context = context,
