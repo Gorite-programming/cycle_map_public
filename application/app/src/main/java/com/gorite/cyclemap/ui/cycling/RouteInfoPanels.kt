@@ -38,22 +38,15 @@ import com.gorite.cyclemap.routing.RoutePreference
 import org.osmdroid.util.GeoPoint
 import kotlin.math.roundToInt
 
-/**
- * ルート情報カードの中身 (Google Maps 風ライトスタイルプレビュー)。
- * [started] が false の間は案内開始前の確認表示 (選好切替、標高グラフあり)。
- */
 @Composable
-fun RouteInfoCardContent(
+internal fun RouteInfoCardContent(
     metrics: RideMetrics,
     profile: List<ElevationSample>,
     totalDistanceM: Double,
     progressDistanceM: Double?,
-    started: Boolean,
-    onStart: () -> Unit,
+    showDetails: Boolean,
     onClearRoute: () -> Unit,
     modifier: Modifier = Modifier,
-    onDownloadCorridorTiles: (() -> Unit)? = null,
-    onExportGpx: (() -> Unit)? = null,
     tileDownloadStatus: String? = null,
     selectedPreference: RoutePreference = RoutePreference.RECOMMENDED,
     onPreferenceChange: (RoutePreference) -> Unit = {},
@@ -64,12 +57,9 @@ fun RouteInfoCardContent(
     isCalculatingRoute: Boolean = false,
     onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     onRemoveWaypoint: (Int) -> Unit = {},
+    offlineReadiness: @Composable () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        if (started) {
-            // 案内中は GoogleNavFooter が主役になるため、ここでは何もしない
-            return@Column
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -85,7 +75,7 @@ fun RouteInfoCardContent(
                     modifier = Modifier.size(22.dp),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-            Text("ルートプレビュー", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("ルートプレビュー", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -246,8 +236,10 @@ fun RouteInfoCardContent(
             }
         }
 
+        offlineReadiness()
+
         // 基本指標セル (残り時間 / 予想平均速度 / 獲得標高)
-        Row(
+        if (showDetails || routeChoices.size <= 1) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 12.dp),
@@ -272,7 +264,7 @@ fun RouteInfoCardContent(
             )
         }
 
-        if (profile.size >= 2) {
+        if (showDetails && profile.size >= 2) {
             ElevationProfileChart(
                 profile = profile,
                 totalDistanceM = totalDistanceM,
@@ -288,7 +280,7 @@ fun RouteInfoCardContent(
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
             )
-        } else {
+        } else if (showDetails) {
             Text(
                 "標高データなし",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -306,79 +298,83 @@ fun RouteInfoCardContent(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    }
+}
+
+@Composable
+internal fun RoutePreviewActions(
+    onStart: () -> Unit,
+    onDownloadCorridorTiles: () -> Unit,
+    onExportGpx: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedIconButton(
+            onClick = onDownloadCorridorTiles,
+            modifier = Modifier.size(48.dp),
+            shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         ) {
-            if (onDownloadCorridorTiles != null) {
-                OutlinedIconButton(
-                    onClick = onDownloadCorridorTiles,
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_lucide_download),
-                        contentDescription = "この経路の地図を保存",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            if (onExportGpx != null) {
-                OutlinedIconButton(
-                    onClick = onExportGpx,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .semantics { contentDescription = "GPXで保存" },
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                ) {
-                    Text(
-                        "GPX",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            // サイコン画面で走る: ナビを始めてから、地図の代わりに速度・距離・時間の画面にする。
-            val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
-            if (displayModeController != null) {
-                androidx.compose.material3.OutlinedButton(
-                    onClick = {
-                        onStart()
-                        displayModeController.set(com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER)
-                    },
-                    modifier = Modifier.height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
-                ) {
-                    Text("サイコン", fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Button(
-                onClick = onStart,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
+            Icon(
+                painterResource(R.drawable.ic_lucide_download),
+                contentDescription = "この経路の地図を保存",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        OutlinedIconButton(
+            onClick = onExportGpx,
+            modifier = Modifier
+                .size(48.dp)
+                .semantics { contentDescription = "GPXで保存" },
+            shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        ) {
+            Text(
+                "GPX",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        // サイコン画面で走る: ナビを始めてから、地図の代わりに速度・距離・時間の画面にする。
+        val displayModeController = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current
+        if (displayModeController != null) {
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    onStart()
+                    displayModeController.set(com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER)
+                },
+                modifier = Modifier.height(48.dp),
                 shape = RoundedCornerShape(24.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
             ) {
-                Icon(
-                    painterResource(R.drawable.ic_lucide_navigation),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onPrimary)
+                Text("サイコン", fontSize = 12.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
+        }
+        Button(
+            onClick = onStart,
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_lucide_navigation),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("ナビ開始", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onPrimary)
         }
     }
 }

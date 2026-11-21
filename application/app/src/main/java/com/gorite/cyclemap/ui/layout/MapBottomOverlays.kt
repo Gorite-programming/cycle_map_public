@@ -8,6 +8,8 @@ import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,15 +31,21 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.clip
@@ -57,6 +66,7 @@ import com.gorite.cyclemap.ui.cycling.GoogleNavTabBar
 import com.gorite.cyclemap.ui.cycling.LocationSummarySheet
 import com.gorite.cyclemap.ui.cycling.RideMetrics
 import com.gorite.cyclemap.ui.cycling.RouteInfoCardContent
+import com.gorite.cyclemap.ui.cycling.RoutePreviewActions
 import com.gorite.cyclemap.ui.cycling.elevationAt
 import com.gorite.cyclemap.ui.cycling.elevationGain
 import com.gorite.cyclemap.ui.cycling.formatRouteDistance
@@ -179,6 +189,8 @@ internal fun BoxScope.MapBottomOverlays(
         )
     } else if (routeSummary != null && !isArrived) {
         // ルート案内前プレビューモード (テーマ追従 SCR-10)
+        var expanded by remember { mutableStateOf(false) }
+        val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * (if (expanded) 0.76f else 0.50f)
         DisposableEffect(Unit) {
             onDispose { onRoutePreviewSheetHeightChanged(0) }
         }
@@ -189,6 +201,7 @@ internal fun BoxScope.MapBottomOverlays(
                 .padding(top = 12.dp)
                 .onSizeChanged { onRoutePreviewSheetHeightChanged(it.height) }
                 .padding(bottom = systemInsets.calculateBottomPadding())
+                .heightIn(max = maxSheetHeight)
                 .zIndex(2f),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -197,128 +210,137 @@ internal fun BoxScope.MapBottomOverlays(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
-                // ドラッグハンドル
-                Box(
+                TextButton(
+                    onClick = { expanded = !expanded },
                     modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .width(36.dp)
-                        .height(4.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)),
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OfflineReadinessRow(
-                    context = context,
-                    route = navigationRoute,
-                    waypoints = waypoints,
-                    destination = destination,
-                    onOpenOfflineData = onOpenOfflineData,
-                )
-
-                // ルート探索中プログレス表示
-                AnimatedVisibility(
-                    visible = isCalculatingRoute || isSwitchingGraph,
-                    enter = Motion.bannerEnter(effectiveAnimationEnabled),
-                    exit = Motion.bannerExit(effectiveAnimationEnabled),
-                    modifier = Modifier.fillMaxWidth(),
+                        .align(Alignment.CenterHorizontally),
                 ) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        shape = RoundedCornerShape(12.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
+                    Text(if (expanded) "地図を広く表示" else "ルート詳細を広げる")
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    // ルート探索中プログレス表示
+                    AnimatedVisibility(
+                        visible = isCalculatingRoute || isSwitchingGraph,
+                        enter = Motion.bannerEnter(effectiveAnimationEnabled),
+                        exit = Motion.bannerExit(effectiveAnimationEnabled),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                if (isSwitchingGraph) "県データグラフを切替・読み込み中…" else "最適サイクリングルートを探索中…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    if (isSwitchingGraph) "県データグラフを切替・読み込み中…" else "最適サイクリングルートを探索中…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (waypoints.isNotEmpty()) {
+                                com.gorite.cyclemap.ui.cycling.WaypointList(
+                                    waypoints = waypoints,
+                                    isEnabled = false,
+                                    onMove = onMoveWaypoint,
+                                    onRemove = onRemoveWaypoint,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                )
+                            }
                         }
-                        if (waypoints.isNotEmpty()) {
-                            com.gorite.cyclemap.ui.cycling.WaypointList(
-                                waypoints = waypoints,
-                                isEnabled = false,
-                                onMove = onMoveWaypoint,
-                                onRemove = onRemoveWaypoint,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    }
+
+                    // ルートサマリー
+                    AnimatedVisibility(
+                        visible = !isCalculatingRoute && !isSwitchingGraph,
+                        enter = Motion.bannerEnter(effectiveAnimationEnabled),
+                        exit = Motion.bannerExit(effectiveAnimationEnabled),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val summary = routeSummary
+                            val elevProfile = realElevProfile
+                            val progressM = navigationProgress?.distanceFromStartMeters
+                            val rideMetrics = navStats?.let { stats ->
+                                RideMetrics(
+                                    speedKmh = speedKmh,
+                                    totalDistanceM = summary.distanceMeters,
+                                    remainingM = stats.remainingMeters,
+                                    elapsedS = stats.elapsedSeconds,
+                                    remainingS = stats.durationRemainingSeconds.takeIf { it.isFinite() },
+                                    averageKmh = stats.effectiveSpeedMps * 3.6,
+                                    elevationGainM = progressM?.let { elevationGain(elevProfile, it) },
+                                    currentElevationM = progressM?.let { elevationAt(elevProfile, it) },
+                                    gradePct = progressM?.let { gradeAt(elevProfile, it) },
+                                    forwardGradePct = progressM?.let { forwardGradeAt(elevProfile, it) },
+                                )
+                            } ?: RideMetrics(
+                                speedKmh = speedKmh,
+                                totalDistanceM = summary.distanceMeters,
+                                remainingM = summary.distanceMeters,
+                                elapsedS = 0.0,
+                                remainingS = summary.distanceMeters / PRE_START_ASSUMED_SPEED_MPS,
+                                averageKmh = PRE_START_ASSUMED_SPEED_MPS * 3.6,
+                                elevationGainM = elevationGain(elevProfile, summary.distanceMeters),
+                                currentElevationM = elevationAt(elevProfile, 0.0),
+                                gradePct = gradeAt(elevProfile, 0.0),
+                                forwardGradePct = forwardGradeAt(elevProfile, 0.0),
                             )
+                            RouteInfoCardContent(
+                                metrics = rideMetrics,
+                                profile = elevProfile,
+                                totalDistanceM = summary.distanceMeters,
+                                progressDistanceM = progressM,
+                                showDetails = expanded,
+                                onClearRoute = onClearRoute,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                tileDownloadStatus = corridorTileProgressText,
+                                selectedPreference = selectedRoutePreference,
+                                onPreferenceChange = onRoutePreferenceChange,
+                                routeChoices = routeChoices,
+                                selectedRouteChoice = selectedRouteChoice,
+                                onSelectRouteChoice = onSelectRouteChoice,
+                                waypoints = waypoints,
+                                isCalculatingRoute = isCalculatingRoute || isSwitchingGraph,
+                                onMoveWaypoint = onMoveWaypoint,
+                                onRemoveWaypoint = onRemoveWaypoint,
+                            ) {
+                                OfflineReadinessRow(
+                                    context = context,
+                                    route = navigationRoute,
+                                    waypoints = waypoints,
+                                    destination = destination,
+                                    onOpenOfflineData = onOpenOfflineData,
+                                )
+                            }
                         }
                     }
                 }
-
-                // ルートサマリー
-                AnimatedVisibility(
-                    visible = !isCalculatingRoute && !isSwitchingGraph,
-                    enter = Motion.bannerEnter(effectiveAnimationEnabled),
-                    exit = Motion.bannerExit(effectiveAnimationEnabled),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        val summary = routeSummary
-                        val elevProfile = realElevProfile
-                        val progressM = navigationProgress?.distanceFromStartMeters
-                        val rideMetrics = navStats?.let { stats ->
-                            RideMetrics(
-                                speedKmh = speedKmh,
-                                totalDistanceM = summary.distanceMeters,
-                                remainingM = stats.remainingMeters,
-                                elapsedS = stats.elapsedSeconds,
-                                remainingS = stats.durationRemainingSeconds.takeIf { it.isFinite() },
-                                averageKmh = stats.effectiveSpeedMps * 3.6,
-                                elevationGainM = progressM?.let { elevationGain(elevProfile, it) },
-                                currentElevationM = progressM?.let { elevationAt(elevProfile, it) },
-                                gradePct = progressM?.let { gradeAt(elevProfile, it) },
-                                forwardGradePct = progressM?.let { forwardGradeAt(elevProfile, it) },
-                            )
-                        } ?: RideMetrics(
-                            speedKmh = speedKmh,
-                            totalDistanceM = summary.distanceMeters,
-                            remainingM = summary.distanceMeters,
-                            elapsedS = 0.0,
-                            remainingS = summary.distanceMeters / PRE_START_ASSUMED_SPEED_MPS,
-                            averageKmh = PRE_START_ASSUMED_SPEED_MPS * 3.6,
-                            elevationGainM = elevationGain(elevProfile, summary.distanceMeters),
-                            currentElevationM = elevationAt(elevProfile, 0.0),
-                            gradePct = gradeAt(elevProfile, 0.0),
-                            forwardGradePct = forwardGradeAt(elevProfile, 0.0),
-                        )
-                        RouteInfoCardContent(
-                            metrics = rideMetrics,
-                            profile = elevProfile,
-                            totalDistanceM = summary.distanceMeters,
-                            progressDistanceM = progressM,
-                            started = false,
-                            onStart = onStartNavigation,
-                            onClearRoute = onClearRoute,
-                            modifier = Modifier.padding(bottom = 4.dp),
-                            onDownloadCorridorTiles = downloadCorridorTiles,
-                            onExportGpx = exportPlannedRoute,
-                            tileDownloadStatus = corridorTileProgressText,
-                            selectedPreference = selectedRoutePreference,
-                            onPreferenceChange = onRoutePreferenceChange,
-                            routeChoices = routeChoices,
-                            selectedRouteChoice = selectedRouteChoice,
-                            onSelectRouteChoice = onSelectRouteChoice,
-                            waypoints = waypoints,
-                            isCalculatingRoute = isCalculatingRoute || isSwitchingGraph,
-                            onMoveWaypoint = onMoveWaypoint,
-                            onRemoveWaypoint = onRemoveWaypoint,
-                        )
-                    }
+                if (!isCalculatingRoute && !isSwitchingGraph) {
+                    HorizontalDivider()
+                    RoutePreviewActions(
+                        onStart = onStartNavigation,
+                        onDownloadCorridorTiles = downloadCorridorTiles,
+                        onExportGpx = exportPlannedRoute,
+                    )
                 }
             }
         }

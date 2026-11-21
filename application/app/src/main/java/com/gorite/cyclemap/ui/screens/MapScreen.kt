@@ -159,6 +159,7 @@ internal fun MapScreen(
     }
     val density = LocalDensity.current
     val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
+    val routePreviewSheetHeightPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     val orientationAnimator = remember {
         MapOrientationAnimator(
@@ -406,22 +407,48 @@ internal fun MapScreen(
         view.invalidate()
     }
 
-    LaunchedEffect(state.navigationRouteState.value, state.mapViewState.value, state.vectorMapState.value, state.isNavigationActiveState.value) {
+    LaunchedEffect(
+        state.navigationRouteState.value,
+        state.mapViewState.value,
+        state.vectorMapState.value,
+        state.isNavigationActiveState.value,
+        screenHeightPx,
+        routePreviewSheetHeightPx.intValue,
+    ) {
         val navRoute = state.navigationRouteState.value
-        if (navRoute.isEmpty() || state.isNavigationActiveState.value) return@LaunchedEffect
+        val sheetHeightPx = routePreviewSheetHeightPx.intValue
+        if (navRoute.isEmpty() || state.isNavigationActiveState.value || sheetHeightPx == 0) return@LaunchedEffect
         // Preview中はGPS追従を止めて、全ルートのカメラフィットを維持する。
         state.followLocationState.value = false
         withFrameNanos { }
-        val points = navRoute.map { GeoPoint(it.latitude, it.longitude) }
-        val bounds = BoundingBox.fromGeoPoints(points)
-        state.mapViewState.value?.zoomToBoundingBox(bounds, true, 64)
+        val expanded = expandBoundsToMinSpan(
+            minLat = navRoute.minOf { it.latitude },
+            maxLat = navRoute.maxOf { it.latitude },
+            minLon = navRoute.minOf { it.longitude },
+            maxLon = navRoute.maxOf { it.longitude },
+        )
+        state.mapViewState.value?.let { view ->
+            val bounds = BoundingBox(expanded.maxLat, expanded.maxLon, expanded.minLat, expanded.minLon)
+            val padding = previewPaddingPx(view.height.takeIf { it > 0 } ?: screenHeightPx, density.density, sheetHeightPx)
+            val visibleHeight = view.height - padding.top - padding.bottom
+            val visibleWidth = view.width - 2 * padding.side
+            if (visibleHeight > 0 && visibleWidth > 0) {
+                val zoom = org.osmdroid.views.MapView.getTileSystem()
+                    .getBoundingBoxZoom(bounds, visibleWidth, visibleHeight)
+                    .coerceIn(view.minZoomLevel, view.maxZoomLevel)
+                val projection = org.osmdroid.views.Projection(
+                    zoom, view.width, view.height, bounds.centerWithDateLine, view.mapOrientation,
+                    view.isHorizontalMapRepetitionEnabled, view.isVerticalMapRepetitionEnabled, 0, 0,
+                )
+                // カメラの中心をシート側へずらすと、経路は地図の見えている領域の中央に来る。
+                val center = projection.fromPixels(view.width / 2, (view.height + padding.bottom - padding.top) / 2)
+                view.controller.animateTo(center, zoom, 500L)
+            } else {
+                view.zoomToBoundingBox(bounds, true, 64)
+            }
+        }
         state.vectorMapState.value?.let { vMap ->
-            val minLat = points.minOf { it.latitude }
-            val maxLat = points.maxOf { it.latitude }
-            val minLon = points.minOf { it.longitude }
-            val maxLon = points.maxOf { it.longitude }
-            val expanded = expandBoundsToMinSpan(minLat, maxLat, minLon, maxLon)
-            val padding = previewPaddingPx(screenHeightPx, density.density, state.waypointsState.value.size)
+            val padding = previewPaddingPx(screenHeightPx, density.density, sheetHeightPx)
             val boundsBuilder = org.maplibre.android.geometry.LatLngBounds.Builder()
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.minLat, expanded.minLon))
             boundsBuilder.include(org.maplibre.android.geometry.LatLng(expanded.maxLat, expanded.maxLon))
@@ -1046,6 +1073,8 @@ internal fun MapScreen(
     ) {
     MapScreenScaffold(
         state = state,
+        routePreviewSheetHeightPx = routePreviewSheetHeightPx.intValue,
+        onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx.intValue = it },
         // 出発地が決まらない (現在地が無く、出発地の印も無い) とき、目的地を覚えて待つ。位置が取れるか出発地を長押しで選ぶと、続きを計算する
         onWaitingForStartPoint = { dest ->
             waitingDestination.value = dest

@@ -49,15 +49,18 @@ class RoutePreviewFitTest {
     }
 
     @Test
-    fun paddingGrowsWithScreenAndUsesNoMoreThanEightyPercentHeight() {
+    fun paddingFollowsTheMeasuredSheetAndKeepsSpaceForTheRoute() {
         val heights = (1800..3200 step 100).toList()
-        val padding = heights.map { previewPaddingPx(it, density = 3f) }
+        val padding = heights.map { previewPaddingPx(it, density = 3f, sheetHeightPx = it / 2) }
         for (index in 1 until padding.size) {
             assertTrue(padding[index].top >= padding[index - 1].top)
             assertTrue(padding[index].bottom >= padding[index - 1].bottom)
         }
         heights.zip(padding).forEach { (height, item) ->
-            assertTrue(item.top + item.bottom <= height * 0.80)
+            assertEquals(height / 2 + 36, item.bottom)
+            val expanded = previewPaddingPx(height, density = 3f, sheetHeightPx = height * 9 / 10)
+            assertTrue(expanded.bottom > item.bottom)
+            assertTrue(expanded.top + expanded.bottom <= height * 0.90)
         }
         assertEquals(240, padding.first().side)
     }

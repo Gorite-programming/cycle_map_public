@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -229,13 +231,16 @@ internal fun BoxScope.MapControlsOverlay(
                 .zIndex(2f),
         )
     } else if (!isNavigationActive) {
+        val controlsTop = if (topOverlayHeight > 0.dp) effectiveTopPadding + topOverlayHeight + 16.dp
+        else effectiveTopPadding + if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp
+        val visibleMapHeight = LocalConfiguration.current.screenHeightDp.dp - routePreviewSheetHeight
         // 右上 (チップ列の直下): レイヤー切替ボタン + 回転時のみコンパス (Google Maps 配置)
-        Column(
+        // 詳細表示で地図が狭いときは、右下の現在地ボタンと重ならないようにする。
+        if (!isRoutePreviewActive || visibleMapHeight >= controlsTop + 290.dp) Column(
             modifier = Modifier
                 .align(com.gorite.cyclemap.ui.state.controlsTopAlignment(com.gorite.cyclemap.ui.state.isLeftHanded()))
                 .padding(
-                    top = if (topOverlayHeight > 0.dp) effectiveTopPadding + topOverlayHeight + 16.dp
-                        else effectiveTopPadding + (if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp),
+                    top = controlsTop,
                     start = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 14.dp else 0.dp,
                     end = if (com.gorite.cyclemap.ui.state.isLeftHanded()) 0.dp else 14.dp,
                 )
@@ -406,13 +411,36 @@ internal fun BoxScope.MapControlsOverlay(
             )
             // ナビ中の立ち寄り先検索ボタン (シンプルモードでは出さない)
             if (!com.gorite.cyclemap.ui.state.isSimpleMode() && onQuickSpotClick != null) {
-                GoogleFloatingActionButton(
-                    onClick = onQuickSpotClick,
-                    iconRes = R.drawable.ic_lucide_store,
-                    contentDescription = "立ち寄り",
-                    tint = CycleMapTheme.palette.accent,
-                )
+                QuickStopButton(onClick = onQuickSpotClick)
             }
+        }
+    }
+}
+
+@Composable
+private fun QuickStopButton(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
+        color = CycleMapTheme.palette.mapControlSurface,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_lucide_store),
+                contentDescription = null,
+                tint = CycleMapTheme.palette.accent,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "立ち寄り",
+                color = CycleMapTheme.palette.mapControlIcon,
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
     }
 }
@@ -786,12 +814,7 @@ private fun LandscapeControlRow(
         }
 
         if (isNavigationActive && !com.gorite.cyclemap.ui.state.isSimpleMode() && onQuickSpotClick != null) {
-            GoogleFloatingActionButton(
-                onClick = onQuickSpotClick,
-                iconRes = R.drawable.ic_lucide_store,
-                contentDescription = "立ち寄り",
-                tint = CycleMapTheme.palette.accent,
-            )
+            QuickStopButton(onClick = onQuickSpotClick)
         }
 
         if (!isNavigationActive) {

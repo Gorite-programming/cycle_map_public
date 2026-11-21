@@ -172,6 +172,8 @@ internal fun MapContentLayout(
     onRefreshWeather: () -> Unit = {},
     loadedGraphName: String? = null,
     rideSnapshot: com.gorite.cyclemap.tracking.RideSnapshot? = null,
+    routePreviewSheetHeightPx: Int,
+    onRoutePreviewSheetHeightChanged: (Int) -> Unit,
 ) {
     val isCycleComputer = com.gorite.cyclemap.ui.state.LocalDisplayModeController.current?.mode?.value ==
         com.gorite.cyclemap.ui.state.DisplayMode.CYCLE_COMPUTER
@@ -212,7 +214,6 @@ internal fun MapContentLayout(
         androidx.compose.runtime.LaunchedEffect(simpleVisibility.homePanel) {
             if (!simpleVisibility.homePanel) mapExpanded = false
         }
-        var routePreviewSheetHeightPx by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val routePreviewSheetHeight = with(density) { routePreviewSheetHeightPx.toDp() }
         androidx.activity.compose.BackHandler(enabled = mapExpanded && isIdle && simpleVisibility.homePanel) { mapExpanded = false }
         // Selection is temporary: keep mapExpanded unchanged on cancel and confirmation.
@@ -582,7 +583,7 @@ internal fun MapContentLayout(
                         } else {
                             null
                         },
-                        onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx = it },
+                        onRoutePreviewSheetHeightChanged = onRoutePreviewSheetHeightChanged,
                         onNavigationPanelHeightChanged = { navigationPanelHeightPx = it },
                         rideSnapshot = rideSnapshot,
                         onOpenOfflineData = onOpenDownload,

@@ -23,6 +23,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.text.BasicTextField
@@ -50,9 +52,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import android.os.Build
 import androidx.compose.runtime.Composable
@@ -91,6 +91,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DestinationSearchDialog(
     context: Context,
@@ -339,13 +340,10 @@ internal fun DestinationSearchDialog(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("検索範囲", style = MaterialTheme.typography.labelSmall)
                 DestinationSearchScope.entries.forEach { scope ->
                     androidx.compose.material3.FilterChip(
                         selected = searchScope == scope,
@@ -359,7 +357,7 @@ internal fun DestinationSearchDialog(
                 "${originLabel}の距離を表示", style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            // 中: 候補。reverseLayout で先頭 (いちばん近い・合うもの) を下端に置き、遠いものほど上へ積む
+            // 検索結果は並び順の先頭から上に表示する。検索欄は片手で届く下端に置く。
             AnimatedVisibility(
                 visible = contentVisible,
                 enter = slideInVertically(
@@ -518,9 +516,8 @@ internal fun DestinationSearchDialog(
                             }
                         }
                         else -> {
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                                 itemsIndexed(results) { index, result ->
-                                  // reverseLayout では item 内の並びも逆になるので、県名とカードを Column にまとめて県名を上に固定する
                                   androidx.compose.foundation.layout.Column {
                                     result.prefectureName?.let { prefecture ->
                                         Text(prefecture, style = MaterialTheme.typography.labelSmall,
@@ -557,17 +554,6 @@ internal fun DestinationSearchDialog(
                                         origin = searchOrigin,
                                     )
                                   }
-                                }
-                                if (results.size > 1) {
-                                    item {
-                                        Text(
-                                            if (sortedByDistance) "↑ 上ほど遠い" else "↑ 上ほど合わない",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                        )
-                                    }
                                 }
                             }
                         }

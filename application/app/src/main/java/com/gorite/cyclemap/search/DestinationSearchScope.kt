@@ -4,7 +4,7 @@ import java.io.File
 import com.gorite.cyclemap.data.PrefectureData
 
 internal enum class DestinationSearchScope(val label: String) {
-    NEARBY("現在地周辺"), MAP("表示中の地図"), INSTALLED("導入済みの全県"),
+    NEARBY("現在地周辺"), MAP("地図の範囲"), INSTALLED("導入済み全県"),
 }
 
 internal fun destinationSearchOrigin(

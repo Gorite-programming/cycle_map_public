@@ -68,6 +68,8 @@ internal fun MapScreenScaffold(
     weatherUiState: com.gorite.cyclemap.weather.WeatherUiState = com.gorite.cyclemap.weather.WeatherUiState.Unavailable,
     onRefreshWeather: () -> Unit = {},
     onWaitingForStartPoint: ((GeoPoint) -> Unit)? = null,
+    routePreviewSheetHeightPx: Int,
+    onRoutePreviewSheetHeightChanged: (Int) -> Unit,
 ) {
     val scope = state.scope
     val context = state.context
@@ -135,6 +137,8 @@ internal fun MapScreenScaffold(
         Box(modifier = modifier.fillMaxSize()) {
             MapContentLayout(
                 rideSnapshot = rideSnapshot,
+                routePreviewSheetHeightPx = routePreviewSheetHeightPx,
+                onRoutePreviewSheetHeightChanged = onRoutePreviewSheetHeightChanged,
                 importPlannedRoute = importPlannedRoute,
                 modifier = Modifier.fillMaxSize(),
             isDrawerOpenState = state.isDrawerOpenState,
