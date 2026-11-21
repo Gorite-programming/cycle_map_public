@@ -23,6 +23,7 @@
 # Files deployed once (not per prefecture):
 #   - <A>__<B>.portals       (Precomputed cross-prefecture portals; built by scripts/build_portals.py; optional)
 #   - <prefecture>.contours.pmtiles / <prefecture>.hillshade.pmtiles (terrain overlays; built by scripts/build_terrain.py)
+#   - hazards.bin           (Nationwide level crossings and bridges; built by scripts/build_hazards.py; optional)
 #
 # =============================================================================
 set -euo pipefail
@@ -44,6 +45,7 @@ fi
 DRY_RUN=false
 DB_ONLY=false
 TILES_ONLY=false
+HAZARDS_ONLY=false
 TARGET_PREF=""
 DEVICE_ID="${ANDROID_SERIAL:-}"
 SERVER_RESTARTED=false
@@ -60,6 +62,7 @@ Options:
   --dry-run       Show transfer plan and local hashes without making any changes
   --db-only       Transfer only search.db files (skip routing graph and map tile files)
   --tiles-only    Transfer only vector map tiles (packages/<prefecture>.pmtiles)
+  --hazards-only  Transfer only nationwide route hazards (packages/hazards.bin)
   --pref <name>   Transfer single prefecture (e.g. Yamaguchi, Hiroshima, Okayama, Shimane, Tottori)
   --serial <id>   Target device (overrides ANDROID_SERIAL)
   -h, --help      Show this help message
@@ -91,6 +94,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tiles-only)
             TILES_ONLY=true
+            shift
+            ;;
+        --hazards-only)
+            HAZARDS_ONLY=true
             shift
             ;;
         --pref)
@@ -203,11 +210,18 @@ if [[ "$DB_ONLY" == true && "$TILES_ONLY" == true ]]; then
     echo "ERROR: --db-only and --tiles-only cannot be combined." >&2
     exit 2
 fi
+if [[ "$HAZARDS_ONLY" == true && ( "$DB_ONLY" == true || "$TILES_ONLY" == true ) ]]; then
+    echo "ERROR: --hazards-only cannot be combined with --db-only or --tiles-only." >&2
+    exit 2
+fi
 if [[ "$DB_ONLY" == true ]]; then
     echo "Filter: search.db only"
 fi
 if [[ "$TILES_ONLY" == true ]]; then
     echo "Filter: vector map tiles only"
+fi
+if [[ "$HAZARDS_ONLY" == true ]]; then
+    echo "Filter: nationwide route hazards only"
 fi
 
 if [[ -n "$TARGET_PREF" ]]; then
@@ -282,11 +296,13 @@ if [[ "$DRY_RUN" == false ]]; then
 fi
 
 TMP_STAGE="${ROOT_DIR}/work/_push_stage"
-mkdir -p "${TMP_STAGE}"
 cleanup() {
     rm -rf "${TMP_STAGE}"
 }
-trap cleanup EXIT
+if [[ "$HAZARDS_ONLY" == false ]]; then
+    mkdir -p "${TMP_STAGE}"
+    trap cleanup EXIT
+fi
 
 TOTAL_FILES=0
 TOTAL_BYTES=0
@@ -336,6 +352,7 @@ echo ""
 echo "--- Preparing and Transferring Files ---"
 
 for pref in "${PREFS[@]}"; do
+    [[ "$HAZARDS_ONLY" == false ]] || break
     pref_lower="$(tr '[:upper:]' '[:lower:]' <<< "$pref")"
     echo ">> Prefecture: ${pref}"
 
@@ -431,7 +448,7 @@ done
 
 # Cross-prefecture portals (packages/<A>__<B>.portals, transferred as-is). Optional: the app matches node IDs when absent or stale.
 # With --pref, only the pairs that include that prefecture are sent.
-if [[ "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
+if [[ "$HAZARDS_ONLY" == false && "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
     echo ">> Cross-prefecture portals"
     portal_count=0
     for portal_src in "${ROOT_DIR}"/packages/*__*.portals; do
@@ -445,6 +462,16 @@ if [[ "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
     done
     if [[ "$portal_count" -eq 0 ]]; then
         echo "NOTE: No portal files (run scripts/build_portals.py); the app will match portals at route time" >&2
+    fi
+fi
+
+if [[ "$DB_ONLY" == false && "$TILES_ONLY" == false ]]; then
+    echo ">> Nationwide route hazards"
+    hazards_src="${ROOT_DIR}/packages/hazards.bin"
+    if [[ -s "$hazards_src" ]]; then
+        push_file "$hazards_src"
+    else
+        echo "WARNING: No hazards.bin (run scripts/build_hazards.py)" >&2
     fi
 fi
 
