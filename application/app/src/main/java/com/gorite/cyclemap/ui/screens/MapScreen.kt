@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.ui.screens
 
 import com.gorite.cyclemap.ui.mapview.animateCameraExclusive
+import com.gorite.cyclemap.ui.mapview.ViewCenterSaveThrottle
 import com.gorite.cyclemap.*
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -590,6 +591,7 @@ internal fun MapScreen(
             ?: (36.0 to 138.0)
     }
     val viewedCenter = remember { java.util.concurrent.atomic.AtomicReference(initialMapCenter) }
+    val centerSaveThrottle = remember { ViewCenterSaveThrottle() }
     val vectorCenterReady = remember(state.vectorMapState.value) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val rasterCenterReady = remember(state.mapViewState.value) { java.util.concurrent.atomic.AtomicBoolean(false) }
     LaunchedEffect(state.mapViewState.value) {
@@ -613,10 +615,16 @@ internal fun MapScreen(
     androidx.compose.runtime.DisposableEffect(state.vectorMapState.value, state.mapViewState.value) {
         val vector = state.vectorMapState.value
         val raster = state.mapViewState.value
+        var disposed = false
+        fun persistCenter(center: Pair<Double, Double>) {
+            val (lat, lon) = center
+            state.prefs.edit().putString("view_lat", lat.toString()).putString("view_lon", lon.toString()).apply()
+        }
         fun save(lat: Double, lon: Double) {
             if (lat.isFinite() && lon.isFinite()) {
-                viewedCenter.set(lat to lon)
-                state.prefs.edit().putString("view_lat", lat.toString()).putString("view_lon", lon.toString()).apply()
+                val center = lat to lon
+                viewedCenter.set(center)
+                centerSaveThrottle.onCenterChanged(center, SystemClock.elapsedRealtime())?.let(::persistCenter)
             }
         }
         val listener = org.maplibre.android.maps.MapLibreMap.OnCameraIdleListener {
@@ -624,7 +632,9 @@ internal fun MapScreen(
         }
         val rasterListener = org.osmdroid.events.DelayedMapListener(object : org.osmdroid.events.MapListener {
             private fun saveCenter(): Boolean {
-                if (vector == null && rasterCenterReady.get()) raster?.mapCenter?.let { save(it.latitude, it.longitude) }
+                if (!disposed && vector == null && rasterCenterReady.get()) {
+                    raster?.mapCenter?.let { save(it.latitude, it.longitude) }
+                }
                 return false
             }
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?) = saveCenter()
@@ -633,12 +643,14 @@ internal fun MapScreen(
         raster?.addMapListener(rasterListener)
         vector?.addOnCameraIdleListener(listener)
         onDispose {
+            disposed = true // 解除前に予約されたラスターの遅延通知を無視する。
             runCatching {
                 if (vectorCenterReady.get()) vector?.cameraPosition?.target?.let { save(it.latitude, it.longitude) }
                 if (vector == null && rasterCenterReady.get()) raster?.mapCenter?.let { save(it.latitude, it.longitude) }
             }
             raster?.removeMapListener(rasterListener)
             vector?.removeOnCameraIdleListener(listener)
+            centerSaveThrottle.flush(SystemClock.elapsedRealtime())?.let(::persistCenter)
         }
     }
     // 気圧計はサイコン画面を出している間だけ動かす (電池のため)

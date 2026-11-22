@@ -8,9 +8,12 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LazyMappedRoutingTest {
@@ -33,6 +36,69 @@ class LazyMappedRoutingTest {
                 assertTrue(graph.nearestNodeCandidates(34.00001, 132.0, 0.0).isEmpty())
                 assertEquals(0, graph.nearestNodeIndex(34.0, 132.0, 0.0))
             }
+        }
+    }
+
+    @Test
+    fun boundedCandidatesUseEmptyGridResultBeforeUnrestrictedFallback() {
+        val lats = DoubleArray(80) { if (it == 79) 35.0 else 34.0 }
+        val lons = DoubleArray(80) { if (it == 79) 133.0 else 132.0 }
+        val latitudes = MappedDoubleColumn(lats)
+        val longitudes = MappedDoubleColumn(lons)
+        val grid = SpatialGridIndex(latitudes, longitudes)
+
+        graphWith(lats, lons).use { graph ->
+            for ((lat, lon) in listOf(39.0 to 137.0, 34.5 to 132.5)) {
+                // The old grid search had no seed or exceeded its bounds, so it went linear.
+                assertEquals(-1, grid.findNearest(lat, lon, latitudes, longitudes))
+                val nearby = assertNotNull(grid.findWithin(lat, lon, 150.0, 6, latitudes, longitudes))
+                assertContentEquals(IntArray(0), nearby)
+                assertContentEquals(nearby, graph.nearestNodeCandidates(lat, lon, 150.0))
+            }
+        }
+    }
+
+    @Test
+    fun boundedCandidatesKeepRingWinnerFirstWhenDistancesTie() {
+        val lat = 34.5
+        val lon = 132.5 // Exact cell boundary for the longitude span below.
+        val offset = 1.0 / 1024.0
+        val lats = DoubleArray(80) { 34.0 }.apply {
+            fill(lat, 0, 3)
+            this[lastIndex] = 35.0
+        }
+        val lons = DoubleArray(80) { 132.0 }.apply {
+            this[0] = lon - offset
+            this[1] = lon + offset
+            this[2] = lon + 2 * offset
+            this[lastIndex] = 132.0 + 127.0 / 64.0
+        }
+        val latitudes = MappedDoubleColumn(lats)
+        val longitudes = MappedDoubleColumn(lons)
+        val grid = SpatialGridIndex(latitudes, longitudes)
+        assertContentEquals(intArrayOf(0, 1, 2), grid.findWithin(lat, lon, 200.0, 6, latitudes, longitudes))
+
+        graphWith(lats, lons).use { graph ->
+            assertEquals(1, graph.nearestNodeIndex(lat, lon))
+            assertContentEquals(intArrayOf(1, 0, 2), graph.nearestNodeCandidates(lat, lon, 200.0))
+            assertContentEquals(intArrayOf(1, 0), graph.nearestNodeCandidates(lat, lon, 200.0, maxCount = 2))
+            assertEquals(1, graph.nearestNodeIndex(lat, lon, 200.0))
+        }
+    }
+
+    @Test
+    fun boundedCandidatesKeepOnlyNearestWhenGridCellLimitIsExceeded() {
+        val lats = DoubleArray(80) { 34.0 + it * 0.0001 }
+        val lons = DoubleArray(80) { 132.0 + it * 0.0001 }
+        val latitudes = MappedDoubleColumn(lats)
+        val longitudes = MappedDoubleColumn(lons)
+        val radius = 2_000.0
+        val grid = SpatialGridIndex(latitudes, longitudes)
+        assertNull(grid.findWithin(lats[0], lons[0], radius, 6, latitudes, longitudes))
+
+        graphWith(lats, lons).use { graph ->
+            assertContentEquals(intArrayOf(0), graph.nearestNodeCandidates(lats[0], lons[0], radius))
+            assertEquals(0, graph.nearestNodeIndex(lats[0], lons[0], radius))
         }
     }
 

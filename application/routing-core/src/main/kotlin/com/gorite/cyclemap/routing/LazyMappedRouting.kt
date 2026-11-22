@@ -342,12 +342,17 @@ class LazyMappedRoadGraph private constructor(
      */
     fun nearestNodeCandidates(latitude: Double, longitude: Double, radiusMeters: Double = 250.0, maxCount: Int = 6): IntArray {
         if (maxCount <= 0 || radiusMeters < 0.0 || radiusMeters.isNaN()) return IntArray(0)
+        val grid = spatialGrid
+        val gridCandidates = grid?.findWithin(latitude, longitude, radiusMeters, maxCount, latitudes, longitudes)
+        if (gridCandidates != null && gridCandidates.isEmpty()) return gridCandidates
+
+        // グリッドの走査順と最寄り探索のリング順は、同距離のときに先頭が異なり得る。
         val first = nearestNodeIndex(latitude, longitude)
         if (first < 0) return IntArray(0)
         if (haversineMeters(latitude, longitude, latitudes[first], longitudes[first]) > radiusMeters) return IntArray(0)
-        val grid = spatialGrid
         val near = if (grid != null) {
-            grid.findWithin(latitude, longitude, radiusMeters, maxCount + 1, latitudes, longitudes)
+            // 探索セル数が上限を超えた場合は、従来どおり最寄りの 1 件だけを返す。
+            gridCandidates ?: return intArrayOf(first)
         } else {
             // 小さなグラフ (グリッド無し) は全走査
             (0 until nodeCount)
@@ -1330,7 +1335,7 @@ internal class SpatialGridIndex(
         return bestNode
     }
 
-    /** 指定半径内のノードを、近い順に最大 [maxCount] 個返す。範囲が広すぎる場合は空。 */
+    /** 指定半径内のノードを、近い順に最大 [maxCount] 個返す。探索セル数が上限を超えた場合は null。 */
     fun findWithin(
         latitude: Double,
         longitude: Double,
@@ -1338,7 +1343,7 @@ internal class SpatialGridIndex(
         maxCount: Int,
         latitudes: MappedDoubleColumn,
         longitudes: MappedDoubleColumn,
-    ): IntArray {
+    ): IntArray? {
         val latDelta = radiusMeters / 110_000.0
         val maxAbsLat = maxOf(abs(latitude - latDelta), abs(latitude + latDelta)).coerceAtMost(89.0)
         val lonDelta = radiusMeters / (110_000.0 * cos(Math.toRadians(maxAbsLat)).coerceAtLeast(0.05))
@@ -1346,7 +1351,7 @@ internal class SpatialGridIndex(
         val maxGy = (toGridY(latitude + latDelta) + 1).coerceAtMost(GRID_DIM - 1)
         val minGx = (toGridX(longitude - lonDelta) - 1).coerceAtLeast(0)
         val maxGx = (toGridX(longitude + lonDelta) + 1).coerceAtMost(GRID_DIM - 1)
-        if ((maxGy - minGy + 1) * (maxGx - minGx + 1) > 4096) return IntArray(0)
+        if ((maxGy - minGy + 1) * (maxGx - minGx + 1) > 4096) return null
         val found = ArrayList<Pair<Double, Int>>()
         for (gy in minGy..maxGy) {
             for (gx in minGx..maxGx) {
