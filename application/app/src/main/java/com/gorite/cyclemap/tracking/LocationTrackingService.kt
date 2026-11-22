@@ -69,7 +69,7 @@ class LocationTrackingService : Service() {
     private val healthCheckRunnable = object : Runnable {
         override fun run() {
             if (tracking) {
-                recorder?.flush()
+                recorder?.flushIfDue()
                 val newStatus = gpsHealthMonitor.tick()
                 if (newStatus != lastStatus) {
                     notifyStatus(newStatus)
@@ -195,7 +195,8 @@ class LocationTrackingService : Service() {
             val journal = GpxJournal(file)
             val recovery = runCatching { journal.restore() }.getOrNull()
             if (recovery != null) {
-                recorder = GpxRecorder(journal, recovery).also { it.pause() }
+                recorder = GpxRecorder(journal, recovery, RECORDING_FLUSH_POLICY, SystemClock::elapsedRealtime)
+                    .also { it.pause() }
                 recoveryPending = true
                 return
             }
@@ -208,7 +209,11 @@ class LocationTrackingService : Service() {
             if (recorder?.paused == true) recorder?.resume()
             return
         }
-        recorder = GpxRecorder(GpxJournal(File(filesDir, "gpx-journals/${java.util.UUID.randomUUID()}.journal")))
+        recorder = GpxRecorder(
+            GpxJournal(File(filesDir, "gpx-journals/${java.util.UUID.randomUUID()}.journal")),
+            flushPolicy = RECORDING_FLUSH_POLICY,
+            clock = SystemClock::elapsedRealtime,
+        )
         recording = true
         openDiagLog()
         startForeground(NOTIFICATION_ID, trackingNotification())
@@ -469,6 +474,7 @@ class LocationTrackingService : Service() {
         private const val NOTIFICATION_ID = 4201
         private const val PREFERENCES = "gpx_recording"
         private const val KEY_LAST_FILE = "last_file"
+        private val RECORDING_FLUSH_POLICY = GpxRecorder.FlushPolicy(maxPoints = 10, maxAgeMillis = 10_000L)
 
         fun startTracking(context: Context) {
             ContextCompat.startForegroundService(

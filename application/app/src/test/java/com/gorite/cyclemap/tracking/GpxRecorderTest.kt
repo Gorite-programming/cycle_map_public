@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.tracking
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -7,6 +8,28 @@ import java.io.File
 import java.nio.file.Files
 
 class GpxRecorderTest {
+    @Test
+    fun writeToFileFlushesPendingPointsToJournal() {
+        val directory = Files.createTempDirectory("cyclemap-gpx-export").toFile()
+        try {
+            val journal = GpxJournal(File(directory, "track.journal"))
+            val recorder = GpxRecorder(
+                journal,
+                flushPolicy = GpxRecorder.FlushPolicy(maxPoints = 10, maxAgeMillis = 10_000L),
+                clock = { 0L },
+            )
+            val point = GpxPoint(34.0, 131.0, null, 1_000L)
+            recorder.addPoint(point)
+            assertTrue(journal.restore()!!.points.isEmpty())
+
+            val output = recorder.writeToFile(File(directory, "track.gpx"))
+            assertTrue(output.isFile)
+            assertEquals(listOf(point), journal.restore()!!.points)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun emptyRecordingCannotCreateGpxFile() {
         val directory = Files.createTempDirectory("cyclemap-gpx-empty").toFile()

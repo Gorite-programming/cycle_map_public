@@ -11,18 +11,48 @@ import java.util.TimeZone
  * Collects timestamped track points and serializes them as GPX 1.1.
  * Pure formatting logic lives in [GpxWriter] so it can be unit-tested on the JVM.
  */
-class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.Recovery? = null) {
+class GpxRecorder(
+    private val journal: GpxJournal? = null,
+    recovery: GpxJournal.Recovery? = null,
+    private val flushPolicy: FlushPolicy = FlushPolicy(maxPoints = 1, maxAgeMillis = 0L),
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
+    data class FlushPolicy(val maxPoints: Int, val maxAgeMillis: Long) {
+        init {
+            require(maxPoints > 0)
+            require(maxAgeMillis >= 0L)
+        }
+    }
+
     private val points = java.util.Collections.synchronizedList(mutableListOf<GpxPoint>())
     val startedAt: Long = recovery?.startedAt ?: System.currentTimeMillis()
     private val pending = mutableListOf<String>()
+    private var pendingSinceMillis = 0L
+    private var retryPending = false
     var paused: Boolean = recovery?.paused ?: false
         private set
     private var nextSegment = recovery != null
 
     init {
-        if (recovery == null) pending += "START\t$startedAt"
+        if (recovery == null) enqueue("START\t$startedAt")
         else points.addAll(recovery.points)
         flush()
+    }
+
+    private fun enqueue(line: String) {
+        if (pending.isEmpty()) pendingSinceMillis = clock()
+        pending += line
+    }
+
+    @Synchronized
+    fun flushIfDue() {
+        if (journal == null || pending.isEmpty()) return
+        // START / PAUSE / RESUME は即 flush するので、失敗時以外の pending は測位点のみ。
+        if (retryPending || pending.size >= flushPolicy.maxPoints ||
+            clock() - pendingSinceMillis >= flushPolicy.maxAgeMillis
+        ) {
+            flush()
+        }
     }
 
     @Synchronized
@@ -31,8 +61,10 @@ class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.
         try {
             journal.append(pending)
             pending.clear()
+            retryPending = false
         } catch (_: Exception) {
             // Keep both the live points and the pending writes; retry on the next fix/timer.
+            retryPending = true
         }
     }
 
@@ -40,7 +72,7 @@ class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.
     fun pause() {
         paused = true
         nextSegment = true
-        pending += "PAUSE"
+        enqueue("PAUSE")
         flush()
     }
 
@@ -48,7 +80,7 @@ class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.
     fun resume() {
         paused = false
         nextSegment = true
-        pending += "RESUME"
+        enqueue("RESUME")
         flush()
     }
 
@@ -74,11 +106,12 @@ class GpxRecorder(private val journal: GpxJournal? = null, recovery: GpxJournal.
         val recorded = point.copy(segmentStart = point.segmentStart || nextSegment)
         nextSegment = false
         points.add(recorded)
-        pending += GpxJournal.pointLine(recorded)
-        flush()
+        enqueue(GpxJournal.pointLine(recorded))
+        flushIfDue()
     }
 
     fun writeToFile(file: File): File {
+        flush()
         val snapshot = synchronized(points) { points.toList() }
         require(snapshot.isNotEmpty()) { "Cannot save a GPX track without recorded points" }
         file.parentFile?.mkdirs()
