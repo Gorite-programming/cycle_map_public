@@ -11,7 +11,7 @@ if [[ "${1:-}" == "--readonly" ]]; then SANDBOX="read-only"; shift; fi
 SRC="${1:--}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STAMP="$(date +%Y%m%d-%H%M%S)"
+STAMP="$(date +%Y%m%d-%H%M%S)-$$"
 OUT_DIR="$ROOT/work/codex"
 mkdir -p "$OUT_DIR"
 
@@ -27,7 +27,7 @@ PREAMBLE='あなたは Claude (親) から委譲された実装担当です。AG
 MODEL_ARGS=()
 [[ -n "${CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$CODEX_MODEL")
 
-{ printf '%s' "$PREAMBLE"; cat "$SRC"; } | codex exec "${MODEL_ARGS[@]}" \
+{ printf '%s' "$PREAMBLE"; cat "$SRC"; } | codex exec ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
   --cd "$ROOT" \
   --sandbox "$SANDBOX" \
   -c sandbox_workspace_write.network_access=true \
