@@ -117,6 +117,11 @@ internal fun calculateMultiLegCrossRouteWithEnv(
     var endpointSnapMs = 0L
     var guidanceElevationMs = 0L
     val graphFingerprints = HashMap<File, GraphFingerprint>()
+    val routePrefetch = if (enablePrefetch && preference == RoutePreference.RECOMMENDED) {
+        RouteFilePrefetch(isCancelled)
+    } else {
+        null
+    }
 
     fun openOwned(pref: String): LazyMappedRoadGraph? {
         val fileName = namesByPref[pref] ?: return null
@@ -139,17 +144,6 @@ internal fun calculateMultiLegCrossRouteWithEnv(
         } finally {
             graph.close()
         }
-    }
-
-    fun addPart(graph: LazyMappedRoadGraph, indices: List<Int>, ids: List<Long>, coords: List<Pair<Double, Double>>, distance: Double, cost: Double) {
-        val started = nowMs()
-        val grades = graph.segmentGradesAlongIndices(indices)
-        val elevations = graph.nodeElevationsAt(indices)
-        val actualDistance = if (grades.isNotEmpty()) grades.sumOf { it.distanceMeters } else distance
-        routeParts += CrossRoutePathPart(ids, coords, actualDistance, cost, indices)
-        instructionParts += CrossInstructionPart(buildRouteInstructions(graph, ids, coords), ids.size, actualDistance)
-        elevationParts += CrossElevationPart(grades, elevations)
-        guidanceElevationMs += nowMs() - started
     }
 
     fun solveSameLeg(pref: String, startIdx: Int, goalIdx: Int): SolvedCrossLeg? {
@@ -215,7 +209,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                     )
                 }
             }
-            if (enablePrefetch && preference == RoutePreference.RECOMMENDED) {
+            if (routePrefetch != null) {
                 val prefetch = ArrayList<File>()
                 for (pref in chain) {
                     val fileName = namesByPref[pref] ?: continue
@@ -224,7 +218,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                     findContractionHierarchyFile(gf)?.let { prefetch += it }
                     prefetch += gf
                 }
-                if (prefetch.isNotEmpty()) prefetchFilesInBackground(prefetch)
+                routePrefetch.enqueue(prefetch)
             }
 
             try {
@@ -449,30 +443,39 @@ internal fun calculateMultiLegCrossRouteWithEnv(
         legSolutions.map { it!! }
     }
 
-    var totalDistance = 0.0
-    var totalCost = 0.0
-    val usedChains = ArrayList<String>(solvedLegs.size)
-    for (leg in solvedLegs) {
+    val partsByPref = solvedLegs.flatMap { leg ->
+        leg.parts.mapIndexed { index, part -> leg.chain[index] to part }
+    }
+    var groupStart = 0
+    while (groupStart < partsByPref.size) {
         if (isCancelled()) return MultiLegCrossOutcome.Cancelled
-        for (i in leg.parts.indices) {
-            val part = leg.parts[i]
-            if (part.nodeIndices.isEmpty()) return MultiLegCrossOutcome.Failed
-            val pref = leg.chain[i]
-            val ok = withGraph(pref) { graph ->
-                addPart(
-                    graph,
-                    part.nodeIndices,
-                    part.nodeIds,
-                    part.coordinates,
-                    graph.segmentGradesAlongIndices(part.nodeIndices).sumOf { it.distanceMeters },
-                    0.0,
-                )
-            }
-            if (ok == null) return MultiLegCrossOutcome.Failed
+        val pref = partsByPref[groupStart].first
+        var groupEnd = groupStart + 1
+        while (groupEnd < partsByPref.size &&
+            partsByPref[groupEnd].first == pref &&
+            partsByPref[groupEnd - 1].second.nodeIds.lastOrNull() == partsByPref[groupEnd].second.nodeIds.firstOrNull()
+        ) {
+            groupEnd++
         }
-        totalDistance += leg.distanceMeters
-        totalCost += leg.cost
-        usedChains += leg.chainLabel
+        val ok = withGraph(pref) { graph ->
+            val started = nowMs()
+            val pathStart = routeParts.size
+            for (i in groupStart until groupEnd) {
+                val part = partsByPref[i].second
+                if (part.nodeIndices.isEmpty()) return@withGraph false
+                val grades = graph.segmentGradesAlongIndices(part.nodeIndices)
+                val elevations = graph.nodeElevationsAt(part.nodeIndices)
+                routeParts += CrossRoutePathPart(
+                    part.nodeIds, part.coordinates, grades.sumOf { it.distanceMeters }, 0.0, part.nodeIndices,
+                )
+                elevationParts += CrossElevationPart(grades, elevations)
+            }
+            instructionParts += buildCrossInstructionPart(graph, routeParts.subList(pathStart, routeParts.size))
+            guidanceElevationMs += nowMs() - started
+            true
+        }
+        if (ok != true) return MultiLegCrossOutcome.Failed
+        groupStart = groupEnd
     }
 
     if (isCancelled()) return MultiLegCrossOutcome.Cancelled
@@ -481,11 +484,14 @@ internal fun calculateMultiLegCrossRouteWithEnv(
     val merged = mergeRoutePathParts(routeParts)
     return MultiLegCrossOutcome.Success(
         MultiLegRouteResult(
-            MappedRouteResult(merged.nodeIds, totalDistance, totalCost, merged.coordinates, nodeIndices = emptyList()),
+            MappedRouteResult(
+                merged.nodeIds, solvedLegs.sumOf { it.distanceMeters }, solvedLegs.sumOf { it.cost },
+                merged.coordinates, nodeIndices = emptyList(),
+            ),
             mergeInstructionParts(instructionParts),
             mergeElevationParts(elevationParts),
             totalLoadMs,
-            usedChains.joinToString("|"),
+            solvedLegs.joinToString("|") { it.chainLabel },
             portalMs,
             aMs,
             bMs,

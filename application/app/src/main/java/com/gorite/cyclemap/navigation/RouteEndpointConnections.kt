@@ -24,13 +24,23 @@ internal fun connectRouteEndpoints(
     }
     val headSeed = trim?.head?.takeIf { it.isNotEmpty() } ?: listOf(stops.first())
     val tailSeed = trim?.tail?.takeIf { it.isNotEmpty() } ?: listOf(stops.last())
-    val headLength = displayedRouteDistance(headSeed + first)
-    val head = if (headLength in 3.0..200.0) headSeed else emptyList()
-    val tail = if (displayedRouteDistance(listOf(last) + tailSeed) in 3.0..200.0) tailSeed else emptyList()
-    return RouteDisplayGeometry(head + result.coordinates + tail, head.size, if (head.isEmpty()) 0.0 else headLength)
+    val head = keepEndpointRoadSegment(headSeed, first)
+    val tail = keepEndpointRoadSegment(tailSeed.asReversed(), last).asReversed()
+    val headLength = displayedRouteDistance(head + first)
+    return RouteDisplayGeometry(head + result.coordinates + tail, head.size, headLength)
 }
 
-/** 先頭に付けた接続線 (headLengthMeters) の分だけ、各案内の起点からの距離を後ろへずらす。 */
+/** 停止地点から内側に並ぶ点のうち、道路外の接続線だけを距離で判定する。 */
+private fun keepEndpointRoadSegment(
+    pointsFromStop: List<Pair<Double, Double>>,
+    routeNode: Pair<Double, Double>,
+): List<Pair<Double, Double>> {
+    val roadPoint = pointsFromStop.getOrElse(1) { routeNode }
+    val connectionLength = displayedRouteDistance(listOf(pointsFromStop.first(), roadPoint))
+    return if (connectionLength in 3.0..200.0) pointsFromStop else pointsFromStop.drop(1)
+}
+
+/** 表示線に付け足した先頭区間の分だけ、各案内の起点からの距離を後ろへずらす。 */
 internal fun shiftInstructionsForHead(
     instructions: List<RouteInstruction>,
     headLengthMeters: Double,

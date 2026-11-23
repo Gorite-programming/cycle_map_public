@@ -3,6 +3,7 @@ package com.gorite.cyclemap.navigation
 import com.gorite.cyclemap.routing.InstructionType
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.RoutePreference
+import com.gorite.cyclemap.routing.haversineMeters
 import com.gorite.cyclemap.routing.nodeElevationsAlong
 import com.gorite.cyclemap.routing.nodeElevationsAt
 import com.gorite.cyclemap.routing.routeWithSnapFallback
@@ -258,6 +259,86 @@ class WaypointRoutePlannerTest {
             val plan = planSingleGraphRoute(graph, stops)
             assertEquals(SingleGraphRoutePlan.WaypointUnreachable(2), plan)
         }
+    }
+
+    @Test
+    fun crossPrefectureRouteGuidesRightTurnAtSamePrefectureWaypoint() {
+        val result = planRouteWithJunctions(turnAtPortal = false)
+        assertEquals(listOf(1L, 2L, 3L, 4L), result.route.nodeIds)
+        val waypointTurn = result.instructions.single { it.nodeId == 2L }
+        assertEquals(InstructionType.RIGHT_TURN, waypointTurn.type)
+        assertEquals(1, waypointTurn.routeIndex)
+        assertEquals(haversineMeters(34.0, 132.0, 34.001, 132.0), waypointTurn.distanceFromStartMeters, 0.01)
+    }
+
+    @Test
+    fun crossPrefectureRouteGuidesRightTurnAtSharedPortal() {
+        val result = planRouteWithJunctions(turnAtPortal = true)
+        assertEquals(listOf(1L, 2L, 3L, 4L), result.route.nodeIds)
+        val portalTurn = result.instructions.single { it.nodeId == 3L }
+        assertEquals(InstructionType.RIGHT_TURN, portalTurn.type)
+        assertEquals(2, portalTurn.routeIndex)
+        assertEquals(
+            haversineMeters(34.001, 132.0, 34.001, 132.00075) + haversineMeters(34.001, 132.00075, 34.001, 132.0015),
+            portalTurn.distanceFromStartMeters,
+            0.01,
+        )
+        assertTrue(result.instructions.none { it.nodeId == 2L })
+    }
+
+    @Test
+    fun crossPrefectureRouteOmitsInstructionAtStraightPortal() {
+        val result = planRouteWithJunctions(turnAtPortal = false)
+        assertEquals(listOf(1L, 2L, 3L, 4L), result.route.nodeIds)
+        assertTrue(result.instructions.none { it.nodeId == 3L })
+    }
+
+    private fun planRouteWithJunctions(turnAtPortal: Boolean): MultiLegRouteResult {
+        val start = SynNode(1L, if (turnAtPortal) 34.001 else 34.0, 132.0, 0.0)
+        val waypoint = SynNode(2L, 34.001, if (turnAtPortal) 132.00075 else 132.0, 0.0)
+        val portal = SynNode(3L, 34.001, 132.0015, 0.0)
+        val end = if (turnAtPortal) SynNode(4L, 34.0, 132.0015, 0.0) else SynNode(4L, 34.001, 132.003, 0.0)
+        fun edge(from: SynNode, to: SynNode) =
+            SynEdge(to.id, haversineMeters(from.lat, from.lon, to.lat, to.lon))
+        writeGraphFiles(
+            tempFolder.root, "yamaguchi.graph", listOf(start, waypoint, portal),
+            mapOf(
+                start.id to listOf(edge(start, waypoint)),
+                waypoint.id to listOf(edge(waypoint, start), edge(waypoint, portal)),
+                portal.id to listOf(edge(portal, waypoint)),
+            ),
+        )
+        writeGraphFiles(
+            tempFolder.root, "hiroshima.graph", listOf(portal, end),
+            mapOf(portal.id to listOf(edge(portal, end)), end.id to listOf(edge(end, portal))),
+        )
+        val outcome = calculateMultiLegCrossRouteWithEnv(
+            dataDir = tempFolder.root,
+            graphLock = ReentrantReadWriteLock(),
+            jobGraph = null,
+            jobGraphName = null,
+            stops = listOf(start, waypoint, end).map { CrossGeoPoint(it.lat, it.lon) },
+            preference = RoutePreference.RECOMMENDED,
+            isCancelled = { false },
+            namesByPref = mapOf("山口県" to "yamaguchi.graph", "広島県" to "hiroshima.graph"),
+            centers = emptyMap(),
+            prefectureLookup = { _, lon -> if (lon < portal.lon) "山口県" else "広島県" },
+            nowMs = { 0L },
+            logGraphInfo = {},
+            logRouteInfo = {},
+            logRouteWarn = {},
+            logRouteError = {},
+            attachCh = { _, _ -> },
+            enablePrefetch = false,
+        )
+        assertTrue(outcome.toString(), outcome is MultiLegCrossOutcome.Success)
+        val result = (outcome as MultiLegCrossOutcome.Success).result
+        assertEquals(
+            edge(start, waypoint).distanceMeters + edge(waypoint, portal).distanceMeters + edge(portal, end).distanceMeters,
+            result.route.totalDistanceMeters,
+            0.01,
+        )
+        return result
     }
 
     @Test

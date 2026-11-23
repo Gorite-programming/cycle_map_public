@@ -5,6 +5,7 @@ import com.gorite.cyclemap.routing.MappedRouteResult
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RouteProgressIndex
+import com.gorite.cyclemap.routing.trimRouteEnds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -161,4 +162,71 @@ class RouteEndpointConnectionsTest {
         assertEquals(0, geometry.nodePointOffset)
         assertEquals(0.0, geometry.headLengthMeters, 1e-6)
     }
+
+    @Test
+    fun longTrimmedEdgesKeepOnRoadStartAndGoal() {
+        val start = pointInMeters(east = 20.0)
+        val goal = pointInMeters(east = 1080.0)
+
+        val geometry = connectTrimmedRoute(start, goal)
+
+        assertEquals(0.0, displayedRouteDistance(listOf(start, geometry.points.first())), 1e-6)
+        assertEquals(0.0, displayedRouteDistance(listOf(goal, geometry.points.last())), 1e-6)
+        assertEquals(1, geometry.nodePointOffset)
+        assertEquals(280.0, geometry.headLengthMeters, 0.01)
+        assertEquals(1060.0, displayedRouteDistance(geometry.points), 0.01)
+    }
+
+    @Test
+    fun longTrimmedEdgesKeepNearbyOffRoadConnectionsAndMeasureFullHead() {
+        val start = pointInMeters(east = 20.0, north = 10.0)
+        val goal = pointInMeters(east = 1080.0, north = 10.0)
+
+        val geometry = connectTrimmedRoute(start, goal)
+
+        assertEquals(start, geometry.points.first())
+        assertEquals(goal, geometry.points.last())
+        assertEquals(2, geometry.nodePointOffset)
+        assertEquals(290.0, geometry.headLengthMeters, 0.01)
+        assertEquals(
+            displayedRouteDistance(geometry.points.take(geometry.nodePointOffset + 1)),
+            geometry.headLengthMeters,
+            1e-6,
+        )
+        assertEquals(1080.0, displayedRouteDistance(geometry.points), 0.01)
+    }
+
+    @Test
+    fun longTrimmedEdgesKeepProjectedRoadWhenStopsAreTooFarAway() {
+        val start = pointInMeters(east = 30.0, north = 250.0)
+        val goal = pointInMeters(east = 1070.0, north = 250.0)
+
+        val geometry = connectTrimmedRoute(start, goal)
+
+        assertEquals(0.0, displayedRouteDistance(listOf(pointInMeters(east = 30.0), geometry.points.first())), 1e-6)
+        assertEquals(0.0, displayedRouteDistance(listOf(pointInMeters(east = 1070.0), geometry.points.last())), 1e-6)
+        assertEquals(1, geometry.nodePointOffset)
+        assertEquals(270.0, geometry.headLengthMeters, 0.01)
+        assertEquals(1040.0, displayedRouteDistance(geometry.points), 0.01)
+    }
+
+    private fun connectTrimmedRoute(start: Pair<Double, Double>, goal: Pair<Double, Double>): RouteDisplayGeometry {
+        val coordinates = listOf(0.0, 300.0, 800.0, 1100.0).map { pointInMeters(east = it) }
+        val distance = displayedRouteDistance(coordinates)
+        val rawResult = MappedRouteResult(
+            nodeIds = listOf(1L, 2L, 3L, 4L),
+            totalDistanceMeters = distance,
+            totalCost = distance,
+            coordinates = coordinates,
+            wasCancelled = false,
+            wasTruncated = false,
+            nodeIndices = listOf(0, 1, 2, 3),
+        )
+        val trim = trimRouteEnds(rawResult, start.first, start.second, goal.first, goal.second)
+        assertEquals(listOf(2L, 3L), trim.result.nodeIds)
+        return connectRouteEndpoints(trim.result, trim, listOf(start, goal))
+    }
+
+    private fun pointInMeters(east: Double, north: Double = 0.0): Pair<Double, Double> =
+        north / 111_195.0 to east / 111_195.0
 }

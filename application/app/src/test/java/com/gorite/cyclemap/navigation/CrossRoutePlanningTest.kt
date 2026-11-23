@@ -1,10 +1,38 @@
 package com.gorite.cyclemap.navigation
 
+import com.gorite.cyclemap.data.PrefectureData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CrossRoutePlanningTest {
+    private val nationwideCenters = PrefectureData.ALL.associate { pref ->
+        val bounds = pref.bounds
+        pref.name to CrossGeoPoint(
+            (bounds.latNorth + bounds.latSouth) / 2.0,
+            (bounds.lonEast + bounds.lonWest) / 2.0,
+        )
+    }
+
+    @Test(timeout = 100)
+    fun returnsNoChainFromHiroshimaToHokkaido() {
+        assertTrue(planPrefectureChains("広島県", "北海道", nationwideCenters.keys, nationwideCenters).isEmpty())
+    }
+
+    @Test(timeout = 100)
+    fun returnsNoChainFromHiroshimaToOkinawa() {
+        assertTrue(planPrefectureChains("広島県", "沖縄県", nationwideCenters.keys, nationwideCenters).isEmpty())
+    }
+
+    @Test(timeout = 1_000)
+    fun plansOneToThreeChainsFromKagoshimaToAomori() {
+        assertEquals(47, nationwideCenters.size)
+        val chains = planPrefectureChains("鹿児島県", "青森県", nationwideCenters.keys, nationwideCenters)
+        assertTrue(chains.size in 1..3)
+        assertTrue(chains.all { it.first() == "鹿児島県" && it.last() == "青森県" })
+        assertTrue(chains.all { it.size == chains.first().size })
+    }
+
     @Test fun plansShortestAvailableChainsAndOrdersByCenterDistance() {
         val centers = mapOf(
             "山口県" to CrossGeoPoint(34.0, 131.0), "広島県" to CrossGeoPoint(34.4, 132.5),
