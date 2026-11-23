@@ -283,13 +283,18 @@ internal fun MapScreen(
         )
     }
 
+    val waitForStartPoint: (GeoPoint) -> Unit = { point ->
+        waitingDestination.value = point
+        if (shouldShowWaitingDestination(hasDisplayedRoute = state.navigationRouteState.value.isNotEmpty())) {
+            state.destinationState.value = point
+        }
+        state.warningMessageState.value = WAITING_FOR_LOCATION
+    }
     val startRouteToDestination: (GeoPoint) -> Unit = { point ->
         val loc = state.currentLocationState.value
         val start = state.startMarkerState.value?.position ?: loc?.let { GeoPoint(it.latitude, it.longitude) }
         if (start == null) {
-            waitingDestination.value = point
-            state.destinationState.value = point
-            state.warningMessageState.value = WAITING_FOR_LOCATION
+            waitForStartPoint(point)
         } else {
             waitingDestination.value = null
             runRouteCalculation(start, point, false, null, null)
@@ -1102,11 +1107,9 @@ internal fun MapScreen(
         state = state,
         routePreviewSheetHeightPx = routePreviewSheetHeightPx.intValue,
         onRoutePreviewSheetHeightChanged = { routePreviewSheetHeightPx.intValue = it },
-        // 出発地が決まらない (現在地が無く、出発地の印も無い) とき、目的地を覚えて待つ。位置が取れるか出発地を長押しで選ぶと、続きを計算する
         onWaitingForStartPoint = { dest ->
-            waitingDestination.value = dest
-            state.destinationState.value = dest
-            state.warningMessageState.value = WAITING_FOR_LOCATION
+            // 再計算は表示中の目的地を渡すため、すでに待機中の目的地があれば優先する。
+            waitForStartPoint(waitingDestination.value ?: dest)
         },
         rideSnapshot = arrivalRide.value,
         modifier = modifier,
