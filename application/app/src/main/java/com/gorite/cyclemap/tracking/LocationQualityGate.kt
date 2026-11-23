@@ -33,7 +33,8 @@ internal enum class GateVerdict {
  *  - 走行中にも、1 歩で数十 m の飛びがあり、速度が 35〜48 km/h に見えた (実際の最大は 21.7 km/h)。
  * そこで、位置そのものではなく、ドップラーの速度を手がかりにして、停止中の位置を動かさず、食い違った飛びを捨てる。
  *
- * 状態は「最後に採用した位置」だけ。ドップラー速度が無い測位では、速度の上限と精度の判定だけを行う。
+ * 最後に採用した位置と、再採用の候補となる直近の飛びを保持する。
+ * ドップラー速度が無い測位では、速度の上限と精度の判定だけを行う。
  */
 internal class LocationQualityGate(
     private val maxAcceptableAccuracyMeters: Float = 100f,
@@ -44,23 +45,28 @@ internal class LocationQualityGate(
     private var anchorLat = Double.NaN
     private var anchorLon = Double.NaN
     private var anchorNanos = 0L
+    private var lastRejectedJump: GateFix? = null
     private var consecutiveRejects = 0
 
     fun reset() {
         anchorLat = Double.NaN
         anchorLon = Double.NaN
         anchorNanos = 0L
-        consecutiveRejects = 0
+        clearRejectedJumps()
     }
 
     fun evaluate(fix: GateFix): GateVerdict {
         if (fix.accuracyMeters != null && fix.accuracyMeters > maxAcceptableAccuracyMeters) {
+            clearRejectedJumps()
             return GateVerdict.REJECT_INACCURATE
         }
         if (anchorLat.isNaN()) return accept(fix)
 
         val dtSeconds = (fix.elapsedNanos - anchorNanos) / 1_000_000_000.0
-        if (dtSeconds <= 0.0) return GateVerdict.REJECT_JUMP
+        if (dtSeconds <= 0.0) {
+            clearRejectedJumps()
+            return GateVerdict.REJECT_JUMP
+        }
         val distanceMeters = haversineMeters(anchorLat, anchorLon, fix.latitude, fix.longitude)
         val impliedMps = distanceMeters / dtSeconds
 
@@ -69,19 +75,23 @@ internal class LocationQualityGate(
             // 本当に動いているのにドップラーが 0 を返し続ける場合に固まらないよう、遠く離れたら位置を信じる。
             if (distanceMeters > STATIONARY_REANCHOR_METERS) return accept(fix)
             anchorNanos = fix.elapsedNanos
-            consecutiveRejects = 0
+            clearRejectedJumps()
             return GateVerdict.STATIONARY
         }
 
-        val isJump = if (doppler != null) {
-            impliedMps > doppler * 2.0 + DOPPLER_MISMATCH_MARGIN_MPS || (impliedMps > maxCyclingSpeedMps && dtSeconds <= MAX_JUMP_WINDOW_SECONDS)
-        } else {
-            impliedMps > maxCyclingSpeedMps && dtSeconds <= MAX_JUMP_WINDOW_SECONDS
-        }
+        val isJump = dtSeconds <= MAX_JUMP_WINDOW_SECONDS &&
+            (impliedMps > maxCyclingSpeedMps ||
+                (doppler != null && impliedMps > doppler * 2.0 + DOPPLER_MISMATCH_MARGIN_MPS))
         if (!isJump) return accept(fix)
 
-        consecutiveRejects++
-        // 飛んだ先が、本当の位置だった場合 (トンネルの出口、長い途切れの後) に、いつまでも捨て続けない。
+        val consistent = lastRejectedJump?.let { previous ->
+            val seconds = (fix.elapsedNanos - previous.elapsedNanos) / 1_000_000_000.0
+            val distance = haversineMeters(previous.latitude, previous.longitude, fix.latitude, fix.longitude)
+            seconds > 0.0 && distance <= maxCyclingSpeedMps * seconds
+        } ?: false
+        consecutiveRejects = if (consistent) consecutiveRejects + 1 else 1
+        lastRejectedJump = fix
+        // 飛んだ先の位置が続けて整合するときは、新しい位置として採用する。
         return if (consecutiveRejects >= reanchorAfterRejects) accept(fix) else GateVerdict.REJECT_JUMP
     }
 
@@ -89,8 +99,13 @@ internal class LocationQualityGate(
         anchorLat = fix.latitude
         anchorLon = fix.longitude
         anchorNanos = fix.elapsedNanos
-        consecutiveRejects = 0
+        clearRejectedJumps()
         return GateVerdict.ACCEPT
+    }
+
+    private fun clearRejectedJumps() {
+        lastRejectedJump = null
+        consecutiveRejects = 0
     }
 
     companion object {
@@ -106,10 +121,10 @@ internal class LocationQualityGate(
         /** 速度の精度がこれより悪いドップラーは信用しない。 */
         const val MAX_TRUSTED_SPEED_ACCURACY_MPS = 2.0f
 
-        /** 上限超えの判定は、この秒数以内の間隔にだけ使う (長い途切れの後の再取得は、飛びではない)。 */
+        /** 上限超えとドップラーとの食い違いは、この秒数以内の間隔にだけ判定する。 */
         const val MAX_JUMP_WINDOW_SECONDS = 10.0
 
-        /** 連続でこの回数、飛びと判定された測位は、新しい位置として採用し直す。 */
+        /** 飛びと判定された測位がこの回数だけ連続して整合したら、新しい位置として採用し直す。 */
         const val REANCHOR_AFTER_REJECTS = 3
 
         /** 停止の判定中でも、採用済みの位置からこの距離を超えたら、動いていると見て位置を採用し直す。 */

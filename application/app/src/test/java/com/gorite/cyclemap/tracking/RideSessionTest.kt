@@ -120,6 +120,63 @@ class RideSessionTest {
     }
 
     @Test
+    fun runningTimeCapsLongSignalGapBeforeAndAfterFirstFix() {
+        val session = RideSession()
+        point(session, 9_000)
+        point(session, 10_000, 5.0)
+        val beforeGap = session.snapshot(10_000)
+
+        val duringGap = session.snapshot(610_000)
+        assertEquals(RideState.RUNNING, duringGap.state)
+        assertEquals(30.0, duringGap.movingTimeS - beforeGap.movingTimeS, 0.0)
+
+        point(session, 610_000, 3_005.0)
+        val afterGap = session.snapshot(610_000)
+        assertEquals(duringGap.movingTimeS, afterGap.movingTimeS, 0.0)
+        assertEquals(601.0, afterGap.elapsedS, 0.0)
+        assertEquals(beforeGap.distanceM, afterGap.distanceM, 0.0)
+
+        point(session, 611_000, 3_010.0)
+        assertEquals(afterGap.movingTimeS + 1.0, session.snapshot(611_000).movingTimeS, 0.0)
+    }
+
+    @Test
+    fun manualResumeWithoutTimestampWaitsForNextFixEvenAfterStateRoundTrip() {
+        val session = RideSession()
+        point(session, 0)
+        session.pause(10_000)
+        session.start()
+        val restored = requireNotNull(RideSession.fromState(session.toState()))
+
+        for (resumed in listOf(session, restored)) {
+            val awaitingFix = resumed.snapshot(610_000)
+            assertEquals(RideState.RUNNING, awaitingFix.state)
+            assertEquals(10.0, awaitingFix.movingTimeS, 0.0)
+            point(resumed, 610_000)
+            assertEquals(10.0, resumed.snapshot(610_000).movingTimeS, 0.0)
+            assertEquals(610.0, resumed.snapshot(610_000).elapsedS, 0.0)
+
+            point(resumed, 611_000, 5.0)
+            assertEquals(11.0, resumed.snapshot(611_000).movingTimeS, 0.0)
+        }
+    }
+
+    @Test
+    fun fixOlderThanTheRideCannotSetTheClockAfterResume() {
+        val session = RideSession()
+        point(session, 1_000)
+        session.pause(10_000)
+        session.start()
+        val awaitingFix = session.toState()
+
+        point(session, 999)
+
+        assertEquals(awaitingFix, session.toState())
+        point(session, 610_000)
+        assertEquals(9.0, session.snapshot(610_000).movingTimeS, 0.0)
+    }
+
+    @Test
     fun poorAccuracyAndSignalGapsDoNotAddDistance() {
         val session = RideSession()
         point(session, 0)
@@ -169,6 +226,32 @@ class RideSessionTest {
         repeat(5) { point(session, 31_000 + it * 1000L, altitude = 110.0) }
         // 3m未満の未確定分は次の登りまで保留される。
         assertEquals(10.0, session.snapshot(35_000).elevationGainM, 3.0)
+    }
+
+    @Test
+    fun hourOfFlatGpsAltitudeNoiseAddsLessThanTenMeters() {
+        val session = RideSession()
+        repeat(3_600) {
+            val noise = if (it % 2 == 0) -1.5 else 1.5
+            point(session, it * 1000L, it * 5.0, altitude = 100.0 + noise)
+        }
+        assertTrue(session.snapshot(3_599_000).elevationGainM < 10.0)
+    }
+
+    @Test
+    fun shortDescentDoesNotLowerTheElevationBaseline() {
+        val session = RideSession()
+        point(session, 0, altitude = 100.0)
+        repeat(5) { point(session, (it + 1) * 1000L, altitude = 98.0) }
+        repeat(5) { point(session, (it + 6) * 1000L, altitude = 102.0) }
+        assertEquals(0.0, session.snapshot(10_000).elevationGainM, 0.0)
+    }
+
+    @Test
+    fun steadyHundredMeterClimbAddsNearlyAllElevation() {
+        val session = RideSession()
+        repeat(101) { point(session, it * 1000L, it * 5.0, altitude = it.toDouble()) }
+        assertTrue(session.snapshot(100_000).elevationGainM in 95.0..105.0)
     }
 
     @Test

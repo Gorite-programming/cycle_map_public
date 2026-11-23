@@ -5,6 +5,7 @@ import kotlin.math.pow
 
 /** これを超える見かけの速さ (m/s、約 180 km/h) は位置の飛びとして扱う。 */
 private const val MAX_PLAUSIBLE_MPS = 50.0
+private const val MAX_FIX_INTERVAL_MS = 30_000L
 
 /** Android に依存しない走行統計。時刻は位置更新または表示更新から受け取る。 */
 class RideSession {
@@ -15,15 +16,13 @@ class RideSession {
     private var movingTimeS = 0.0
     private var distanceM = 0.0
     private var maxKmh = 0.0
-    private var elevationGainM = 0.0
+    private var elevation = ElevationGainAccumulator()
     private var lowSinceMs: Long? = null
     private var highSinceMs: Long? = null
     private var previous: Fix? = null
     private var distanceOrigin: Fix? = null
     private val speeds = ArrayDeque<Double>()
-    private val altitudes = ArrayDeque<Double>()
     private var referencePressure: Double? = null
-    private var elevationBase: Double? = null
     private var pressureSource = false
 
     private data class Fix(val timeMs: Long, val lat: Double, val lon: Double, val accuracyM: Float)
@@ -42,6 +41,7 @@ class RideSession {
             !lon.isFinite() || lon !in -180.0..180.0 ||
             !accuracyM.isFinite() || accuracyM < 0f
         ) return
+        if (clockMs == null && timeMs < (startedMs ?: 0L)) return
         val old = previous
         // 遅延・重複した位置で距離や平滑化の履歴を巻き戻さない。
         if (old != null && timeMs <= old.timeMs) return
@@ -51,10 +51,9 @@ class RideSession {
         val stepM = old?.let { haversineMeters(it.lat, it.lon, lat, lon) }
         // 位置の飛び (GPS の誤差・別の測位源への切り替え): 時間の割に離れすぎた点は、距離にも速度にも使わない。
         // 本当に移動していたなら、30 秒以上たてば次の点が起点になる (距離は足さない)。
-        if (old != null && dtMs != null && dtMs in 1..30_000 && stepM != null && stepM > MAX_PLAUSIBLE_MPS * dtMs / 1000.0 + 30.0) {
-            advance(timeMs)
-            return
-        }
+        if (dtMs != null && dtMs in 1..MAX_FIX_INTERVAL_MS && stepM != null &&
+            stepM > MAX_PLAUSIBLE_MPS * dtMs / 1000.0 + 30.0
+        ) return
         val reportedSpeed = speedMps?.takeIf { it.isFinite() && it >= 0f }
         val origin = distanceOrigin ?: old
         val originDtMs = origin?.let { timeMs - it.timeMs }
@@ -62,11 +61,10 @@ class RideSession {
         // With no sensor speed, infer motion from the retained anchor too. Otherwise
         // frequent, genuine updates under 3 m would all be mistaken for stops.
         val rawSpeed = reportedSpeed?.toDouble()
-            ?: if (originDtMs != null && originDtMs in 1..30_000 && displacementM != null) {
+            ?: if (originDtMs != null && originDtMs in 1..MAX_FIX_INTERVAL_MS && displacementM != null) {
                 displacementM / (originDtMs / 1000.0)
             } else 0.0
-        advance(timeMs)
-        if (dtMs != null && dtMs > 30_000) {
+        if (dtMs != null && dtMs > MAX_FIX_INTERVAL_MS) {
             speeds.clear()
             lowSinceMs = null
             highSinceMs = null
@@ -79,6 +77,7 @@ class RideSession {
             highSinceMs = null
             return
         }
+        advance(timeMs)
         // Between confirmed displacements retain the last inferred speed while the
         // anchor still implies movement; do not dilute it with artificial zeroes.
         val motionSpeed = RideMotionPolicy.speedMps(rawSpeed, displacementM, reportedSpeed != null, speeds.lastOrNull() ?: 0.0)
@@ -89,7 +88,7 @@ class RideSession {
         updateAutoPause(timeMs, speed * 3.6)
         val fix = Fix(timeMs, lat, lon, accuracyM)
         if (!wasPaused && state == RideState.RUNNING && motionSpeed >= RideMotionPolicy.MIN_SPEED_MPS &&
-            origin != null && dtMs != null && dtMs in 1..30_000
+            origin != null && dtMs != null && dtMs in 1..MAX_FIX_INTERVAL_MS
         ) {
             val distance = haversineMeters(origin.lat, origin.lon, lat, lon)
             if (RideMotionPolicy.acceptsDistance(distance, motionSpeed)) {
@@ -101,13 +100,14 @@ class RideSession {
             }
         } else {
             distanceOrigin = if (reportedSpeed == null && origin != null &&
-                originDtMs != null && originDtMs in 1..30_000 &&
+                originDtMs != null && originDtMs in 1..MAX_FIX_INTERVAL_MS &&
                 displacementM != null && displacementM < RideMotionPolicy.MIN_DISTANCE_M
             ) origin else fix
         }
         if (state == RideState.RUNNING && motionSpeed >= RideMotionPolicy.MIN_SPEED_MPS) {
             maxKmh = maxOf(maxKmh, speed * 3.6)
         }
+        if (wasPaused || state != RideState.RUNNING) elevation.resetBaseline()
         updateElevation(altitudeM, pressureHpa)
         previous = fix
     }
@@ -137,34 +137,23 @@ class RideSession {
         val height = if (usePressure) {
             if (referencePressure == null) referencePressure = pressureHpa
             44330.0 * (1.0 - (pressureHpa!! / referencePressure!!).pow(0.1903))
-        } else {
-            if (altitudeM == null || !altitudeM.isFinite()) return
-            // 平均の加算がオーバーフローしないよう、先に点数で割る。
-            altitudes.addLast(altitudeM)
-            if (altitudes.size > 5) altitudes.removeFirst()
-            altitudes.sumOf { it / altitudes.size }
-        }
+        } else altitudeM ?: return
         if (!height.isFinite()) return
         // 気圧高度と絶対高度を切り替えた差は登りに数えない。
-        if (elevationBase == null || pressureSource != usePressure || state != RideState.RUNNING) {
-            elevationBase = height
-        } else {
-            val delta = height - elevationBase!!
-            if (delta >= 3.0) {
-                val total = elevationGainM + delta
-                if (total.isFinite()) elevationGainM = total
-                elevationBase = height
-            } else if (delta < 0.0) elevationBase = height
-        }
+        if (pressureSource != usePressure) elevation.resetBaseline()
+        // GPS の平滑化窓は GPX と共通。気圧高度は従来どおり直接使う。
+        elevation.add(height, smooth = !usePressure)
         pressureSource = usePressure
     }
 
-    // 引数のない手動操作は、最後に呼び出し側から受け取った時刻を使う。
+    private fun movingIntervalS(timeMs: Long): Double =
+        clockMs?.let { (timeMs - it).coerceIn(0L, MAX_FIX_INTERVAL_MS) / 1000.0 } ?: 0.0
+
     private fun advance(timeMs: Long) {
-        if (timeMs < 0 || (clockMs != null && timeMs < clockMs!!)) return
+        if (timeMs < (clockMs ?: startedMs ?: 0L)) return
         if (state == RideState.RUNNING) {
             if (startedMs == null) startedMs = timeMs
-            clockMs?.let { movingTimeS += (timeMs - it) / 1000.0 }
+            movingTimeS += movingIntervalS(timeMs)
         }
         clockMs = timeMs
     }
@@ -173,7 +162,7 @@ class RideSession {
     fun snapshot(nowMs: Long): RideSnapshot {
         val displayMs = maxOf(nowMs, clockMs ?: nowMs)
         val displayedMovingTimeS = movingTimeS + if (state == RideState.RUNNING) {
-            clockMs?.let { (displayMs - it) / 1000.0 } ?: 0.0
+            movingIntervalS(displayMs)
         } else 0.0
         return RideSnapshot(
             state = state,
@@ -183,14 +172,16 @@ class RideSession {
             elapsedS = startedMs?.let { (displayMs - it).coerceAtLeast(0) / 1000.0 } ?: 0.0,
             averageKmh = if (displayedMovingTimeS > 0.0) distanceM / displayedMovingTimeS * 3.6 else 0.0,
             maxKmh = maxKmh,
-            elevationGainM = elevationGainM,
+            elevationGainM = elevation.gainMeters,
         )
     }
 
     @Synchronized
-    fun start(nowMs: Long? = clockMs) {
+    fun start(nowMs: Long? = null) {
         nowMs?.let { advance(it) }
         if (state == RideState.RUNNING) return
+        // 時刻が渡されなければ、再開後の最初の測位を新しい起点にする。
+        if (nowMs == null) clockMs = null
         state = RideState.RUNNING
         manualPause = false
         if (startedMs == null) startedMs = clockMs
@@ -199,6 +190,7 @@ class RideSession {
         previous = null
         distanceOrigin = null
         speeds.clear()
+        elevation.resetBaseline()
     }
 
     @Synchronized
@@ -211,6 +203,7 @@ class RideSession {
         previous = null
         distanceOrigin = null
         speeds.clear()
+        elevation.resetBaseline()
     }
 
     @Synchronized
@@ -222,15 +215,13 @@ class RideSession {
         movingTimeS = 0.0
         distanceM = 0.0
         maxKmh = 0.0
-        elevationGainM = 0.0
+        elevation = ElevationGainAccumulator()
         lowSinceMs = null
         highSinceMs = null
         previous = null
         distanceOrigin = null
         speeds.clear()
-        altitudes.clear()
         referencePressure = null
-        elevationBase = null
         pressureSource = false
     }
 
@@ -244,15 +235,15 @@ class RideSession {
         "movingTimeS" to movingTimeS.toString(),
         "distanceM" to distanceM.toString(),
         "maxKmh" to maxKmh.toString(),
-        "elevationGainM" to elevationGainM.toString(),
+        "elevationGainM" to elevation.gainMeters.toString(),
         "lowSinceMs" to (lowSinceMs?.toString() ?: ""),
         "highSinceMs" to (highSinceMs?.toString() ?: ""),
         "previous" to (previous?.let { "${it.timeMs},${it.lat},${it.lon},${it.accuracyM}" } ?: ""),
         "distanceOrigin" to (distanceOrigin?.let { "${it.timeMs},${it.lat},${it.lon},${it.accuracyM}" } ?: ""),
         "speeds" to speeds.joinToString(","),
-        "altitudes" to altitudes.joinToString(","),
+        "altitudes" to elevation.samples.joinToString(","),
         "referencePressure" to (referencePressure?.toString() ?: ""),
-        "elevationBase" to (elevationBase?.toString() ?: ""),
+        "elevationBase" to (elevation.baseline?.toString() ?: ""),
         "pressureSource" to pressureSource.toString(),
     )
 
@@ -278,7 +269,6 @@ class RideSession {
                 movingTimeS = nonnegative("movingTimeS")
                 distanceM = nonnegative("distanceM")
                 maxKmh = nonnegative("maxKmh")
-                elevationGainM = nonnegative("elevationGainM")
                 lowSinceMs = time("lowSinceMs")
                 highSinceMs = time("highSinceMs")
                 fun parseFix(text: String): Fix? {
@@ -294,14 +284,18 @@ class RideSession {
                 previous = parseFix(value("previous"))
                 distanceOrigin = parseFix(map["distanceOrigin"] ?: value("previous"))
                 speeds.addAll(series("speeds", 3).also { values -> require(values.all { it in 0.0..(120.0 / 3.6) }) })
-                altitudes.addAll(series("altitudes", 5))
+                elevation = ElevationGainAccumulator(
+                    gainMeters = nonnegative("elevationGainM"),
+                    baseline = optionalNumber("elevationBase"),
+                    samples = series("altitudes", ElevationGainAccumulator.WINDOW_SIZE),
+                )
                 referencePressure = optionalNumber("referencePressure")
-                elevationBase = optionalNumber("elevationBase")
                 pressureSource = value("pressureSource").toBooleanStrict()
                 require(referencePressure == null || referencePressure!! > 0.0)
                 require(!pressureSource || referencePressure != null)
                 require(!manualPause || state == RideState.PAUSED)
-                require(startedMs == null || (clockMs != null && startedMs!! <= clockMs!!))
+                // A resumed ride can have a start time before its next fix sets the clock.
+                require(startedMs == null || (clockMs?.let { startedMs!! <= it } ?: (state != RideState.IDLE)))
                 require(listOfNotNull(lowSinceMs, highSinceMs).all { clockMs != null && it <= clockMs!! })
             }
         }.getOrNull()

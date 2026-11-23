@@ -15,6 +15,7 @@ import android.os.SystemClock
 import android.os.Binder
 import android.os.IBinder
 import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationCallback
@@ -23,6 +24,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.gorite.cyclemap.R
+import com.gorite.cyclemap.utils.hasLocationPermission
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
@@ -106,20 +108,20 @@ class LocationTrackingService : Service() {
         when (intent?.action) {
             ACTION_STOP_TRACKING -> stopTracking()
             ACTION_START_RECORDING -> {
-                ensureTracking()
+                if (!ensureTracking()) return START_NOT_STICKY
                 startRecording()
             }
             ACTION_STOP_RECORDING -> stopRecording()
             ACTION_PAUSE_RECORDING -> { if (!saving) recorder?.pause() }
             ACTION_RESUME_RECORDING -> {
+                if (!ensureTracking()) return START_NOT_STICKY
                 if (saving) return START_STICKY
-                ensureTracking()
                 recoveryPending = false
                 recorder?.resume()
                 recording = recorder != null
                 if (recording) sendBroadcast(Intent(ACTION_RECORDING_STARTED).setPackage(packageName))
             }
-            else -> ensureTracking()
+            else -> if (!ensureTracking()) return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -147,33 +149,30 @@ class LocationTrackingService : Service() {
         statusListeners.forEach { it(status) }
     }
 
-    private fun ensureTracking() {
-        saveCoordinator.resumeTracking()
-        if (tracking) {
-            startForeground(NOTIFICATION_ID, trackingNotification())
-            return
+    private fun ensureTracking(): Boolean {
+        if (!promoteToForeground()) {
+            stopSelf()
+            return false
         }
-        startTracking()
+        if (!tracking && !startTracking()) return false
+        saveCoordinator.resumeTracking()
+        return true
     }
 
-    private fun startTracking() {
-        val hasFine = ContextCompat.checkSelfPermission(
-            this, android.Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val hasCoarse = ContextCompat.checkSelfPermission(
-            this, android.Manifest.permission.ACCESS_COARSE_LOCATION,
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!hasFine && !hasCoarse) {
-            android.util.Log.e("CycleMapTracking", "Location permission not granted, aborting startTracking")
-            stopSelf()
-            return
+    private fun promoteToForeground(): Boolean {
+        if (!hasLocationPermission()) return false
+        return try {
+            startForeground(NOTIFICATION_ID, trackingNotification())
+            true
+        } catch (se: SecurityException) {
+            android.util.Log.e("CycleMapTracking", "Cannot start location foreground service", se)
+            false
         }
+    }
 
-        tracking = true
-        gpsHealthMonitor.reset()
-        healthHandler.removeCallbacks(healthCheckRunnable)
-        healthHandler.postDelayed(healthCheckRunnable, 1_000L)
-        startForeground(NOTIFICATION_ID, trackingNotification())
+    // ensureTracking checks location permission when promoting the service.
+    @SuppressLint("MissingPermission")
+    private fun startTracking(): Boolean {
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
             .setMinUpdateIntervalMillis(250L)
             .setMaxUpdateDelayMillis(1_000L)
@@ -186,7 +185,13 @@ class LocationTrackingService : Service() {
         } catch (se: SecurityException) {
             android.util.Log.e("CycleMapTracking", "SecurityException requesting location updates", se)
             stopSelf()
+            return false
         }
+        tracking = true
+        gpsHealthMonitor.reset()
+        healthHandler.removeCallbacks(healthCheckRunnable)
+        healthHandler.postDelayed(healthCheckRunnable, 1_000L)
+        return true
     }
 
     private fun restorePendingRecording() {
@@ -216,7 +221,7 @@ class LocationTrackingService : Service() {
         )
         recording = true
         openDiagLog()
-        startForeground(NOTIFICATION_ID, trackingNotification())
+        promoteToForeground()
         sendBroadcast(Intent(ACTION_RECORDING_STARTED).setPackage(packageName))
     }
 
@@ -238,7 +243,7 @@ class LocationTrackingService : Service() {
             recorder = null
             restorePendingRecording()
             sendBroadcast(Intent(ACTION_RECORDING_EMPTY).setPackage(packageName))
-            startForeground(NOTIFICATION_ID, trackingNotification())
+            if (tracking) promoteToForeground()
             return
         }
 
@@ -272,7 +277,7 @@ class LocationTrackingService : Service() {
             },
         )
 
-        startForeground(NOTIFICATION_ID, trackingNotification())
+        if (tracking) promoteToForeground()
     }
 
     private fun stopTracking() {
@@ -458,8 +463,7 @@ class LocationTrackingService : Service() {
             context.startService(Intent(context, LocationTrackingService::class.java).setAction(ACTION_PAUSE_RECORDING))
         }
         fun resumeRecording(context: Context) {
-            ContextCompat.startForegroundService(context,
-                Intent(context, LocationTrackingService::class.java).setAction(ACTION_RESUME_RECORDING))
+            requestRecording(context, ACTION_RESUME_RECORDING)
         }
         const val ACTION_START_TRACKING = "com.gorite.cyclemap.LOCATION_START"
         const val ACTION_STOP_TRACKING = "com.gorite.cyclemap.LOCATION_STOP"
@@ -488,9 +492,25 @@ class LocationTrackingService : Service() {
         }
 
         fun startRecording(context: Context) {
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, LocationTrackingService::class.java).setAction(ACTION_START_RECORDING),
+            requestRecording(context, ACTION_START_RECORDING)
+        }
+
+        private fun requestRecording(context: Context, action: String) {
+            dispatchRecordingStart(
+                hasLocationPermission = context.hasLocationPermission(),
+                onDenied = {
+                    Toast.makeText(
+                        context,
+                        "位置情報の権限が無いため記録を開始できません",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                startService = {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, LocationTrackingService::class.java).setAction(action),
+                    )
+                },
             )
         }
 
@@ -512,3 +532,11 @@ fun locationServiceConnection(onConnected: (LocationTrackingService) -> Unit): S
 
         override fun onServiceDisconnected(name: ComponentName?) = Unit
     }
+
+internal fun dispatchRecordingStart(
+    hasLocationPermission: Boolean,
+    onDenied: () -> Unit,
+    startService: () -> Unit,
+) {
+    if (hasLocationPermission) startService() else onDenied()
+}

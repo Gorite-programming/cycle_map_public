@@ -1,11 +1,13 @@
 package com.gorite.cyclemap.tracking
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
+import java.time.Instant
 
 class GpxParserTest {
 
@@ -146,13 +148,60 @@ class GpxParserTest {
         assertEquals(20L, summary.totalDurationSeconds)
     }
 
-    private fun point(lat: String, lon: String, time: String) = listOf(
-        Token(XmlPullParser.START_TAG, name = "trkpt", attributes = mapOf("lat" to lat, "lon" to lon)),
-        Token(XmlPullParser.START_TAG, name = "time"),
-        Token(XmlPullParser.TEXT, text = time),
-        Token(XmlPullParser.END_TAG, name = "time"),
-        Token(XmlPullParser.END_TAG, name = "trkpt"),
-    )
+    private fun point(lat: String, lon: String, time: String, elevation: Double? = null) = buildList {
+        add(Token(XmlPullParser.START_TAG, name = "trkpt", attributes = mapOf("lat" to lat, "lon" to lon)))
+        if (elevation != null) {
+            add(Token(XmlPullParser.START_TAG, name = "ele"))
+            add(Token(XmlPullParser.TEXT, text = elevation.toString()))
+            add(Token(XmlPullParser.END_TAG, name = "ele"))
+        }
+        add(Token(XmlPullParser.START_TAG, name = "time"))
+        add(Token(XmlPullParser.TEXT, text = time))
+        add(Token(XmlPullParser.END_TAG, name = "time"))
+        add(Token(XmlPullParser.END_TAG, name = "trkpt"))
+    }
+
+    private fun parseElevations(vararg segments: List<Double>): RideHistorySummary {
+        val start = Instant.parse("2026-02-09T08:00:00Z")
+        val tokens = buildList {
+            add(Token(XmlPullParser.START_DOCUMENT))
+            var seconds = 0L
+            for (segment in segments) {
+                add(Token(XmlPullParser.START_TAG, name = "trkseg"))
+                for (elevation in segment) {
+                    addAll(point("34.1", "131.4", start.plusSeconds(seconds).toString(), elevation))
+                    seconds++
+                }
+                add(Token(XmlPullParser.END_TAG, name = "trkseg"))
+            }
+            add(Token(XmlPullParser.END_DOCUMENT))
+        }
+        return GpxParser.parse(createFakeParser(tokens), File("elevation.gpx"))
+    }
+
+    @Test
+    fun parse_filtersFlatRideElevationNoise() {
+        val elevations = List(3_600) { if (it % 2 == 0) 48.5 else 51.5 }
+
+        val summary = parseElevations(elevations)
+
+        assertEquals(3_600, summary.points.size)
+        assertTrue("Elevation gain was ${summary.elevationGainMeters} m", summary.elevationGainMeters < 10.0)
+    }
+
+    @Test
+    fun parse_countsSteadyClimb() {
+        val summary = parseElevations(List(101) { it.toDouble() })
+
+        assertTrue("Elevation gain was ${summary.elevationGainMeters} m", summary.elevationGainMeters in 95.0..105.0)
+    }
+
+    @Test
+    fun parse_resetsElevationSmoothingAtSegmentBoundary() {
+        val summary = parseElevations(List(10) { 10.0 }, List(10) { 100.0 })
+
+        assertEquals(0.0, summary.elevationGainMeters, 0.0)
+    }
 
     @Test
     fun parse_doesNotCountGapBetweenPausedSegments() {

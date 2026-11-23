@@ -15,10 +15,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 data class GpxTrackPoint(
     val latitude: Double,
@@ -190,23 +186,21 @@ object GpxParser {
 
         // 統計計算 (距離、速度、獲得標高)
         var totalDist = 0.0
-        var gain = 0.0
+        val elevation = ElevationGainAccumulator()
         var maxSpd = 0.0
         val computedPoints = ArrayList<GpxTrackPoint>(rawPoints.size)
 
         for (i in rawPoints.indices) {
             val curr = rawPoints[i]
+            val sameSegment = i > 0 && segmentOfPoint[i] == segmentOfPoint[i - 1]
+            val height = curr.elevationMeters
+            if (!sameSegment || height == null || !height.isFinite()) elevation.resetBaseline()
+            if (height != null) elevation.add(height)
             var spd = 0.0
-            if (i > 0 && segmentOfPoint[i] == segmentOfPoint[i - 1]) {
+            if (sameSegment) {
                 val prev = rawPoints[i - 1]
                 val d = haversineMeters(prev.latitude, prev.longitude, curr.latitude, curr.longitude)
                 totalDist += d
-
-                // 標高差 (プラスのみ合算)
-                if (prev.elevationMeters != null && curr.elevationMeters != null) {
-                    val diff = curr.elevationMeters - prev.elevationMeters
-                    if (diff > 0.0) gain += diff
-                }
 
                 if (prev.timestampMillis > 0L && curr.timestampMillis > 0L) {
                     val dtSeconds = (curr.timestampMillis - prev.timestampMillis) / 1000.0
@@ -245,7 +239,7 @@ object GpxParser {
             totalDurationSeconds = durSec,
             averageSpeedKmh = avgSpd,
             maxSpeedKmh = maxSpd,
-            elevationGainMeters = gain,
+            elevationGainMeters = elevation.gainMeters,
             points = computedPoints,
         )
     }

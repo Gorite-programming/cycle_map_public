@@ -111,6 +111,24 @@ class LocationQualityGateTest {
     }
 
     @Test
+    fun longGapAllowsTheFirstFixEvenWhenDopplerShowsDeceleration() {
+        val gate = LocationQualityGate()
+        gate.evaluate(fix(0.0, speed = 10f))
+        assertEquals(GateVerdict.ACCEPT, gate.evaluate(fix(30.0, northMeters = 300.0, speed = 2f)))
+    }
+
+    @Test
+    fun scatteredJumpsAreRejectedUntilThreeConsecutiveFixesAgree() {
+        val gate = LocationQualityGate()
+        gate.evaluate(fix(0.0))
+        assertEquals(GateVerdict.REJECT_JUMP, gate.evaluate(fix(1.0, eastMeters = 150.0)))
+        assertEquals(GateVerdict.REJECT_JUMP, gate.evaluate(fix(2.0, eastMeters = -200.0)))
+        assertEquals(GateVerdict.REJECT_JUMP, gate.evaluate(fix(3.0, northMeters = 350.0)))
+        assertEquals(GateVerdict.REJECT_JUMP, gate.evaluate(fix(4.0, northMeters = 355.0)))
+        assertEquals(GateVerdict.ACCEPT, gate.evaluate(fix(5.0, northMeters = 360.0)))
+    }
+
+    @Test
     fun repeatedJumpsReanchorSoTheGateNeverLocksOut() {
         val gate = LocationQualityGate()
         gate.evaluate(fix(0.0))
