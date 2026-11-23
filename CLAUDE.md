@@ -103,6 +103,24 @@ Build release APKs only from a clean HEAD (a `-dirty` APK is for dev checks only
 - **Antigravity**: 別の目でのレビュー・調査、触るファイルが Codex と重ならない作業の並行実装。`scripts/delegate_agy.sh [--readonly] [--model <id>] <指示文>` (既定モデル `gemini-4-hydrogen-high`、`--readonly` は plan モード、ログは `work/agy/*.log`)。無人で動かすため `--dangerously-skip-permissions` で全コマンドを許可している (2026-11-15 Gorite 承認)。禁止事項は前置きの文でしか伝わらないので、終わったら `git status` と diff を必ず確かめる。
 - 二者に同時に書かせるときは、触ってよいファイルを指示文で分け、重ならないようにする。
 
+### Mac での分担と受け渡し (2026-11-23 から)
+
+Mac で作業するときは、次の四者で分担する。
+
+- **Claude**: 設計・タスク分割・指示文の作成・検証・commit/push。
+- **Antigravity** (Orchestrator、Gemini 4 Neon): バックエンドの実装。`:routing-core`、`:osm-importer`、Python のデータ生成 (`scripts/`、`sandbox/data-tool/`)。
+- **Codex** (GPT-6.2 Sol): フロントエンドの実装。`:app` の `ui/` と Compose の画面。
+- **OpenCode** (DeepSeek V4.1 Flash Free): テストの追加・実行と、失敗の切り分け。
+
+受け渡しの手順:
+
+- **通常は Gorite が渡す。** Claude は指示文 (背景 / 触ってよいファイル / 守ること / 受け入れ条件 / 実行するテスト) を `work/<宛先>/` に Markdown で書き、宛先とパスを伝えて止まる。Gorite がそのパスを各エージェントに渡す。
+- **CLI (`scripts/delegate_*.sh`) で Claude が直接起動するのは、Gorite が「自律的に進めて」と頼んだときだけ。**
+- `:app` の `navigation/`・`search/`・`tracking/` のように、バックエンドとフロントエンドの境目が曖昧なものは、指示文ごとに宛先を明記する。
+- 同時に複数のエージェントが動くときは、触ってよいファイルを指示文で分けて重ならないようにする。
+- 返ってきた diff は Claude が読み、テストも自分で実行してから commit する。OpenCode の「全件成功」という報告だけで合格にしない。
+- OpenCode の無料モデルは、送った内容が提供元の学習に使われ得る。非公開の情報 (端末・ネットワークの情報、本名入りのパスなど) を含むファイルは渡さない。
+
 ### Codex への委譲
 
 Claude が設計・分割・検証を行い、実装とテスト実行を Codex に委譲する。指示文 (背景 / 触ってよいファイル / 守ること / 受け入れ条件 / 実行するテスト) を `work/codex/` に書き、`scripts/delegate_codex.sh <指示文>` で渡す (`--readonly` で読み取り専用、ログは `work/codex/*.log`)。Codex は同じ作業ツリーで動くが commit / push / adb / 履歴を壊す git 操作は禁止。Claude は返ってきた diff を読み、テストを自分でも実行してから commit する。実機検証は Claude が必要と判断したときだけ行う。
