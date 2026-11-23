@@ -69,7 +69,7 @@ internal fun MapGraphEffects(
      * 県グラフ切替。routing要求時 (runRouteCalculation) と現在地更新時 (先読み) から呼ばれる。
      */
     val startGraphSwitch: (RoutingGraphSelection.Available) -> Unit = switch@{ selection ->
-        if (isSwitchingGraph || loadedGraphName == selection.fileName) return@switch
+        if (isSwitchingGraph || sameGraphFile(loadedGraphName, selection.fileName)) return@switch
         val dataDir = cycleMapDataDir(context)
         val resolvedFiles = RoutingGraphSelector.resolveGraphFiles(dataDir, selection.fileName)
         if (resolvedFiles == null) {
@@ -207,7 +207,7 @@ internal fun MapGraphEffects(
             is RoutingGraphSelection.Available -> {
                 // 端末にグラフの無い県では先読みしない (経路を求めたときに「ルートデータが入っていません」と案内する)
                 val onDevice = RoutingGraphSelector.resolveGraphFiles(cycleMapDataDir(context), sel.fileName) != null
-                if (onDevice && sel.fileName != loadedGraphName && (mappedGraph != null || loadedGraphName == null)) {
+                if (onDevice && !sameGraphFile(sel.fileName, loadedGraphName) && (mappedGraph != null || loadedGraphName == null)) {
                     if (BuildConfig.DEBUG) {
                         Log.i(
                             "CycleMapRoute",

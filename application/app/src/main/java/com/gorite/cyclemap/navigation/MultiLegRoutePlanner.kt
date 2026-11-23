@@ -31,6 +31,7 @@ internal sealed interface MultiLegCrossOutcome {
     data class MissingPrefectureData(val missingPrefectures: List<String>) : MultiLegCrossOutcome
     data class WaypointUnreachable(val waypointNumber: Int) : MultiLegCrossOutcome
     data object Cancelled : MultiLegCrossOutcome
+    data object Truncated : MultiLegCrossOutcome
     data object Failed : MultiLegCrossOutcome
 }
 
@@ -90,6 +91,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
     logRouteError: (String) -> Unit = { Log.e("CycleMapRoute", it) },
     attachCh: (LazyMappedRoadGraph, File) -> Unit = { g, f -> loadContractionHierarchy(g, f) },
     enablePrefetch: Boolean = true,
+    maxExpandedNodes: Int = ROUTE_MAX_EXPANDED_NODES,
 ): MultiLegCrossOutcome {
     if (stops.size < 2) return MultiLegCrossOutcome.NotCrossPrefecture
     val prefectures = stops.map { prefectureLookup(it.latitude, it.longitude) }
@@ -116,6 +118,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
     var bMs = 0L
     var endpointSnapMs = 0L
     var guidanceElevationMs = 0L
+    var crossLegTruncated = false
     val graphFingerprints = HashMap<File, GraphFingerprint>()
     val routePrefetch = if (enablePrefetch && preference == RoutePreference.RECOMMENDED) {
         RouteFilePrefetch(isCancelled)
@@ -135,7 +138,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
     }
 
     fun <T> withGraph(pref: String, block: (LazyMappedRoadGraph) -> T): T? {
-        if (namesByPref[pref] == jobGraphName && jobGraph != null) {
+        if (sameGraphFile(namesByPref[pref], jobGraphName) && jobGraph != null) {
             return graphLock.read { block(jobGraph) }
         }
         val graph = openOwned(pref) ?: return null
@@ -171,6 +174,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
 
     fun solveCrossLeg(fromPref: String, toPref: String, startIdx: Int, goalIdx: Int): SolvedCrossLeg? {
         val chains = planPrefectureChains(fromPref, toPref, available, centers)
+        var wasTruncated = false
         for (chain in chains) {
             if (isCancelled()) return null
             val sources = chain.mapIndexed { stage, pref ->
@@ -182,7 +186,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                 val portalsToNext: (() -> CrossPortals?)? = nextGraphFile?.let { nextFile ->
                     { loadCrossPortals(files.first, nextFile, dataDir) { f -> graphFingerprints.getOrPut(f) { GraphFingerprint.fromFile(f) } } }
                 }
-                if (fileName == jobGraphName && jobGraph != null) {
+                if (sameGraphFile(fileName, jobGraphName) && jobGraph != null) {
                     ChainGraph(
                         open = { jobGraph },
                         borrowed = true,
@@ -213,7 +217,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                 val prefetch = ArrayList<File>()
                 for (pref in chain) {
                     val fileName = namesByPref[pref] ?: continue
-                    if (fileName == jobGraphName) continue
+                    if (sameGraphFile(fileName, jobGraphName)) continue
                     val gf = RoutingGraphSelector.resolveGraphFiles(dataDir, fileName)?.first ?: continue
                     findContractionHierarchyFile(gf)?.let { prefetch += it }
                     prefetch += gf
@@ -256,12 +260,15 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                         portalMs += nowMs() - portalStarted
                         val cross = if (sources.any { it.borrowed }) {
                             graphLock.read {
-                                routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
+                                routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, maxExpandedNodes)
                             }
                         } else {
-                            routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES)
+                            routeAcrossGraphs(graphA, startIdx, graphB, goalIdx, portals, preference, isCancelled, maxExpandedNodes)
                         }
-                        if (!cross.isReachable) continue
+                        if (!cross.isReachable) {
+                            wasTruncated = wasTruncated || cross.wasTruncated
+                            continue
+                        }
                         aMs += cross.aSearchMs
                         bMs += cross.bSearchMs
                         return SolvedCrossLeg(
@@ -279,17 +286,20 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                     val cross = if (sources.any { it.borrowed }) {
                         graphLock.read {
                             routeAcrossChain(
-                                sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                                sources, startIdx, goalIdx, preference, isCancelled, maxExpandedNodes,
                                 stageTimingSink = logGraphInfo,
                             )
                         }
                     } else {
                         routeAcrossChain(
-                            sources, startIdx, goalIdx, preference, isCancelled, ROUTE_MAX_EXPANDED_NODES,
+                            sources, startIdx, goalIdx, preference, isCancelled, maxExpandedNodes,
                             stageTimingSink = logGraphInfo,
                         )
                     }
-                    if (!cross.isReachable) continue
+                    if (!cross.isReachable) {
+                        wasTruncated = wasTruncated || cross.wasTruncated
+                        continue
+                    }
                     return SolvedCrossLeg(
                         chain = chain,
                         parts = cross.parts,
@@ -308,6 +318,8 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                 continue
             }
         }
+        // 別のチェーンで同じ区間を解決できた場合は打ち切りとして扱わない。
+        crossLegTruncated = crossLegTruncated || wasTruncated
         return null
     }
 
@@ -322,7 +334,9 @@ internal fun calculateMultiLegCrossRouteWithEnv(
         if (startIdx < 0 || goalIdx < 0) return MultiLegCrossOutcome.Failed
         val solved = solveCrossLeg(fromPref, toPref, startIdx, goalIdx)
         if (isCancelled()) return MultiLegCrossOutcome.Cancelled
-        if (solved == null) return MultiLegCrossOutcome.Failed
+        if (solved == null) {
+            return if (crossLegTruncated) MultiLegCrossOutcome.Truncated else MultiLegCrossOutcome.Failed
+        }
         listOf(solved)
     } else {
         // 経由地ごとに候補ノード列を 1 度だけ解決し、前区間の終端ノードを次区間の始端ノードとしてそのまま使う。
@@ -418,8 +432,10 @@ internal fun calculateMultiLegCrossRouteWithEnv(
         }
         if (!found) {
             if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            if (crossLegTruncated) return MultiLegCrossOutcome.Truncated
             val directSolved = solveDirect(cands.first().first(), cands.last().first()) != null
             if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            if (crossLegTruncated) return MultiLegCrossOutcome.Truncated
             if (!directSolved) return MultiLegCrossOutcome.Failed
             if (maxReachedLeg < 0) return MultiLegCrossOutcome.WaypointUnreachable(1)
             val stalledWaypoint = maxReachedLeg + 1
@@ -436,6 +452,7 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                 }
             }
             if (isCancelled()) return MultiLegCrossOutcome.Cancelled
+            if (!canLeaveStalled && crossLegTruncated) return MultiLegCrossOutcome.Truncated
             return MultiLegCrossOutcome.WaypointUnreachable(
                 if (canLeaveStalled) stalledWaypoint + 1 else stalledWaypoint,
             )

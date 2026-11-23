@@ -16,6 +16,7 @@ internal sealed interface CrossPlanningOutcome {
     data class MissingPrefectureData(val missingPrefectures: List<String>) : CrossPlanningOutcome
     data class WaypointUnreachable(val waypointNumber: Int) : CrossPlanningOutcome
     data object Cancelled : CrossPlanningOutcome
+    data object Truncated : CrossPlanningOutcome
     data object Failed : CrossPlanningOutcome
 }
 
@@ -103,6 +104,7 @@ internal fun shouldAttemptSingleGraphFallback(
     if (usedCrossRoute) return false
     if (crossOutcome is CrossPlanningOutcome.WaypointUnreachable) return false
     if (crossOutcome is CrossPlanningOutcome.Cancelled) return false
+    if (crossOutcome is CrossPlanningOutcome.Truncated) return false
     if (isReroute && needsCrossPlanning) return false
     return true
 }
@@ -127,7 +129,7 @@ internal fun decideRouteApplication(
             warningMessage = waypointUnreachableMessage(waypointFailure),
         )
     }
-    if (wasTruncated) {
+    if (wasTruncated || crossOutcome is CrossPlanningOutcome.Truncated) {
         return RouteApplicationDecision(
             completeness = null,
             shouldReplaceRoute = false,

@@ -18,6 +18,7 @@ import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
 import com.gorite.cyclemap.routing.RoutePreference
 import com.gorite.cyclemap.routing.extractManeuvers
+import com.gorite.cyclemap.search.findMapViewModelOrNull
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -97,6 +98,15 @@ internal fun executeRouteCalculation(
     val requestStartedAt = SystemClock.elapsedRealtime()
     val executionGeneration = env.routeExecutionGeneration.incrementAndGet()
     env.routeJobRef.getAndSet(null)?.cancel()
+    val routeSession = if (isReroute) null else findMapViewModelOrNull(env.context)?.route
+    val hasExistingRoute = routeSession?.points?.value?.isNotEmpty() ?: (env.getRouteOverlay() != null)
+    val previousWaypoints = env.getWaypoints()
+    val liveWaypoints = routeSession?.waypoints?.value
+    val currentWaypoints = waypointsOverride ?: liveWaypoints ?: previousWaypoints
+    // 目的地・経由地の編集元が先に更新した場合、探索中は表示中の経路に対応する値に戻す。
+    if (hasExistingRoute && liveWaypoints != null && liveWaypoints == currentWaypoints && liveWaypoints != previousWaypoints) {
+        env.onWaypointsChanged(previousWaypoints)
+    }
     val startPrefecture = findPrefectureName(start.latitude, start.longitude)
     val goalPrefecture = findPrefectureName(goal.latitude, goal.longitude)
     val straightDistanceMeters = haversineMeters(
@@ -105,7 +115,7 @@ internal fun executeRouteCalculation(
         goal.latitude,
         goal.longitude,
     )
-    val noticeStops = listOf(start) + (waypointsOverride ?: env.getWaypoints()) + goal
+    val noticeStops = listOf(start) + currentWaypoints + goal
     val notice = if (isReroute) {
         CrossPrefectureNotice(showLongCalculationNotice = false, showUnsupportedWarning = false)
     } else {
@@ -156,33 +166,30 @@ internal fun executeRouteCalculation(
                         "loaded=${env.getLoadedGraphName()} goalPrefecture=${goalPref ?: "(unknown)"}",
                 )
             }
-            if (env.getLoadedGraphName() != selection.fileName || graph == null) {
-                env.pendingRouteRef.set(RouteRequest(start, goal, isReroute, waypointsOverride, preferenceOverride))
+            if (!sameGraphFile(env.getLoadedGraphName(), selection.fileName) || graph == null) {
+                val pendingWaypoints = if (isReroute) waypointsOverride else currentWaypoints
+                env.pendingRouteRef.set(RouteRequest(start, goal, isReroute, pendingWaypoints, preferenceOverride))
                 if (!env.isSwitchingGraph()) env.onSwitchGraph(selection)
                 env.onCalculatingRouteChanged(false)
                 env.onReroutingChanged(false)
                 env.onLongCalculationNoticeCleared()
-                env.onWarningMessageChanged("${selection.prefectureName}のグラフに切替中です")
-                Log.i(
-                    "CycleMapRoute",
-                    "ROUTE_FAILURE reason=graph-switching prefecture=${selection.prefectureName} " +
-                        "file=${selection.fileName}",
-                )
+                val noticeMessage = graphSwitchNotice(selection.prefectureName, env.isSwitchingGraph())
+                if (noticeMessage != null) {
+                    env.onWarningMessageChanged(noticeMessage)
+                    Log.i(
+                        "CycleMapRoute",
+                        "ROUTE_FAILURE reason=graph-switching prefecture=${selection.prefectureName} " +
+                            "file=${selection.fileName}",
+                    )
+                }
                 return
             }
         }
     }
 
-    if (!isReroute) {
+    fun applyManualStops() {
         env.onDestinationChanged(goal)
-    }
-    if (waypointsOverride != null) {
-        env.onWaypointsChanged(waypointsOverride)
-    }
-
-    val currentWaypoints = waypointsOverride ?: env.getWaypoints()
-    val currentPreference = preferenceOverride ?: env.getRoutePreference()
-    if (!isReroute) {
+        env.onWaypointsChanged(currentWaypoints)
         (env.context as? ComponentActivity)?.runOnUiThread {
             val view = env.getMapView() ?: return@runOnUiThread
             env.getDestMarker()?.let { view.overlays.remove(it) }
@@ -220,6 +227,12 @@ internal fun executeRouteCalculation(
             view.invalidate()
         }
     }
+    if (!isReroute && shouldApplyManualRouteStops(hasExistingRoute, routeReplaced = false)) {
+        applyManualStops()
+    } else if (isReroute && waypointsOverride != null) {
+        env.onWaypointsChanged(waypointsOverride)
+    }
+    val currentPreference = preferenceOverride ?: env.getRoutePreference()
 
     val routeJob = RouteCalculationJob()
     env.routeJobRef.set(routeJob)
@@ -301,13 +314,17 @@ internal fun executeRouteCalculation(
                         is MultiLegCrossOutcome.NotCrossPrefecture -> {
                             crossOutcome = CrossPlanningOutcome.NotNeeded
                         }
+                        is MultiLegCrossOutcome.Truncated -> {
+                            crossOutcome = CrossPlanningOutcome.Truncated
+                            isAnyTruncated = true
+                        }
                         is MultiLegCrossOutcome.Failed -> {
                             crossOutcome = CrossPlanningOutcome.Failed
                         }
                     }
                 } catch (t: Throwable) {
-                    if (routeJob.isCancelled()) return@launch
-                    crossOutcome = CrossPlanningOutcome.Failed
+                    crossOutcome = crossPlanningFailure(t, routeJob.isCancelled())
+                    if (crossOutcome is CrossPlanningOutcome.Cancelled) return@launch
                     Log.w("CycleMapRoute", "CROSS_PREFECTURE fallback reason=${t::class.java.simpleName}:${t.message}")
                 }
             }
@@ -420,7 +437,7 @@ internal fun executeRouteCalculation(
                     primaryDisplayed.complete(false)
                     return@runOnUiThread
                 }
-                if (env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph) {
+                if (!sameGraphFile(env.getLoadedGraphName(), jobGraphName) || env.getGraph() !== jobGraph) {
                     Log.e("CycleMapRoute", "ROUTE_FAILURE reason=graph-changed jobGraph=$jobGraphName now=${env.getLoadedGraphName()}")
                     env.onCalculatingRouteChanged(false)
                     env.onReroutingChanged(false)
@@ -483,6 +500,9 @@ internal fun executeRouteCalculation(
                 // 主経路を表示した時点では代替ルート未計算。古い候補をチップ表示しない。
                 if (!isReroute) env.onRouteOptionsCalculated?.invoke(emptyList())
 
+                if (!isReroute && shouldApplyManualRouteStops(hasExistingRoute, routeReplaced = true)) {
+                    applyManualStops()
+                }
                 env.onRouteCalculated(
                     polyline,
                     navigationRoute,
@@ -530,7 +550,7 @@ internal fun executeRouteCalculation(
                 val optionsStartedAt = SystemClock.elapsedRealtime()
                 val routeOptions = env.graphLock.read {
                     if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
-                        env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                        !sameGraphFile(env.getLoadedGraphName(), jobGraphName) || env.getGraph() !== jobGraph
                     ) emptyList()
                     else {
                         val planner = com.gorite.cyclemap.real.RealRoutePlanner(graphProvider = { jobGraph })
@@ -546,7 +566,7 @@ internal fun executeRouteCalculation(
                             travelMode = com.gorite.cyclemap.contract.TravelModeType.Bicycle,
                             isCancelled = {
                                 routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
-                                    env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                                    !sameGraphFile(env.getLoadedGraphName(), jobGraphName) || env.getGraph() !== jobGraph
                             },
                             maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
                         )
@@ -555,11 +575,11 @@ internal fun executeRouteCalculation(
                 Log.i("CycleMapRoute", "ROUTE_TIMING optionsMs=${SystemClock.elapsedRealtime() - optionsStartedAt} options=${routeOptions.size}")
                 if (routeOptions.isNotEmpty() && !routeJob.isCancelled() &&
                     env.routeExecutionGeneration.get() == executionGeneration &&
-                    env.getLoadedGraphName() == jobGraphName && env.getGraph() === jobGraph
+                    sameGraphFile(env.getLoadedGraphName(), jobGraphName) && env.getGraph() === jobGraph
                 ) {
                     (env.context as? ComponentActivity)?.runOnUiThread {
                         if (routeJob.isCancelled() || env.routeExecutionGeneration.get() != executionGeneration ||
-                            env.getLoadedGraphName() != jobGraphName || env.getGraph() !== jobGraph
+                            !sameGraphFile(env.getLoadedGraphName(), jobGraphName) || env.getGraph() !== jobGraph
                         ) return@runOnUiThread
                         env.onRouteOptionsCalculated?.invoke(routeOptions)
                     }
@@ -601,3 +621,15 @@ internal fun executeRouteCalculation(
     }
     routeJob.job?.start()
 }
+
+internal fun graphSwitchNotice(prefectureName: String, isSwitchingGraph: Boolean): String? =
+    if (isSwitchingGraph) "${prefectureName}のグラフに切替中です" else null
+
+internal fun crossPlanningFailure(failure: Throwable, isCancelled: Boolean): CrossPlanningOutcome {
+    if (isCancelled) return CrossPlanningOutcome.Cancelled
+    if (failure is OutOfMemoryError) throw failure
+    return CrossPlanningOutcome.Failed
+}
+
+internal fun shouldApplyManualRouteStops(hasExistingRoute: Boolean, routeReplaced: Boolean): Boolean =
+    if (hasExistingRoute) routeReplaced else !routeReplaced

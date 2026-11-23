@@ -189,6 +189,28 @@ class RouteResultPolicyTest {
     }
 
     @Test
+    fun truncatedCrossPlanningSkipsFallbackAndKeepsTheExistingRoute() {
+        for (isReroute in listOf(false, true)) {
+            assertFalse(
+                shouldAttemptSingleGraphFallback(
+                    isReroute = isReroute,
+                    usedCrossRoute = false,
+                    crossOutcome = CrossPlanningOutcome.Truncated,
+                    needsCrossPlanning = true,
+                ),
+            )
+            val decision = decideRouteApplication(
+                isReroute = isReroute,
+                completeness = RouteCompleteness.PARTIAL,
+                crossOutcome = CrossPlanningOutcome.Truncated,
+            )
+            assertFalse(decision.shouldReplaceRoute)
+            assertNull(decision.completeness)
+            assertEquals("探索範囲が大きすぎて打ち切りました。近めの目的地でお試しください", decision.warningMessage)
+        }
+    }
+
+    @Test
     fun waypointFailureAlwaysPreservesRouteAndNamesFailedWaypoint() {
         val crossWp = decideRouteApplication(
             isReroute = false,

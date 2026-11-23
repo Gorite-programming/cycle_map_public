@@ -27,4 +27,31 @@ class GraphSwitchRouteRetryTest {
         assertTrue(isCurrentRouteExecution(7L, 7L))
         assertFalse(isCurrentRouteExecution(6L, 7L))
     }
+
+    @Test
+    fun graphFileIdentityIgnoresCase() {
+        assertTrue(sameGraphFile("Yamaguchi.graph", "yamaguchi.graph"))
+        assertFalse(sameGraphFile("Hiroshima.graph", "yamaguchi.graph"))
+        assertFalse(sameGraphFile(null, "yamaguchi.graph"))
+    }
+
+    @Test
+    fun prefetchDoesNotSwitchWhenOnlyGraphFilenameCaseDiffers() {
+        val gate = GraphSwitchGate()
+
+        repeat(3) { fix ->
+            assertFalse(
+                gate.update("yamaguchi.graph", "Yamaguchi.graph", 10.0, fix * 1_000L, busy = false),
+            )
+        }
+    }
+
+    @Test
+    fun prefetchCountsFixesForSameGraphWhenCandidateFilenameCaseChanges() {
+        val gate = GraphSwitchGate()
+
+        assertFalse(gate.update("Yamaguchi.graph", "Hiroshima.graph", 10.0, 0L, busy = false))
+        assertFalse(gate.update("yamaguchi.graph", "Hiroshima.graph", 10.0, 1_000L, busy = false))
+        assertTrue(gate.update("Yamaguchi.graph", "Hiroshima.graph", 10.0, 2_000L, busy = false))
+    }
 }
