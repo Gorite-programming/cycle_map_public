@@ -4,6 +4,7 @@ import com.gorite.cyclemap.R
 import com.gorite.cyclemap.*
 
 import android.os.Bundle
+import android.view.MotionEvent
 import com.gorite.cyclemap.search.searchPoisInBounds
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +31,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.gorite.cyclemap.data.TileSourceSelection
 import com.gorite.cyclemap.data.TileSourceSelector
 import com.gorite.cyclemap.data.findPrefectureName
@@ -100,6 +102,9 @@ internal fun VectorMapView(
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    val followingLocation = followLocation && selectedPoiSpot == null
+    val navigationFollowing = isNavigationActive && followingLocation
+    val maxFps = mapMaxFps(isNavigationActive, followingLocation, isPowerSaveActive)
 
     // AndroidView factory 内の長期生存コールバックから最新値を参照するための状態ホルダー
     val currentLocUpdated by rememberUpdatedState(currentLocation)
@@ -116,7 +121,8 @@ internal fun VectorMapView(
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnUserPan by rememberUpdatedState(onUserPan)
     val currentBearingForMarker by rememberUpdatedState(bearing)
-    val currentFollowLocation by rememberUpdatedState(followLocation && selectedPoiSpot == null)
+    val currentFollowLocation by rememberUpdatedState(followingLocation)
+    val currentMinFrameIntervalNanos by rememberUpdatedState(mapFrameIntervalNanos(maxFps))
     val currentGpsStatus by rememberUpdatedState(gpsStatus)
     // 県のタイル切替 (rebuildStyle) など長期生存の LaunchedEffect からも最新のルートを描き直すための状態ホルダー。
     // 値をそのまま捕まえると、最初の合成のとき (ルートが空) の値でスタイルを張り直し、ルートが消えたままになる
@@ -144,6 +150,8 @@ internal fun VectorMapView(
     var lastCameraUpdateTime by remember { mutableLongStateOf(0L) }
     var lastPoiFetchCenter by remember { mutableStateOf<LatLng?>(null) }
     var lastPoiFetchZoom by remember { mutableDoubleStateOf(-1.0) }
+    var touchingMap by remember { mutableStateOf(false) }
+    var gestureCameraMoving by remember { mutableStateOf(false) }
 
     val mapView = remember {
         val options = MapLibreMapOptions.createFromAttributes(context)
@@ -160,7 +168,11 @@ internal fun VectorMapView(
             when (event) {
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_PAUSE -> {
+                    touchingMap = false
+                    gestureCameraMoving = false
+                    mapView.onPause()
+                }
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
                 Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
                 else -> {}
@@ -175,11 +187,27 @@ internal fun VectorMapView(
         }
     }
 
+    val renderingMaxFps = maxFps?.takeUnless { touchingMap || gestureCameraMoving }
+    LaunchedEffect(lifecycleOwner, mapLibreMap, renderingMaxFps) {
+        if (mapLibreMap == null) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // MapLibre 11.8.0 は 0 を無視する。十分大きくして描画の待ち時間をなくす。
+            mapView.setMaximumFps(renderingMaxFps ?: Int.MAX_VALUE)
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = {
                 mapView.apply {
+                    setOnTouchListener { _, event ->
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> touchingMap = true
+                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touchingMap = false
+                        }
+                        false
+                    }
                     getMapAsync { map ->
                         mapLibreMap = map
                         onMapReady(map)
@@ -218,13 +246,12 @@ internal fun VectorMapView(
                         fun triggerFetchPois(targetMap: MapLibreMap) {
                             if (!currentPoiVisible || currentNavigationActive) {
                                 fetchPoisJob?.cancel()
-                                targetMap.getStyle { style ->
-                                    style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
-                                        ?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                                }
+                                targetMap.style?.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
+                                    ?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                                 return
                             }
 
+                            val style = targetMap.style ?: return
                             val center = targetMap.cameraPosition.target ?: return
                             val zoom = targetMap.cameraPosition.zoom
                             val vb = targetMap.projection.visibleRegion.latLngBounds
@@ -242,10 +269,9 @@ internal fun VectorMapView(
                             // 倍率に応じてカテゴリを絞る (低ズームは駅・観光・病院などの主要施設だけ)
                             val categoryPrefixes = poiPrefixesForZoom(currentPoiSelected, zoom)
                             if (categoryPrefixes.isEmpty()) {
-                                targetMap.getStyle { style ->
-                                    style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
-                                        ?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                                }
+                                fetchPoisJob?.cancel()
+                                style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
+                                    ?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                                 return
                             }
 
@@ -263,15 +289,17 @@ internal fun VectorMapView(
                                 )
                                 val features = createPoiFeatures(spots, zoom, currentNightMode)
                                 withContext(Dispatchers.Main) {
-                                    targetMap.getStyle { style ->
-                                        style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
-                                            ?.setGeoJson(FeatureCollection.fromFeatures(features))
-                                        lastPoiFetchCenter = center
-                                        lastPoiFetchZoom = zoom
+                                    if (targetMap.style !== style || !currentPoiVisible || currentNavigationActive) {
+                                        return@withContext
                                     }
+                                    style.getSourceAs<GeoJsonSource>("cyclemap-dynamic-pois")
+                                        ?.setGeoJson(FeatureCollection.fromFeatures(features))
+                                    lastPoiFetchCenter = center
+                                    lastPoiFetchZoom = zoom
                                 }
                             }
                         }
+                        triggerPoisRef = { triggerFetchPois(map) }
                         activePmtilesPath = pmtilesPath
                         lastLoadedNightMode = currentNightMode
 
@@ -291,20 +319,29 @@ internal fun VectorMapView(
                                         setupDynamicPoiLayers(context, style, night)
                                         updateRouteLine(style, currentRoutePoints, currentAlternativeRoutes, currentDestination, currentShowDestination)
                                         updateLocationPoint(style, currentLocUpdated ?: currentLocation, currentBearingForMarker, currentNavigationActive, currentGpsStatus)
-                                        triggerPoisRef = { triggerFetchPois(map) }
                                         triggerFetchPois(map)
                                     }
                                 }
                             }
                         }
 
+                        map.addOnCameraMoveStartedListener { reason ->
+                            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                                gestureCameraMoving = true
+                            }
+                        }
                         // カメラ停止時リスナー (R3): 現在画面内のPOIをオフラインDBから動的フェッチ (デバウンス制御)
                         map.addOnCameraIdleListener {
-                            map.cameraPosition.target?.let { MapCameraCenter.update(it.latitude, it.longitude) }
-                            MapCameraCenter.lastVectorZoom = map.cameraPosition.zoom
+                            gestureCameraMoving = false
+                            val position = map.cameraPosition
+                            if (!currentNavigationActive || !currentFollowLocation) {
+                                position.target?.let { MapCameraCenter.update(it.latitude, it.longitude) }
+                            }
+                            MapCameraCenter.lastVectorZoom = position.zoom
+                            if (!currentPoiVisible || currentNavigationActive) return@addOnCameraIdleListener
                             if (map.style?.isFullyLoaded != true) return@addOnCameraIdleListener
-                            val target = map.cameraPosition.target
-                            val zoom = map.cameraPosition.zoom
+                            val target = position.target
+                            val zoom = position.zoom
                             val last = lastPoiFetchCenter
                             if (shouldSkipPoiRefetch(last?.latitude, last?.longitude, lastPoiFetchZoom,
                                     target?.latitude, target?.longitude, zoom)
@@ -442,8 +479,16 @@ internal fun VectorMapView(
         // 現在地の県が変わったら、その県のタイルへ切り替える (県境をまたぐ走行・起動時に未導入だった県の後入れでも地図が空にならない)。
         // 該当県のタイルが端末に無い間は、いま表示中のタイルを維持する。
         val locationPrefecture = currentLocation?.let { findPrefectureName(it.latitude, it.longitude) }
-        LaunchedEffect(locationPrefecture, mapLibreMap) {
+        var wasNavigationFollowing by remember(mapLibreMap) { mutableStateOf(false) }
+        LaunchedEffect(locationPrefecture, mapLibreMap, navigationFollowing) {
             val map = mapLibreMap ?: return@LaunchedEffect
+            val stoppedFollowing = wasNavigationFollowing && !navigationFollowing
+            wasNavigationFollowing = navigationFollowing
+            if (stoppedFollowing) {
+                // 次の idle を待たず、地名表示とタイル選択を現在の表示位置に戻す。
+                map.cameraPosition.target?.let { MapCameraCenter.update(it.latitude, it.longitude) }
+                return@LaunchedEffect
+            }
             val loc = currentLocation ?: return@LaunchedEffect
             val path = resolveOfflinePmtilesPath(context, loc.latitude, loc.longitude) ?: return@LaunchedEffect
             if (path == activePmtilesPath) return@LaunchedEffect
@@ -452,8 +497,9 @@ internal fun VectorMapView(
 
         // 手動でスクロールして別の県へ移動したとき (現在地は元の県のまま) も、カメラ停止時の中心の県のタイルへ切り替える。
         // 該当県のタイルが無いときは、表示中のタイルを維持する。
-        LaunchedEffect(mapLibreMap) {
+        LaunchedEffect(mapLibreMap, navigationFollowing) {
             val map = mapLibreMap ?: return@LaunchedEffect
+            if (navigationFollowing) return@LaunchedEffect
             MapCameraCenter.center.collect { center ->
                 val (lat, lon) = center ?: return@collect
                 val path = resolveOfflinePmtilesPath(context, lat, lon)
@@ -532,19 +578,21 @@ internal fun VectorMapView(
             }
         }
 
-        // 案内中: 現在地マーカーと追従カメラを毎フレーム、補間した位置で動かす。
+        // 案内中: 現在地マーカーと追従カメラを、補間した位置で動かす。
         // 位置・向きが変わらない間は更新をやめ、100msごとの確認に落とす (停車中のバッテリー保護)。
         LaunchedEffect(isNavigationActive, mapLibreMap) {
             val map = mapLibreMap ?: return@LaunchedEffect
             if (!isNavigationActive) return@LaunchedEffect
-            var lastNanos = 0L
+            var lastNanos: Long? = null
             var lastLat = Double.NaN
             var lastLon = Double.NaN
             var lastBearing = Float.NaN
             while (isActive) {
                 var idle = false
                 withFrameNanos { nanos ->
-                    val dt = if (lastNanos == 0L) 1f / 60f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+                    val previousFrame = lastNanos
+                    if (!isMapFrameDue(previousFrame, nanos, currentMinFrameIntervalNanos)) return@withFrameNanos
+                    val dt = previousFrame?.let { ((nanos - it) / 1_000_000_000f).coerceIn(0.001f, 0.1f) } ?: (1f / 60f)
                     lastNanos = nanos
                     val pos = locationGlide.position(android.os.SystemClock.elapsedRealtime())
                     val style = map.style

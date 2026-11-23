@@ -2,6 +2,8 @@ package com.gorite.cyclemap.ui.screens
 
 import com.gorite.cyclemap.ui.mapview.animateCameraExclusive
 import com.gorite.cyclemap.ui.mapview.ViewCenterSaveThrottle
+import com.gorite.cyclemap.ui.mapview.mapFrameIntervalNanos
+import com.gorite.cyclemap.ui.mapview.mapMaxFps
 import com.gorite.cyclemap.*
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -167,6 +169,19 @@ internal fun MapScreen(
             getMapView = { state.mapViewState.value },
             getVectorMap = { state.vectorMapState.value },
             isVectorActive = { state.selectedLayerState.value == com.gorite.cyclemap.utils.MapLayer.VECTOR_LIBERTY },
+            minFrameIntervalNanos = {
+                if (state.selectedLayerState.value == MapLayer.VECTOR_LIBERTY &&
+                    state.vectorMapState.value != null && state.mapViewState.value == null
+                ) {
+                    mapFrameIntervalNanos(mapMaxFps(
+                        navigationActive = state.isNavigationActiveState.value,
+                        followLocation = state.followLocationState.value && state.selectedPoiSpotState.value == null,
+                        powerSave = state.batteryMonitor.status.value.isLowPower,
+                    ))
+                } else {
+                    0L
+                }
+            },
             onOrientationUpdated = { state.updateNavArrow() },
         )
     }

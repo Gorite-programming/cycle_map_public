@@ -541,13 +541,14 @@ internal class MapOrientationAnimator(
     private val getMapView: () -> MapView?,
     private val getVectorMap: () -> org.maplibre.android.maps.MapLibreMap? = { null },
     private val isVectorActive: () -> Boolean = { false },
+    private val minFrameIntervalNanos: () -> Long = { 0L },
     private val onOrientationUpdated: () -> Unit,
 ) {
     private val follower = com.gorite.cyclemap.ui.mapview.AngleFollower(timeConstantSec = 0.12f)
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var targetHeading: Float = Float.NaN
     private var running = false
-    private var lastFrameNanos = 0L
+    private var lastFrameNanos: Long? = null
 
     /** cancel() を別スレッドから呼んだ後に開始された回転を、遅れて届いた stop() が止めないようにする世代番号。 */
     @Volatile private var generation = 0
@@ -600,7 +601,7 @@ internal class MapOrientationAnimator(
         if (follower.isSettled(target) || kotlin.math.abs(com.gorite.cyclemap.ui.mapview.Angles.shortestDelta(follower.current, target)) < 0.3f) return
         running = true
         generation++
-        lastFrameNanos = 0L
+        lastFrameNanos = null
         android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
@@ -610,7 +611,12 @@ internal class MapOrientationAnimator(
             stop()
             return
         }
-        val dt = if (lastFrameNanos == 0L) 1f / 60f else ((nanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+        val previousFrame = lastFrameNanos
+        if (!com.gorite.cyclemap.ui.mapview.isMapFrameDue(previousFrame, nanos, minFrameIntervalNanos())) {
+            android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
+            return
+        }
+        val dt = previousFrame?.let { ((nanos - it) / 1_000_000_000f).coerceIn(0.001f, 0.1f) } ?: (1f / 60f)
         lastFrameNanos = nanos
         applyHeading(follower.step(targetHeading, dt))
         if (follower.isSettled(targetHeading)) {
