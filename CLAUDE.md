@@ -110,7 +110,7 @@ Mac で作業するときは、次の四者で分担する。
 - **Claude**: 設計・タスク分割・指示文の作成・検証・commit/push。
 - **Antigravity** (Orchestrator、Gemini 4 Neon): バックエンドの実装。`:routing-core`、`:osm-importer`、Python のデータ生成 (`scripts/`、`sandbox/data-tool/`)。
 - **Codex** (GPT-6.2 Sol): フロントエンドの実装。`:app` の `ui/` と Compose の画面。
-- **OpenCode** (DeepSeek V4.1 Flash Free): テストの追加・実行と、失敗の切り分け。
+- ~~**OpenCode** (DeepSeek V4.1 Flash Free): テスト~~ → 2026-11-23 にトークン切れで**使わないことにした**。テストは実装したエージェントが回し、Claude が自分でも回して確かめる。
 
 受け渡しの手順:
 
@@ -141,7 +141,7 @@ Claude が設計・分割・検証を行い、実装とテスト実行を Codex 
 
 ## 経緯・引き継ぎ
 
-日付つきの経過 (全国対応の試験生成、見つけたバグ、未解決事項、次にやること) は [docs/handoff_20261113.md](docs/handoff_20261113.md)。 2026-11-20 の自律作業 (新機能・修正・実機で確認してほしいこと・未修正の棚卸し) は [docs/session_20261120.md](docs/session_20261120.md)。設計は `docs/ch_design.md`、`docs/cross_prefecture_design.md`、`docs/nationwide_design.md`、数値は `docs/away_session_report_20261108.md`。
+日付つきの経過 (全国対応の試験生成、見つけたバグ、未解決事項、次にやること) は [docs/handoff_20261113.md](docs/handoff_20261113.md)。 2026-11-20 の自律作業 (新機能・修正・実機で確認してほしいこと・未修正の棚卸し) は [docs/session_20261120.md](docs/session_20261120.md)。2026-11-23〜24 の Mac での作業 (エージェントの力量測定、バグ修正 13 件、未完の鉄道レイヤーと時刻表データの利用条件の問題) は [docs/handoff_20261124.md](docs/handoff_20261124.md)。設計は `docs/ch_design.md`、`docs/cross_prefecture_design.md`、`docs/nationwide_design.md`、数値は `docs/away_session_report_20261108.md`。
 
 2026-11-14 に、端末・自宅ネットワークの情報を含む検証記録を履歴から取り除いた。`3b6055d` 以降のコミットはハッシュが変わっている (新旧の対応と、別環境の作業コピーの取り直し方は [docs/history_rewrite_20261114.md](docs/history_rewrite_20261114.md))。`adb devices`・`dumpsys connectivity`/`wifi`・logcat の丸ごとの出力はリポジトリに入れない。
 
