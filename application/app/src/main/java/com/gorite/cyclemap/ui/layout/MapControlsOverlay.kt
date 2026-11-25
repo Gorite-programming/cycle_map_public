@@ -426,6 +426,21 @@ internal fun BoxScope.MapControlsOverlay(
                     modifier = Modifier.size(20.dp),
                 )
             }
+            // 経路の全体を見る (追従が外れる。「現在地に戻る」で戻る)
+            com.gorite.cyclemap.ui.components.LocalRouteOverviewAction.current?.let { overview ->
+                TouchTargetCircleButton48(
+                    onClick = overview,
+                    contentDescription = "経路の全体を見る",
+                    visualSize = 42.dp,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lucide_maximize_2),
+                        contentDescription = null,
+                        tint = CycleMapTheme.palette.mapControlIcon,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             GoogleGpsButton(
                 following = followLocation,
                 onClick = onTargetClick,

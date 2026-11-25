@@ -27,6 +27,9 @@ import com.gorite.cyclemap.ui.map.toGuidanceTurnType
 /** 今の経路の案内指示。出発前の確認 (経路プレビュー) から曲がり角の一覧を開くのに使う。 */
 val LocalRouteInstructions = compositionLocalOf<List<RouteInstruction>> { emptyList() }
 
+/** ナビ中に、経路の全体を地図に収める操作 (Google マップの「経路の概要」)。未対応の地図では null。 */
+val LocalRouteOverviewAction = compositionLocalOf<(() -> Unit)?> { null }
+
 /** 曲がり角を、矢印・名前・道路名・距離で並べる (Google マップのステップ一覧に相当)。 */
 @Composable
 internal fun StepListDialog(title: String, steps: List<UpcomingStep>, emptyText: String, onDismiss: () -> Unit) {

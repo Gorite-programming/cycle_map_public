@@ -1103,12 +1103,28 @@ internal fun MapScreen(
     }
 
     val routeHazards = com.gorite.cyclemap.ui.hazard.rememberRouteHazards(state.navigationRouteState.value)
+    val routeOverviewAction: () -> Unit = overview@{
+        val route = state.navigationRouteState.value
+        val vMap = state.vectorMapState.value ?: return@overview
+        if (route.isEmpty()) return@overview
+        state.followLocationState.value = false
+        val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
+        route.forEach { builder.include(org.maplibre.android.geometry.LatLng(it.latitude, it.longitude)) }
+        val d = density.density
+        vMap.animateCamera(
+            org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
+                builder.build(), (40 * d).toInt(), (190 * d).toInt(), (40 * d).toInt(), (200 * d).toInt(),
+            ),
+            600,
+        )
+    }
     androidx.compose.runtime.CompositionLocalProvider(
         com.gorite.cyclemap.ui.state.LocalDisplayModeController provides displayModeController,
         com.gorite.cyclemap.ui.state.LocalHandednessController provides handednessController,
         com.gorite.cyclemap.ui.state.LocalRoadRuleController provides roadRuleController,
         com.gorite.cyclemap.ui.hazard.LocalRouteHazards provides routeHazards,
         com.gorite.cyclemap.ui.components.LocalRouteInstructions provides state.navigationInstructionsState.value,
+        com.gorite.cyclemap.ui.components.LocalRouteOverviewAction provides routeOverviewAction,
     ) {
     MapScreenScaffold(
         state = state,
