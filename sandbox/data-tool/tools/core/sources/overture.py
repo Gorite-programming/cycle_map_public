@@ -238,7 +238,7 @@ def fetch_overture_places_for_bbox(
 
         op_status_expr = "operating_status" if "operating_status" in schema_cols else "NULL AS operating_status"
         sources_expr = (
-            "list_transform(sources, s -> s.dataset) AS source_datasets"
+            "list_transform(sources, lambda s: s.dataset) AS source_datasets"
             if "sources" in schema_cols else "NULL AS source_datasets"
         )
         phones_expr = "phones" if "phones" in schema_cols else "NULL AS phones"
