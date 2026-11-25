@@ -330,7 +330,7 @@ internal fun BoxScope.MapTopOverlays(
                             isRerouting = isRerouting,
                         )
                     } else {
-                        Box(modifier = Modifier.clickable { showSteps = true }) {
+                        Box(modifier = Modifier.clickable(enabled = !isRerouting && navigationInstructions.isNotEmpty()) { showSteps = true }) {
                         com.gorite.cyclemap.ui.map.NavTopBarC(
                             turnType = display.turnType,
                             distanceMeters = display.distanceMeters,

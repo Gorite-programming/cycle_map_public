@@ -114,6 +114,26 @@ class NavGuidanceDisplayTest {
     }
 
     @Test
+    fun farAngledMergeIsAlsoSkipped() {
+        val progress = RouteProgress(
+            distanceFromStartMeters = 0.0,
+            routeDistanceMeters = 5000.0,
+            distanceToRouteMeters = 0.0,
+            nextManeuver = Maneuver(ManeuverType.RIGHT, 2000.0),
+            distanceToNextManeuverMeters = 2000.0,
+        )
+        // 角度が付いた (20°) 合流でも、遠いうちは次の本当の曲がり角を出す。
+        val instructions = listOf(
+            inst(InstructionType.MERGE, 1900.0, angle = 20.0),
+            inst(InstructionType.RIGHT_TURN, 2000.0, angle = 90.0),
+        )
+        val display = resolveNavGuidanceDisplay(progress, 5000.0, instructions, arrivalRadiusMeters = 30.0)
+        assertEquals(TurnType.Right, display.turnType)
+        assertEquals(2000.0, display.distanceMeters, 1e-6)
+        assertEquals(1, upcomingSteps(instructions, 0.0).size)
+    }
+
+    @Test
     fun arrivalOverridesTurns() {
         val progress = RouteProgress(
             distanceFromStartMeters = 980.0,

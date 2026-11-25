@@ -34,8 +34,9 @@ class RealLaneGuidanceProvider(
             val directions = part.split(";").map { mapTurnLaneToTurnType(it.trim()) }
             val supportsTurn = directions.any { isLaneRecommendedForTurn(it, turnType) }
             // 「直進と右折」の共用車線は、曲がる向きに合う方の矢印を出す (先頭の直進だけを出さない)。
+            // 専用の車線があって共用車線が推奨にならないときは、曲がる向きに書き換えない (通れない車線に見えるため)。
             val parsedType = directions.firstOrNull { isLaneRecommendedForTurn(it, turnType) }
-                ?.takeIf { isComposite && supportsTurn }
+                ?.takeIf { isComposite && supportsTurn && !hasDedicatedMatch }
                 ?: mapTurnLaneToTurnType(part.trim())
             val isRecommended = if (hasDedicatedMatch) {
                 !isComposite && supportsTurn

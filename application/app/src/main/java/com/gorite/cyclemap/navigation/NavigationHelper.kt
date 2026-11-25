@@ -164,6 +164,15 @@ private fun maneuverGuidanceText(instruction: RouteInstruction, distanceMeters: 
     }
 }
 
+/** 曲がる角としては主役にならない案内 (直進・合流・車線の増減・脇道)。角度が付いていても同じ扱いにする。 */
+private val MINOR_INSTRUCTION_TYPES = setOf(
+    InstructionType.STRAIGHT, InstructionType.MERGE, InstructionType.LANE_INCREASE,
+    InstructionType.LANE_DECREASE, InstructionType.SIDE_ROAD_ENTER, InstructionType.SIDE_ROAD_EXIT,
+)
+
+private fun RouteInstruction.isMinorForDisplay(): Boolean =
+    type in MINOR_INSTRUCTION_TYPES || toGuidanceTurnType() == TurnType.Straight
+
 /** 案内の一覧 (バナーをタップして開く) の 1 行: 曲がる角と、いまの位置からそこまでの距離。 */
 internal data class UpcomingStep(val instruction: RouteInstruction, val distanceMeters: Double, val label: String)
 
@@ -174,7 +183,7 @@ internal fun upcomingSteps(
     limit: Int = 12,
 ): List<UpcomingStep> = instructions
     .asSequence()
-    .filter { it.distanceFromStartMeters > traveledMeters && it.type != InstructionType.STRAIGHT && it.toGuidanceTurnType() != TurnType.Straight }
+    .filter { it.distanceFromStartMeters > traveledMeters && !it.isMinorForDisplay() }
     .take(limit)
     .map {
         val label = IconResolver.getLabel(it.type, it.turnAngleDegrees)
@@ -209,7 +218,7 @@ internal fun resolveNavGuidanceDisplay(
         // 合流・車線の増減など、曲がる向きの無い案内は、近づく (300 m 手前) まで主表示にしない。
         val target = future.firstOrNull {
             it.type != InstructionType.STRAIGHT &&
-                (it.toGuidanceTurnType() != TurnType.Straight || it.distanceFromStartMeters - traveled < 300.0)
+                (!it.isMinorForDisplay() || it.distanceFromStartMeters - traveled < 300.0)
         }
         if (target == null) {
             return NavGuidanceDisplay(
@@ -223,7 +232,7 @@ internal fun resolveNavGuidanceDisplay(
         }
         val targetDist = (target.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
         val after = future.drop(future.indexOf(target) + 1)
-            .firstOrNull { it.type != InstructionType.STRAIGHT && it.toGuidanceTurnType() != TurnType.Straight }
+            .firstOrNull { !it.isMinorForDisplay() }
         val distAfter = after?.let { (it.distanceFromStartMeters - target.distanceFromStartMeters).coerceAtLeast(0.0) }
         return NavGuidanceDisplay(
             turnType = target.toGuidanceTurnType(),
