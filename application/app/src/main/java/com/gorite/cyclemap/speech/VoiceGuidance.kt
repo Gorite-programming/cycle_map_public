@@ -1,6 +1,9 @@
 package com.gorite.cyclemap.speech
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
 import android.util.Log
@@ -88,22 +91,52 @@ class ShikokuMetanAudioEngine(
     private val context: Context,
 ) : VoiceAudioPlayer, TextToSpeechEngine {
     private var mediaPlayer: MediaPlayer? = null
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val guidanceAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+    private var focusRequest: AudioFocusRequest? = null
+
+    /** 案内の間だけ、音楽など他の音の音量を下げてもらう。取れなくても再生は続ける。 */
+    private fun requestDuckingFocus() {
+        val manager = audioManager ?: return
+        abandonFocus()
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(guidanceAttributes)
+            .setOnAudioFocusChangeListener { }
+            .build()
+        focusRequest = request
+        runCatching { manager.requestAudioFocus(request) }
+    }
+
+    private fun abandonFocus() {
+        val request = focusRequest ?: return
+        focusRequest = null
+        runCatching { audioManager?.abandonAudioFocusRequest(request) }
+    }
 
     override fun playResId(rawResId: Int): Boolean {
         stop()
         return try {
-            mediaPlayer = MediaPlayer.create(context, rawResId)?.apply {
+            requestDuckingFocus()
+            mediaPlayer = MediaPlayer.create(
+                context, rawResId, guidanceAttributes, AudioManager.AUDIO_SESSION_ID_GENERATE,
+            )?.apply {
                 setOnCompletionListener {
                     it.release()
                     if (mediaPlayer == it) {
                         mediaPlayer = null
+                        abandonFocus()
                     }
                 }
                 start()
             }
+            if (mediaPlayer == null) abandonFocus()
             mediaPlayer != null
         } catch (t: Throwable) {
             Log.e("MetanAudio", "Failed to play audio resource ID: $rawResId", t)
+            abandonFocus()
             false
         }
     }
@@ -127,6 +160,7 @@ class ShikokuMetanAudioEngine(
             // ignore
         }
         mediaPlayer = null
+        abandonFocus()
     }
 
     override fun isReady(): Boolean = true
