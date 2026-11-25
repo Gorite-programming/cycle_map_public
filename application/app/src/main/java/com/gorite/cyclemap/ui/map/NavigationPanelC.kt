@@ -373,19 +373,26 @@ internal fun NavBottomPanelC(
         shadowElevation = 10.dp,
     ) {
         Column(
+            // パネル全体ではなく上端のつまみの帯だけで開閉する (手袋で終了・ミュート付近を押したとき誤って開閉しない)。
             modifier = Modifier
-                .clickable(onClick = toggleExpanded)
-                .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 12.dp + bottomInset),
+                .padding(start = 14.dp, end = 14.dp, top = 0.dp, bottom = 12.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(if (isExpanded) 10.dp else 6.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(p.sub.copy(alpha = 0.4f)),
-            )
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .clickable(onClick = toggleExpanded),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(p.sub.copy(alpha = 0.4f)),
+                )
+            }
 
             if (isExpanded) {
                 Row(
