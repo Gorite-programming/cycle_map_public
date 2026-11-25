@@ -96,6 +96,24 @@ class NavGuidanceDisplayTest {
     }
 
     @Test
+    fun farMergeIsSkippedInFavourOfTheNextRealTurn() {
+        val progress = RouteProgress(
+            distanceFromStartMeters = 0.0,
+            routeDistanceMeters = 5000.0,
+            distanceToRouteMeters = 0.0,
+            nextManeuver = Maneuver(ManeuverType.RIGHT, 2000.0),
+            distanceToNextManeuverMeters = 2000.0,
+        )
+        val instructions = listOf(
+            inst(InstructionType.MERGE, 1900.0),
+            inst(InstructionType.RIGHT_TURN, 2000.0, angle = 90.0),
+        )
+        val display = resolveNavGuidanceDisplay(progress, 5000.0, instructions, arrivalRadiusMeters = 30.0)
+        assertEquals(TurnType.Right, display.turnType)
+        assertEquals(2000.0, display.distanceMeters, 1e-6)
+    }
+
+    @Test
     fun arrivalOverridesTurns() {
         val progress = RouteProgress(
             distanceFromStartMeters = 980.0,

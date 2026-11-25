@@ -188,9 +188,11 @@ internal fun resolveNavGuidanceDisplay(
         val richDist = (richNext.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
         // 次に曲がる角を、遠くても矢印と距離で主表示にする (Google マップのナビと同じ。
         // 以前は 500 m 手前まで「直進」を出し、同じ距離を「そのあと」にも出していた)。
-        val target = if (richNext.type == InstructionType.STRAIGHT) {
-            future.firstOrNull { it.type != InstructionType.STRAIGHT }
-        } else richNext
+        // 合流・車線の増減など、曲がる向きの無い案内は、近づく (300 m 手前) まで主表示にしない。
+        val target = future.firstOrNull {
+            it.type != InstructionType.STRAIGHT &&
+                (it.toGuidanceTurnType() != TurnType.Straight || it.distanceFromStartMeters - traveled < 300.0)
+        }
         if (target == null) {
             return NavGuidanceDisplay(
                 turnType = TurnType.Straight,
@@ -202,7 +204,8 @@ internal fun resolveNavGuidanceDisplay(
             )
         }
         val targetDist = (target.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
-        val after = future.drop(future.indexOf(target) + 1).firstOrNull { it.type != InstructionType.STRAIGHT }
+        val after = future.drop(future.indexOf(target) + 1)
+            .firstOrNull { it.type != InstructionType.STRAIGHT && it.toGuidanceTurnType() != TurnType.Straight }
         val distAfter = after?.let { (it.distanceFromStartMeters - target.distanceFromStartMeters).coerceAtLeast(0.0) }
         return NavGuidanceDisplay(
             turnType = target.toGuidanceTurnType(),
