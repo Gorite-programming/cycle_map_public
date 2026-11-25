@@ -109,6 +109,21 @@ class NavGuidanceDisplayTest {
     }
 
     @Test
+    fun nearTheEndButOffRouteDoesNotClaimArrival() {
+        // 並行する道を走っていて、経路への投影だけがゴールの 20 m 手前にある。
+        val progress = RouteProgress(
+            distanceFromStartMeters = 980.0,
+            routeDistanceMeters = 1000.0,
+            distanceToRouteMeters = 150.0,
+            nextManeuver = null,
+            distanceToNextManeuverMeters = null,
+        )
+        val display = resolveNavGuidanceDisplay(progress, 20.0, emptyList(), arrivalRadiusMeters = 30.0)
+        assertEquals(TurnType.Arrive, display.turnType)
+        assertEquals("目的地付近です", display.instructionText)
+    }
+
+    @Test
     fun fallbackWithoutRichInstructionsMatchesManeuverType() {
         val progress = RouteProgress(
             distanceFromStartMeters = 100.0,

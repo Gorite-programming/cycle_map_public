@@ -175,7 +175,10 @@ internal fun resolveNavGuidanceDisplay(
     val traveled = progress.distanceFromStartMeters
     val remaining = (remainingMeters ?: (progress.routeDistanceMeters - traveled)).coerceAtLeast(0.0)
     if (remaining <= arrivalRadiusMeters) {
-        return NavGuidanceDisplay(TurnType.Arrive, remaining, "目的地に到着しました", null, null, null)
+        // 残り距離は経路への投影から求めている。並行する道などで経路から離れているときは「到着」と言い切らない
+        // (実際の到着の判定は、目的地までの実距離で別に行っている)。
+        val text = if (progress.distanceToRouteMeters <= arrivalRadiusMeters) "目的地に到着しました" else "目的地付近です"
+        return NavGuidanceDisplay(TurnType.Arrive, remaining, text, null, null, null)
     }
 
     val future = richInstructions.filter { it.distanceFromStartMeters > traveled }

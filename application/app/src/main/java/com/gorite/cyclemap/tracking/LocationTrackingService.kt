@@ -196,7 +196,7 @@ class LocationTrackingService : Service() {
 
     private fun restorePendingRecording() {
         val dir = File(filesDir, "gpx-journals")
-        dir.listFiles()?.filter { it.extension == "journal" }?.sortedBy { it.name }?.forEach { file ->
+        journalsInRestoreOrder(dir.listFiles()?.toList().orEmpty()).forEach { file ->
             val journal = GpxJournal(file)
             val recovery = runCatching { journal.restore() }.getOrNull()
             if (recovery != null) {
@@ -427,7 +427,11 @@ class LocationTrackingService : Service() {
         }
 
         // Override speed on the location object so all downstream consumers use the filtered/smoothed speed
+        // 端末が速度を出さなかった測位にも平滑化した速度を入れるので、元に速度があったかを extras に残す。
+        // サイコン (RideSession) は、速度の無い測位では自分で位置の変化から速度を推定する。
+        val hadSensorSpeed = newLocation.hasSpeed()
         newLocation.speed = speed.toFloat()
+        newLocation.extras = (newLocation.extras ?: android.os.Bundle()).apply { putBoolean(EXTRA_SENSOR_SPEED, hadSensorSpeed) }
 
         gpsHealthMonitor.onValidFix()
         notifyStatus(GpsSignalStatus.HEALTHY)
@@ -540,3 +544,18 @@ internal fun dispatchRecordingStart(
 ) {
     if (hasLocationPermission) startService() else onDenied()
 }
+
+/**
+ * 復元するジャーナルの順番。新しく書かれたものから (「前回の走行記録」が先に出る)。
+ * ファイル名はランダムな UUID なので、名前の順は時刻と関係ない。同じ時刻なら名前で決める。
+ */
+internal fun journalsInRestoreOrder(files: List<File>): List<File> =
+    files.filter { it.extension == "journal" }
+        .sortedWith(compareByDescending<File> { it.lastModified() }.thenBy { it.name })
+
+/** 測位に端末 (ドップラー) の速度があったか。LocationTrackingService が速度を上書きする前の値を残す。 */
+internal const val EXTRA_SENSOR_SPEED = "com.gorite.cyclemap.sensorSpeed"
+
+/** 端末が出した速度。サービスが平滑化して入れただけの速度なら null。印が無い測位は速度があればそのまま使う。 */
+internal fun Location.sensorSpeedMpsOrNull(): Float? =
+    if (hasSpeed() && extras?.getBoolean(EXTRA_SENSOR_SPEED, true) != false) speed else null

@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.screens
 
+import com.gorite.cyclemap.tracking.sensorSpeedMpsOrNull
 import com.gorite.cyclemap.ui.mapview.animateCameraExclusive
 import com.gorite.cyclemap.ui.mapview.ViewCenterSaveThrottle
 import com.gorite.cyclemap.ui.mapview.mapFrameIntervalNanos
@@ -707,7 +708,7 @@ internal fun MapScreen(
                 timeMs = loc.time,
                 lat = loc.latitude,
                 lon = loc.longitude,
-                speedMps = if (loc.hasSpeed()) loc.speed else null,
+                speedMps = loc.sensorSpeedMpsOrNull(),
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else 100f,
                 altitudeM = if (loc.hasAltitude()) loc.altitude else null,
                 pressureHpa = pressureReader.latestHpa,
