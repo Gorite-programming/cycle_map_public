@@ -1113,7 +1113,7 @@ internal fun MapScreen(
         val d = density.density
         vMap.animateCamera(
             org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
-                builder.build(), (40 * d).toInt(), (190 * d).toInt(), (40 * d).toInt(), (200 * d).toInt(),
+                builder.build(), (40 * d).toInt(), (240 * d).toInt(), (40 * d).toInt(), (230 * d).toInt(),
             ),
             600,
         )
