@@ -414,6 +414,27 @@ internal fun BoxScope.MapControlsOverlay(
                 QuickStopButton(onClick = onQuickSpotClick)
             }
         }
+        // 地図を動かして追従が外れたとき、手袋でも押せる大きな「現在地に戻る」を下パネルの上に出す
+        if (!followLocation) {
+            Surface(
+                onClick = onTargetClick,
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navigationPanelHeight + 16.dp)
+                    .zIndex(3f),
+            ) {
+                Text(
+                    text = "現在地に戻る",
+                    modifier = Modifier.heightIn(min = 56.dp).padding(horizontal = 28.dp, vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                )
+            }
+        }
     }
 }
 
