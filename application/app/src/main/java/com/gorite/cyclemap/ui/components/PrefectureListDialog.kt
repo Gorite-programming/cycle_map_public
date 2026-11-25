@@ -122,7 +122,12 @@ internal fun PrefectureListDialog(
                     "取り込みました: " + result.imported.joinToString("、") + "\n再起動すると反映されます"
                 }
             } catch (e: Exception) {
-                "取り込みに失敗しました: ${e.message}"
+                // 途中で失敗しても、先に取り込めたファイルは端末に入っている。一覧を更新し、再起動の案内も出す。
+                runCatching {
+                    dataStatus = withContext(Dispatchers.IO) { offlineDataStatus(cycleMapDataDir(context)) }
+                }
+                importedAny = true
+                "取り込みに失敗しました: ${e.message}\n先に取り込めたファイルがある場合は、再起動すると反映されます"
             }
             importing = false
         }
