@@ -175,10 +175,14 @@ internal fun BoxScope.MapBottomOverlays(
         )
     } else if (isNavigationActive && routeSummary != null) {
         // 横画面: コンパクトなフッター (GoogleNavFooterView)
+        // 残り距離は、走行統計 → 経路上の進捗 → (どちらも無いとき) 経路全長の順で使う。以前は常に全長で、上段のバーとずれていた。
+        val footerRemainingM = navStats?.remainingMeters
+            ?: navigationProgress?.let { (routeSummary.distanceMeters - it.distanceFromStartMeters).coerceAtLeast(0.0) }
+            ?: routeSummary.distanceMeters
         com.gorite.cyclemap.ui.map.GoogleNavFooterView(
             eta = navStats?.let { com.gorite.cyclemap.ui.map.etaInfoFromNavStats(it, speedKmh) },
-            remainingDistanceMeters = routeSummary.distanceMeters,
-            remainingSeconds = routeSummary.distanceMeters / 4.2,
+            remainingDistanceMeters = footerRemainingM,
+            remainingSeconds = footerRemainingM / 4.2,
             isMuted = isVoiceMuted,
             onToggleMute = onToggleMute,
             onStopNavigation = onStopNavigation,
