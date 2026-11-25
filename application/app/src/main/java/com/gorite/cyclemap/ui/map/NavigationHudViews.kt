@@ -293,7 +293,7 @@ fun LandscapeNavHudBar(
     onTap: (() -> Unit)? = null,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth().then(if (onTap != null) Modifier.clickable { onTap() } else Modifier),
+        modifier = modifier.fillMaxWidth().then(if (onTap != null && !isRerouting) Modifier.clickable { onTap() } else Modifier),
         color = CycleMapTheme.palette.navBanner,
         shadowElevation = 6.dp
     ) {
