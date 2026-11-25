@@ -322,7 +322,7 @@ internal fun MapModalsHost(
                 // 検索は現在地と地図中心の両方から起動しうるため、双方を保護する。
                 searchDbNames = searchNames,
                 tileNames = tileNames,
-                busy = graph == null || graph.switching.value || graph.calculating.value ||
+                busy = isNavigationActive || graph == null || graph.switching.value || graph.calculating.value ||
                     spotLoading || quickSpotLoading || showDestinationSearch || isDownloading || isRoutingBenchmarkRunning,
             )
         },

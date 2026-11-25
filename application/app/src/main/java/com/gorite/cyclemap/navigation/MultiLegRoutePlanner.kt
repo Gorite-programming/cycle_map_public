@@ -156,9 +156,11 @@ internal fun calculateMultiLegCrossRouteWithEnv(
                 startIdx,
                 goalIdx,
                 isCancelled = isCancelled,
-                maxExpandedNodes = ROUTE_MAX_EXPANDED_NODES,
+                maxExpandedNodes = maxExpandedNodes,
                 preference = preference,
             )
+            // 同じ県の区間が探索の上限で打ち切られたら、経路なしと区別して伝える。
+            if (r.wasTruncated) crossLegTruncated = true
             if (r.isReachable && !r.wasTruncated) {
                 solved = SolvedCrossLeg(
                     chain = listOf(pref),
