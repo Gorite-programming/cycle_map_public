@@ -204,7 +204,10 @@ internal fun DestinationSearchDialog(
     LaunchedEffect(request) {
         val trimmed = query.trim()
         // カテゴリ未選択 + クエリ短い場合はリストクリア
-        if (trimmed.length < 2 && selectedCategory == SearchCategory.ALL) {
+        // 「駅」のように 1 文字でも種類名そのものなら (近い順の一覧にするので) 検索する。
+        if (trimmed.length < 2 && selectedCategory == SearchCategory.ALL &&
+            GenreDictionary.genericCategoryPrefixes(trimmed) == null
+        ) {
             results = emptyList()
             completedRequest = request
             message = when {
@@ -541,6 +544,7 @@ internal fun DestinationSearchDialog(
                                                     category = result.category,
                                                     latitude = result.latitude,
                                                     longitude = result.longitude,
+                                                    address = result.address,
                                                 ),
                                             )
                                         },

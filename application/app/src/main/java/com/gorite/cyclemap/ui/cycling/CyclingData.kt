@@ -543,7 +543,7 @@ enum class SpotQuickCategory(
     BICYCLE("自転車店", PoiCategory.BICYCLE),
     BATH("温泉", PoiCategory.BATH),
     HOSPITAL("病院", PoiCategory.HOSPITAL),
-    PARKING("駐輪場", PoiCategory.PARKING),
+    PARKING("駐輪場", PoiCategory.BIKE_SERVICE),
 }
 
 /** カテゴリチップID文字列から SpotQuickCategory へのマッピング */

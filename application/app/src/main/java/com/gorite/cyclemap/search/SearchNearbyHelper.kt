@@ -67,6 +67,8 @@ internal fun searchNearbyPlaces(
                 category LIKE 'amenity:vending_machine%' OR category LIKE 'amenity:place_of_worship%' OR
                 category LIKE 'railway:halt%' OR
                 category LIKE 'shop:bicycle%' OR category LIKE 'shop:bakery%' OR
+                category LIKE 'amenity:bicycle_rental%' OR category LIKE 'amenity:bicycle_parking%' OR
+                category LIKE 'amenity:bicycle_repair_station%' OR
                 category LIKE 'amenity:public_bath%'
               )
             $categoryWhere
