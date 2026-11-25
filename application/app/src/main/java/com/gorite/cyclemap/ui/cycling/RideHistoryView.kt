@@ -73,6 +73,11 @@ import java.util.Locale
 
 val CyclingCyan = Color(0xFF00E5FF)
 
+/** 履歴の削除をホームの集計へ知らせる (削除のたびに増える)。 */
+object RideHistoryChanges {
+    val version = kotlinx.coroutines.flow.MutableStateFlow(0)
+}
+
 private sealed interface RideHistoryLoadState {
     data object Loading : RideHistoryLoadState
     data class Loaded(val rides: List<RideHistorySummary>) : RideHistoryLoadState
@@ -319,6 +324,7 @@ fun RideHistorySheet(
                             selectedRide = null
                         }
                         toDel.file.delete()
+                        RideHistoryChanges.version.value++
                         onDeleteRide?.invoke(toDel)
                         refreshTrigger++
                     },

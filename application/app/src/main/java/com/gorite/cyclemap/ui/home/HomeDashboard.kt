@@ -97,7 +97,8 @@ internal fun HomeDashboard(
     val favorites by remember(context) { FavoritesManager.getInstance(context) }.favorites.collectAsState()
 
     // 記録が止まるたびに数え直す (記録中の分は止めたときに加わる)
-    val totals by produceState(RideTotals(0.0, 0.0), isRecording) {
+    val historyVersion by com.gorite.cyclemap.ui.cycling.RideHistoryChanges.version.collectAsState()
+    val totals by produceState(RideTotals(0.0, 0.0), isRecording, historyVersion) {
         value = withContext(Dispatchers.IO) {
             val dir = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), "CycleMap/gpx")
             val rides = dir.listFiles { f -> f.extension.lowercase() == "gpx" }
