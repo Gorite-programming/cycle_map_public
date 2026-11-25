@@ -577,10 +577,14 @@ internal fun MapScreen(
             text = { androidx.compose.material3.Text("前回の記録を続けるか、GPXに保存して終了できます。") },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
-                    com.gorite.cyclemap.tracking.LocationTrackingService.resumeRecording(state.context)
-                    // 位置情報の許可が無いと記録は再開できない。サイコンだけ走行中にしない
-                    if (state.context.hasLocationPermission()) rideSession.start()
-                    showRecovery.value = false
+                    // 位置情報の許可が無いと記録は再開できない。ダイアログを閉じず、許可するか「保存して終える」を選んでもらう
+                    if (!state.context.hasLocationPermission()) {
+                        android.widget.Toast.makeText(state.context, "記録を続けるには位置情報の許可が必要です", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        com.gorite.cyclemap.tracking.LocationTrackingService.resumeRecording(state.context)
+                        rideSession.start()
+                        showRecovery.value = false
+                    }
                 }) { androidx.compose.material3.Text("続ける") }
             },
             dismissButton = {
