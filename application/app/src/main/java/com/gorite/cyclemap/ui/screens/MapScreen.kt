@@ -578,7 +578,8 @@ internal fun MapScreen(
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     com.gorite.cyclemap.tracking.LocationTrackingService.resumeRecording(state.context)
-                    rideSession.start()
+                    // 位置情報の許可が無いと記録は再開できない。サイコンだけ走行中にしない
+                    if (state.context.hasLocationPermission()) rideSession.start()
                     showRecovery.value = false
                 }) { androidx.compose.material3.Text("続ける") }
             },

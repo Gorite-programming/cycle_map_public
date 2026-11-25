@@ -234,7 +234,7 @@ internal fun BoxScope.MapTopOverlays(
 
         // バナーをタップすると、先の曲がり角の一覧を出す (Google マップのステップ一覧に相当)。
         var showSteps by remember { androidx.compose.runtime.mutableStateOf(false) }
-        if (showSteps) {
+        if (showSteps && !isRerouting) {
             val steps = remember(navigationInstructions, progress?.distanceFromStartMeters) {
                 upcomingSteps(navigationInstructions, progress?.distanceFromStartMeters ?: 0.0)
             }

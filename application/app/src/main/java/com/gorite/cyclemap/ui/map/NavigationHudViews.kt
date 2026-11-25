@@ -314,7 +314,8 @@ fun LandscapeNavHudBar(
                         animationEnabled = animationEnabled,
                         modifier = Modifier.width(116.dp).padding(end = 8.dp)
                     )
-                    Icon(
+                    // リルート中は、古い曲がり角の矢印を出さない
+                    if (!isRerouting) Icon(
                         painter = painterResource(turnTypeToDrawableRes(currentStep.turnType)),
                         contentDescription = null,
                         tint = CycleMapTheme.palette.onNavBanner,

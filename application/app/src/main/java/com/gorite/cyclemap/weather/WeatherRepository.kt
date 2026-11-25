@@ -114,7 +114,7 @@ class WeatherRepository(
 
             if (areaChanged) {
                 // 新しい地域のキャッシュを確認
-                val localCached = loadCachedForOffice(resolved.officeCode)
+                val localCached = loadCachedForOffice(resolved.officeCode, resolved.class10Code)
                 if (localCached != null && localCached.class10Code == resolved.class10Code) {
                     if (localCached.isFresh()) {
                         _uiState.value = WeatherUiState.Fresh(localCached)
