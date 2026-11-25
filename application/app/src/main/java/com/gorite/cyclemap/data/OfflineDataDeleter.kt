@@ -65,10 +65,13 @@ internal object OfflineDataDeleter {
 
     fun plan(dataDir: File, prefecture: Prefecture): Plan {
         require(PrefectureData.ALL.any { it.id == prefecture.id })
-        // 大文字小文字を区別しない端末 (Android の /sdcard など) では、Tottori.search.db と tottori.search.db が同じファイルを指す。
-        // 名前が違っても同じファイルなら 1 つに数える (二重に数えて大きさが倍になるのを防ぐ)。
-        val files = names(prefecture.id).sorted().map { File(dataDir, it) }
+        // 候補の名前から File を作ると、大文字小文字を区別しない端末 (Android の /sdcard、macOS など) では
+        // 実在する hiroshima.pmtiles を Hiroshima.pmtiles という名前で拾ってしまう。
+        // ディレクトリの実際の名前を一覧し、候補と完全に一致するものだけを使う。
+        val wanted = names(prefecture.id)
+        val files = (dataDir.listFiles() ?: emptyArray()).filter { it.name in wanted }.sortedBy { it.name }
             .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+            // 名前が違っても同じファイル (ハードリンクなど) なら 1 つに数える (大きさを二重に数えない)。
             .fold(mutableListOf<File>()) { acc, file ->
                 if (acc.none { runCatching { Files.isSameFile(it.toPath(), file.toPath()) }.getOrDefault(false) }) acc.add(file)
                 acc
