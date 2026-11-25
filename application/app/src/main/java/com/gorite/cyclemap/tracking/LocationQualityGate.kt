@@ -79,9 +79,9 @@ internal class LocationQualityGate(
             return GateVerdict.STATIONARY
         }
 
-        val isJump = dtSeconds <= MAX_JUMP_WINDOW_SECONDS &&
-            (impliedMps > maxCyclingSpeedMps ||
-                (doppler != null && impliedMps > doppler * 2.0 + DOPPLER_MISMATCH_MARGIN_MPS))
+        val isJump = (dtSeconds <= MAX_JUMP_WINDOW_SECONDS && impliedMps > maxCyclingSpeedMps) ||
+            (dtSeconds <= MAX_DOPPLER_MISMATCH_WINDOW_SECONDS && doppler != null &&
+                impliedMps > doppler * 2.0 + DOPPLER_MISMATCH_MARGIN_MPS)
         if (!isJump) return accept(fix)
 
         val consistent = lastRejectedJump?.let { previous ->
@@ -123,6 +123,9 @@ internal class LocationQualityGate(
 
         /** 上限超えとドップラーとの食い違いは、この秒数以内の間隔にだけ判定する。 */
         const val MAX_JUMP_WINDOW_SECONDS = 10.0
+
+        /** ドップラーとの食い違いは、測位の途切れがあってもこの秒数までは判定する (信頼できるドップラー速度があるときだけ)。 */
+        const val MAX_DOPPLER_MISMATCH_WINDOW_SECONDS = 15.0
 
         /** 飛びと判定された測位がこの回数だけ連続して整合したら、新しい位置として採用し直す。 */
         const val REANCHOR_AFTER_REJECTS = 3

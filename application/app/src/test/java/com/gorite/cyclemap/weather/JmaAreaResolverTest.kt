@@ -117,4 +117,12 @@ class JmaAreaResolverTest {
         assertEquals("471000", resolver.resolve("沖縄県")?.officeCode)
         assertEquals("460100", resolver.resolve("鹿児島県")?.officeCode)
     }
+
+    @Test
+    fun daitoVillagesDoNotResolveToHigashiVillage() {
+        for (name in listOf("南大東村", "北大東村")) {
+            val resolved = resolver.resolve("沖縄県", name)
+            assertEquals(name, "472000", resolved?.officeCode)
+        }
+    }
 }

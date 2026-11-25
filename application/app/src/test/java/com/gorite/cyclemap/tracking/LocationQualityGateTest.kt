@@ -118,6 +118,14 @@ class LocationQualityGateTest {
     }
 
     @Test
+    fun elevenSecondGapStillRejectsAFixThatContradictsTheDoppler() {
+        val gate = LocationQualityGate()
+        gate.evaluate(fix(0.0, speed = 4f))
+        // 11 秒で 250 m (22.7 m/s) だが、ドップラーは 4 m/s のまま → 飛び
+        assertEquals(GateVerdict.REJECT_JUMP, gate.evaluate(fix(11.0, northMeters = 250.0, speed = 4f)))
+    }
+
+    @Test
     fun scatteredJumpsAreRejectedUntilThreeConsecutiveFixesAgree() {
         val gate = LocationQualityGate()
         gate.evaluate(fix(0.0))

@@ -104,7 +104,13 @@ class ShikokuMetanAudioEngine(
         abandonFocus()
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(guidanceAttributes)
-            .setOnAudioFocusChangeListener { }
+            // 通話や他の音声アプリにフォーカスを取られたら、案内は止める (重ねて鳴らさない)。
+            .setOnAudioFocusChangeListener { change ->
+                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                    runCatching { mediaPlayer?.stop(); mediaPlayer?.release() }
+                    mediaPlayer = null
+                }
+            }
             .build()
         focusRequest = request
         runCatching { manager.requestAudioFocus(request) }

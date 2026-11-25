@@ -50,6 +50,8 @@ class JmaAreaResolver(
         if (normalizedHint.isEmpty()) return null
 
         var prefixFallback: ResolvedArea? = null
+        var addressBest: ResolvedArea? = null
+        var bestAddressLength = 0
 
         // class20s を走査
         for ((_, cityElement) in class20s.entrySet()) {
@@ -68,10 +70,11 @@ class JmaAreaResolver(
             val officeName = officeObj.get("name")?.asString ?: continue
             if (!officeBelongsTo(officeCode, officeName, prefecture)) continue
 
-            val exactOrAddressMatch = cityName == city ||
-                cityName == normalizedHint ||
-                (cityName.length >= 2 && normalizedHint.startsWith(cityName)) ||
-                (cityName.length >= 2 && normalizedHint.contains(cityName))
+            val exactMatch = cityName == city || cityName == normalizedHint
+            // 住所文字列に含まれる名前。「南大東村」に「東村」が含まれるので、完全一致を先に返し、残りは長い名前を優先する。
+            val addressMatch = !exactMatch && cityName.length >= 2 &&
+                (normalizedHint.startsWith(cityName) || normalizedHint.contains(cityName))
+            val exactOrAddressMatch = exactMatch || addressMatch
 
             val partialCityMatch = (cityName.startsWith(normalizedHint) && normalizedHint.endsWith("市")) ||
                 (normalizedHint.endsWith("区") && cityName.endsWith(normalizedHint))
@@ -89,13 +92,18 @@ class JmaAreaResolver(
                 prefectureName = prefecture,
                 isFallback = false
             )
-            if (exactOrAddressMatch) {
+            if (exactMatch) {
                 return candidate
+            } else if (addressMatch) {
+                if (cityName.length > bestAddressLength) {
+                    bestAddressLength = cityName.length
+                    addressBest = candidate
+                }
             } else if (prefixFallback == null) {
                 prefixFallback = candidate
             }
         }
-        return prefixFallback
+        return addressBest ?: prefixFallback
     }
 
     /**
