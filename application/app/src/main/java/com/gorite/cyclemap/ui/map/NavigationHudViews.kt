@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.ui.map
 
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -289,9 +290,10 @@ fun LandscapeNavHudBar(
     laneHints: List<LaneInfo> = emptyList(),
     isRerouting: Boolean = false,
     showStopNavigation: Boolean = true,
+    onTap: (() -> Unit)? = null,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().then(if (onTap != null) Modifier.clickable { onTap() } else Modifier),
         color = CycleMapTheme.palette.navBanner,
         shadowElevation = 6.dp
     ) {
@@ -328,6 +330,15 @@ fun LandscapeNavHudBar(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (!currentStep.streetName.isNullOrEmpty()) {
+                            Text(
+                                text = currentStep.streetName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CycleMapTheme.palette.onNavBanner.copy(alpha = 0.75f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         if (shouldShowLaneGuidance(laneHints, isRerouting)) {
                             Spacer(Modifier.height(6.dp))
                             LaneGuidanceChips(laneHints)

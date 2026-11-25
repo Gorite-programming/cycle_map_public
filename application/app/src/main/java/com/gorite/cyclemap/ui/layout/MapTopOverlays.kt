@@ -318,7 +318,8 @@ internal fun BoxScope.MapTopOverlays(
                             currentStep = com.gorite.cyclemap.contract.GuidanceStep(
                                 turnType = display.turnType,
                                 instructionText = display.instructionText,
-                                streetName = targetInstruction?.outgoingRoadName,
+                                streetName = targetInstruction?.outgoingRoadName
+                                    ?: com.gorite.cyclemap.ui.map.roadClassLabel(targetInstruction?.outgoingRoadType),
                                 distanceToTurnMeters = display.distanceMeters
                             ),
                             // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。
@@ -328,6 +329,7 @@ internal fun BoxScope.MapTopOverlays(
                             animationEnabled = effectiveAnimationEnabled,
                             laneHints = shownLaneHints,
                             isRerouting = isRerouting,
+                            onTap = { if (!isRerouting && navigationInstructions.isNotEmpty()) showSteps = true },
                         )
                     } else {
                         Box(modifier = Modifier.clickable(enabled = !isRerouting && navigationInstructions.isNotEmpty()) { showSteps = true }) {
