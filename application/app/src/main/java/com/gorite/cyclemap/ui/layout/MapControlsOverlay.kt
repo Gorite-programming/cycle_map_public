@@ -422,8 +422,9 @@ internal fun BoxScope.MapControlsOverlay(
                 color = MaterialTheme.colorScheme.primary,
                 shadowElevation = 8.dp,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = navigationPanelHeight + 16.dp)
+                    .align(Alignment.BottomStart)
+                    // 右の「立ち寄り」ボタンと重ならないよう左に寄せる
+                    .padding(start = 16.dp, bottom = navigationPanelHeight + 16.dp)
                     .zIndex(3f),
             ) {
                 Text(
