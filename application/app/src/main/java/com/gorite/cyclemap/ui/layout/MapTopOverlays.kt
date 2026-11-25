@@ -228,6 +228,9 @@ internal fun BoxScope.MapTopOverlays(
             }
         }
 
+        // 車線は、曲がる角が近づいてから出す (数 km 先の交差点の車線まで常に出さない)。
+        val shownLaneHints = if (display.distanceMeters <= 600.0) activeLaneHints else emptyList()
+
         val routeHazards = com.gorite.cyclemap.ui.hazard.LocalRouteHazards.current
         val traveledMeters = progress?.distanceFromStartMeters
         val hazardAhead = remember(routeHazards, traveledMeters) {
@@ -276,7 +279,7 @@ internal fun BoxScope.MapTopOverlays(
                             remainingSeconds = (remaining ?: 0.0) / 4.2,
                             onStopNavigation = onStopNavigation,
                             animationEnabled = effectiveAnimationEnabled,
-                            laneHints = activeLaneHints,
+                            laneHints = shownLaneHints,
                             isRerouting = isRerouting,
                         )
                     } else {
@@ -294,7 +297,7 @@ internal fun BoxScope.MapTopOverlays(
                                 )
                             } else null,
                             isRerouting = isRerouting,
-                            laneHints = activeLaneHints,
+                            laneHints = shownLaneHints,
                         )
                     }
                     if (hazardAhead != null) {
