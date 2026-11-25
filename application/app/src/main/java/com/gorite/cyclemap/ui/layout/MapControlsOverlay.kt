@@ -239,7 +239,7 @@ internal fun BoxScope.MapControlsOverlay(
                 shadowElevation = 8.dp,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 16.dp, bottom = 84.dp)
+                    .padding(start = 16.dp, bottom = 140.dp)
                     .zIndex(3f),
             ) {
                 Text(
