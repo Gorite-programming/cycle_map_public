@@ -31,7 +31,9 @@ object OfflineDataImporter {
      * 例: "Hiroshima (1).graph" → "Hiroshima.graph"、"x/Hiroshima.search.db" → "Hiroshima.search.db"。
      */
     fun targetName(rawName: String): String? {
+        // 複合拡張子のファイルは、ブラウザが「Yamaguchi.graph (1).idx」のように途中へ番号を付ける。最後の拡張子の直前の番号を除く。
         val name = rawName.substringAfterLast('/').substringAfterLast('\\').trim()
+            .replace(Regex(""" \(\d+\)(?=\.[^.]+$)"""), "")
         val suffix = SUFFIXES.firstOrNull { name.endsWith(it, ignoreCase = true) } ?: return null
         val stem = name.dropLast(suffix.length).replace(BROWSER_COPY_SUFFIX, "")
         // 県名 (と「A__B」のポータル) だけを許す。パスの区切りや記号を含む名前は取り込まない
