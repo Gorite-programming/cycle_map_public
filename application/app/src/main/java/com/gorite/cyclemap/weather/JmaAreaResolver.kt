@@ -66,7 +66,7 @@ class JmaAreaResolver(
             val officeObj = offices.getAsJsonObject(officeCode) ?: continue
 
             val officeName = officeObj.get("name")?.asString ?: continue
-            if (officeName != prefecture && !officeName.startsWith(prefecture)) continue
+            if (!officeBelongsTo(officeCode, officeName, prefecture)) continue
 
             val exactOrAddressMatch = cityName == city ||
                 cityName == normalizedHint ||
@@ -111,7 +111,10 @@ class JmaAreaResolver(
                 break
             }
         }
-        val officeCode = matchedOfficeCode ?: return null
+        // 北海道・沖縄県は予報区の名前が県名で始まらないので、県庁所在地の予報区を使う。
+        val officeCode = matchedOfficeCode
+            ?: CAPITAL_OFFICE_CODES[prefecture]?.takeIf { offices.has(it) }
+            ?: return null
 
         // class10s のうち parent == officeCode の最初のエントリを探す
         var matchedC10Code: String? = null
@@ -139,6 +142,25 @@ class JmaAreaResolver(
     }
 
     /**
+     * 予報区 (office) がその都道府県のものか。名前が県名で始まるもの (「鹿児島県（奄美地方除く）」など) に加え、
+     * 予報区コードの先頭 2 桁 (都道府県コード) でも照合する。北海道の「宗谷地方」、沖縄県の「八重山地方」、
+     * 鹿児島県の「奄美地方」は名前に県名が入っていない。
+     */
+    private fun officeBelongsTo(officeCode: String, officeName: String, prefecture: String): Boolean {
+        if (officeName == prefecture || officeName.startsWith(prefecture)) return true
+        val prefix = prefectureCodePrefix(prefecture) ?: return false
+        return officeCode.startsWith(prefix)
+    }
+
+    private val prefixCache = HashMap<String, String?>()
+
+    private fun prefectureCodePrefix(prefecture: String): String? = prefixCache.getOrPut(prefecture) {
+        PREFECTURE_CODE_PREFIXES[prefecture] ?: offices.entrySet().firstOrNull { (_, elem) ->
+            elem.asJsonObject.get("name")?.asString?.startsWith(prefecture) == true
+        }?.key?.take(2)
+    }
+
+    /**
      * forecast_area.json から officeCode / class10 に対応するアメダス地点コードを取得
      */
     private fun findAmedasCode(officeCode: String, class10Code: String): String? {
@@ -153,6 +175,15 @@ class JmaAreaResolver(
     }
 
     companion object {
+        /** 名前に県名を含む予報区が無い都道府県の、予報区コードの先頭 2 桁 (都道府県コード)。 */
+        private val PREFECTURE_CODE_PREFIXES = mapOf("北海道" to "01", "沖縄県" to "47")
+
+        /** 市区町村が分からないときに使う、県庁所在地を含む予報区。 */
+        private val CAPITAL_OFFICE_CODES = mapOf(
+            "北海道" to "016000", // 石狩・空知・後志地方 (札幌)
+            "沖縄県" to "471000", // 沖縄本島地方 (那覇)
+        )
+
         @Volatile
         private var instance: JmaAreaResolver? = null
 

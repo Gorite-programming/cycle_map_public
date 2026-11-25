@@ -93,4 +93,28 @@ class JmaAreaResolverTest {
         assertEquals("340010", hiroshimaWardAddress?.class10Code) // 南部
         assertFalse(hiroshimaWardAddress!!.isFallback)
     }
+
+    // 北海道・沖縄県・奄美は、気象庁の予報区の名前が県名で始まらない (「石狩・空知・後志地方」など)。
+
+    @Test
+    fun hokkaidoCitiesResolveToTheirOwnRegions() {
+        assertEquals("016000", resolver.resolve("北海道", "札幌市")?.officeCode)
+        assertEquals("017000", resolver.resolve("北海道", "函館市")?.officeCode)
+    }
+
+    @Test
+    fun okinawaAndAmamiCitiesResolveToTheirOwnRegions() {
+        assertEquals("474000", resolver.resolve("沖縄県", "石垣市")?.officeCode)
+        assertEquals("471000", resolver.resolve("沖縄県", "那覇市")?.officeCode)
+        assertEquals("460040", resolver.resolve("鹿児島県", "奄美市")?.officeCode)
+    }
+
+    @Test
+    fun hokkaidoAndOkinawaFallBackToTheCapitalRegionWithoutACity() {
+        val hokkaido = resolver.resolve("北海道")
+        assertEquals("016000", hokkaido?.officeCode)
+        assertTrue(hokkaido!!.isFallback)
+        assertEquals("471000", resolver.resolve("沖縄県")?.officeCode)
+        assertEquals("460100", resolver.resolve("鹿児島県")?.officeCode)
+    }
 }
