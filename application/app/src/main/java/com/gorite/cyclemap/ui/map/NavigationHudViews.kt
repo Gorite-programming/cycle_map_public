@@ -115,7 +115,7 @@ fun GoogleNavHeaderV2(
                             fontWeight = FontWeight.SemiBold,
                             color = CycleMapTheme.palette.onNavBanner
                         )
-                        if (!currentStep.streetName.isNullOrEmpty()) {
+                        if (!isRerouting && !currentStep.streetName.isNullOrEmpty()) {
                             Text(
                                 text = currentStep.streetName,
                                 style = MaterialTheme.typography.bodySmall,
@@ -323,7 +323,9 @@ fun LandscapeNavHudBar(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${formatDistance(currentStep.distanceToTurnMeters)} ${currentStep.instructionText}",
+                            // リルート中は、古い曲がり角の案内ではなく再計算中だと分かる表示にする。
+                            text = if (isRerouting) "ルートを再計算中…"
+                            else "${formatDistance(currentStep.distanceToTurnMeters)} ${currentStep.instructionText}",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CycleMapTheme.palette.onNavBanner,
