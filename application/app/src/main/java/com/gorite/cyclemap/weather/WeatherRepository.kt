@@ -122,6 +122,9 @@ class WeatherRepository(
                     } else {
                         _uiState.value = WeatherUiState.Stale(localCached, isOffline = !isOnline)
                     }
+                } else if (!isOnline) {
+                    // 新しい地域のキャッシュが無いのに、前の地域の予報を出し続けない
+                    _uiState.value = WeatherUiState.Unavailable
                 }
             }
 
