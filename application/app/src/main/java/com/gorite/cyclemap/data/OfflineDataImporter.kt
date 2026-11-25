@@ -48,6 +48,9 @@ object OfflineDataImporter {
         dataDir.mkdirs()
         val imported = ArrayList<String>()
         val skipped = ArrayList<String>()
+        // 全部を .part に書き終えてから、まとめて置き換える。途中で失敗しても、新しい graph と古い idx が混ざらない。
+        val staged = LinkedHashMap<File, File>()
+        try {
         for (uri in uris) {
             val displayName = displayName(context, uri) ?: uri.lastPathSegment ?: "?"
             val input = context.contentResolver.openInputStream(uri)
@@ -66,7 +69,7 @@ object OfflineDataImporter {
                                 skipped += entry.name
                             } else {
                                 onProgress(target)
-                                writeAtomically(zip, File(dataDir, target))
+                                stage(zip, File(dataDir, target), staged)
                                 imported += target
                             }
                         }
@@ -77,13 +80,25 @@ object OfflineDataImporter {
                         skipped += displayName
                     } else {
                         onProgress(target)
-                        writeAtomically(stream, File(dataDir, target))
+                        stage(stream, File(dataDir, target), staged)
                         imported += target
                     }
                 }
             }
         }
+        commit(staged)
+        } finally {
+            // 失敗・中断のときに、書きかけを残さない (成功時は commit の renameTo で消えている)
+            staged.values.forEach { it.delete() }
+        }
         return Result(imported, skipped)
+    }
+
+    private fun commit(staged: Map<File, File>) {
+        for ((target, part) in staged) {
+            if (target.exists() && !target.delete()) error("既存のファイルを置き換えられません: ${target.name}")
+            if (!part.renameTo(target)) error("ファイルを置けません: ${target.name}")
+        }
     }
 
     /** 1 ファイルの上限。県のグラフは 2 GiB 未満 (読み込み側の制約)、タイルも数百 MB なので、これを超えるものは壊れているか別物。 */
@@ -110,7 +125,7 @@ object OfflineDataImporter {
         }
     }
 
-    private fun writeAtomically(input: InputStream, target: File) {
+    private fun stage(input: InputStream, target: File, staged: MutableMap<File, File>) {
         val dir = target.parentFile ?: error("置き場所がありません")
         val part = File(dir, target.name + ".part")
         try {
@@ -129,11 +144,10 @@ object OfflineDataImporter {
                 }
             }
             if (!looksLikeDataFile(target.name, head)) error("中身が ${target.name} の形式ではありません")
-            if (target.exists() && !target.delete()) error("既存のファイルを置き換えられません: ${target.name}")
-            if (!part.renameTo(target)) error("ファイルを置けません: ${target.name}")
-        } finally {
-            // 失敗・中断のときに、書きかけを残さない (成功時は renameTo で消えている)
-            part.delete()
+            staged[target] = part
+        } catch (e: Throwable) {
+            if (target !in staged) part.delete()
+            throw e
         }
     }
 
