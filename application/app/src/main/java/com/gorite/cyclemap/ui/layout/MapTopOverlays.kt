@@ -268,7 +268,7 @@ internal fun BoxScope.MapTopOverlays(
                             currentStep = com.gorite.cyclemap.contract.GuidanceStep(
                                 turnType = display.turnType,
                                 instructionText = display.instructionText,
-                                streetName = null,
+                                streetName = targetInstruction?.outgoingRoadName,
                                 distanceToTurnMeters = display.distanceMeters
                             ),
                             // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。

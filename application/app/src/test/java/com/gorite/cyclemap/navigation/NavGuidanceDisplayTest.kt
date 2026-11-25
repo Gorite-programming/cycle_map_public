@@ -54,7 +54,7 @@ class NavGuidanceDisplayTest {
     }
 
     @Test
-    fun farTurnBeyond500mShowsStraightArrowAndStraightText() {
+    fun farTurnBeyond500mShowsTheTurnArrowWithItsDistance() {
         val progress = RouteProgress(
             distanceFromStartMeters = 0.0,
             routeDistanceMeters = 2000.0,
@@ -67,12 +67,13 @@ class NavGuidanceDisplayTest {
         )
 
         val display = resolveNavGuidanceDisplay(progress, 2000.0, instructions, arrivalRadiusMeters = 30.0)
-        assertEquals(TurnType.Straight, display.turnType)
+        assertEquals(TurnType.Left, display.turnType)
         assertEquals(800.0, display.distanceMeters, 1e-6)
-        assertEquals("このまま直進です", display.instructionText)
-        assertNull(display.targetInstruction)
-        assertEquals(InstructionType.LEFT_TURN, display.nextInstruction?.type)
-        assertEquals(800.0, display.distanceToNextMeters!!, 1e-6)
+        assertEquals("この先 左折です", display.instructionText)
+        assertEquals(InstructionType.LEFT_TURN, display.targetInstruction?.type)
+        // 同じ曲がり角を「そのあと」に重ねて出さない
+        assertNull(display.nextInstruction)
+        assertNull(display.distanceToNextMeters)
     }
 
     @Test

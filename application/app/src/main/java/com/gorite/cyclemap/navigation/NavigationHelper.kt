@@ -157,6 +157,7 @@ private fun straightGuidanceText(distanceMeters: Double): String = when (((dista
 private fun maneuverGuidanceText(instruction: RouteInstruction, distanceMeters: Double): String {
     val label = IconResolver.getLabel(instruction.type, instruction.turnAngleDegrees)
     return when {
+        distanceMeters >= 500.0 -> "この先 ${label}です"
         distanceMeters >= 100.0 -> "${label}です"
         distanceMeters >= 30.0 -> "まもなく${label}です"
         else -> "${label}です"
@@ -185,49 +186,29 @@ internal fun resolveNavGuidanceDisplay(
     val richNext = future.firstOrNull()
     if (richNext != null) {
         val richDist = (richNext.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
-        if (richNext.type == InstructionType.STRAIGHT) {
-            val upcoming = future.firstOrNull { it.type != InstructionType.STRAIGHT }
-            val upcomingDist = upcoming?.let { (it.distanceFromStartMeters - traveled).coerceAtLeast(0.0) }
-            if (upcoming != null && upcomingDist != null && upcomingDist < 200.0) {
-                val upcomingIdx = future.indexOf(upcoming)
-                val after = future.drop(upcomingIdx + 1).firstOrNull { it.type != InstructionType.STRAIGHT }
-                val distAfter = after?.let { (it.distanceFromStartMeters - upcoming.distanceFromStartMeters).coerceAtLeast(0.0) }
-                return NavGuidanceDisplay(
-                    turnType = upcoming.toGuidanceTurnType(),
-                    distanceMeters = upcomingDist,
-                    instructionText = maneuverGuidanceText(upcoming, upcomingDist),
-                    targetInstruction = upcoming,
-                    nextInstruction = after,
-                    distanceToNextMeters = distAfter,
-                )
-            }
-            val straightDist = upcomingDist ?: remaining
+        // 次に曲がる角を、遠くても矢印と距離で主表示にする (Google マップのナビと同じ。
+        // 以前は 500 m 手前まで「直進」を出し、同じ距離を「そのあと」にも出していた)。
+        val target = if (richNext.type == InstructionType.STRAIGHT) {
+            future.firstOrNull { it.type != InstructionType.STRAIGHT }
+        } else richNext
+        if (target == null) {
             return NavGuidanceDisplay(
                 turnType = TurnType.Straight,
-                distanceMeters = straightDist,
+                distanceMeters = remaining,
                 instructionText = straightGuidanceText(richDist),
                 targetInstruction = null,
-                nextInstruction = upcoming,
-                distanceToNextMeters = upcomingDist,
+                nextInstruction = null,
+                distanceToNextMeters = null,
             )
         }
-        if (richDist >= 500.0) {
-            return NavGuidanceDisplay(
-                turnType = TurnType.Straight,
-                distanceMeters = richDist,
-                instructionText = straightGuidanceText(richDist),
-                targetInstruction = null,
-                nextInstruction = richNext,
-                distanceToNextMeters = richDist,
-            )
-        }
-        val after = future.drop(1).firstOrNull { it.type != InstructionType.STRAIGHT }
-        val distAfter = after?.let { (it.distanceFromStartMeters - richNext.distanceFromStartMeters).coerceAtLeast(0.0) }
+        val targetDist = (target.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
+        val after = future.drop(future.indexOf(target) + 1).firstOrNull { it.type != InstructionType.STRAIGHT }
+        val distAfter = after?.let { (it.distanceFromStartMeters - target.distanceFromStartMeters).coerceAtLeast(0.0) }
         return NavGuidanceDisplay(
-            turnType = richNext.toGuidanceTurnType(),
-            distanceMeters = richDist,
-            instructionText = maneuverGuidanceText(richNext, richDist),
-            targetInstruction = richNext,
+            turnType = target.toGuidanceTurnType(),
+            distanceMeters = targetDist,
+            instructionText = maneuverGuidanceText(target, targetDist),
+            targetInstruction = target,
             nextInstruction = after,
             distanceToNextMeters = distAfter,
         )
