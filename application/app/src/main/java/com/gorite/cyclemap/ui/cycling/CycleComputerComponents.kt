@@ -60,8 +60,12 @@ import com.gorite.cyclemap.tracking.RideState
 import com.gorite.cyclemap.ui.theme.CycleMapTheme
 import kotlinx.coroutines.delay
 
-internal fun gpxStatusBadgeLabel(isGpxRecording: Boolean): String =
-    if (isGpxRecording) "GPX記録中" else "GPX停止中"
+internal fun gpxStatusBadgeLabel(isGpxRecording: Boolean, paused: Boolean = false): String = when {
+    !isGpxRecording -> "GPX停止中"
+    // 一時停止中は点を記録しない (記録は続いているので「終了して保存」は出したまま)
+    paused -> "GPX一時停止中"
+    else -> "GPX記録中"
+}
 
 internal fun shouldShowFinishAndSave(isGpxRecording: Boolean): Boolean = isGpxRecording
 
@@ -99,7 +103,7 @@ internal fun CycleComputerStatusBar(
         )
     }
 
-    val gpxLabel = gpxStatusBadgeLabel(isGpxRecording)
+    val gpxLabel = gpxStatusBadgeLabel(isGpxRecording, paused = state == RideState.PAUSED)
     val gpxContainer = if (isGpxRecording) palette.dangerContainer else MaterialTheme.colorScheme.surface
     val gpxContent = if (isGpxRecording) palette.danger else MaterialTheme.colorScheme.onSurfaceVariant
     val gpxBorderColor = if (isGpxRecording) palette.danger else MaterialTheme.colorScheme.outlineVariant

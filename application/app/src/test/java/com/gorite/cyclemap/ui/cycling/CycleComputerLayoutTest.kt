@@ -19,6 +19,7 @@ class CycleComputerLayoutTest {
     @Test fun gpxStatusBadgeLabelDistinguishesRecordingFromStopped() {
         assertEquals("GPX記録中", gpxStatusBadgeLabel(true))
         assertEquals("GPX停止中", gpxStatusBadgeLabel(false))
+        assertEquals("GPX一時停止中", gpxStatusBadgeLabel(true, paused = true))
     }
     @Test fun finishAndSaveIsShownOnlyDuringGpxRecording() {
         assertTrue(shouldShowFinishAndSave(true))

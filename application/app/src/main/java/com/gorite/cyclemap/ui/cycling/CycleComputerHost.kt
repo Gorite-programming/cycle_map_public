@@ -1,5 +1,6 @@
 package com.gorite.cyclemap.ui.cycling
 
+import com.gorite.cyclemap.utils.hasLocationPermission
 import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -92,6 +93,7 @@ fun CycleComputerHost(
         progress = progress,
     )
     val finishAndReset = { onFinishRecording(); rideSession.reset(); store.clear() }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
     val ruleKind = com.gorite.cyclemap.ui.state.LocalRoadRuleController.current?.kind?.value
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CycleComputerScreen(
@@ -114,6 +116,9 @@ fun CycleComputerHost(
                 if (rideSession.snapshot(System.currentTimeMillis()).state == RideState.RUNNING) {
                     rideSession.pause(System.currentTimeMillis())
                     onPauseRecording()
+                } else if (!appContext.hasLocationPermission()) {
+                    // 権限が無いと記録も測位も始まらない。走行中の表示にせず、理由の Toast だけ出す。
+                    onStartRecording()
                 } else {
                     rideSession.start(System.currentTimeMillis())
                     onStartRecording()
