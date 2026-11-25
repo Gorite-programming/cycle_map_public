@@ -215,10 +215,12 @@ internal fun resolveNavGuidanceDisplay(
         val richDist = (richNext.distanceFromStartMeters - traveled).coerceAtLeast(0.0)
         // 次に曲がる角を、遠くても矢印と距離で主表示にする (Google マップのナビと同じ。
         // 以前は 500 m 手前まで「直進」を出し、同じ距離を「そのあと」にも出していた)。
-        // 合流・車線の増減など、曲がる向きの無い案内は、近づく (300 m 手前) まで主表示にしない。
+        // 合流・車線の増減など、曲がる向きの無い案内は、近づく (音声の 300 m 前案内が始まる 340 m 手前) まで主表示にしない。
         val target = future.firstOrNull {
             it.type != InstructionType.STRAIGHT &&
-                (!it.isMinorForDisplay() || it.distanceFromStartMeters - traveled < 300.0)
+                (!it.isMinorForDisplay() || it.distanceFromStartMeters - traveled <
+                    com.gorite.cyclemap.speech.VoiceGuidanceThresholds.DISTANCE_FAR_METERS +
+                    com.gorite.cyclemap.speech.VoiceGuidanceThresholds.FAR_TOLERANCE_METERS)
         }
         if (target == null) {
             return NavGuidanceDisplay(
