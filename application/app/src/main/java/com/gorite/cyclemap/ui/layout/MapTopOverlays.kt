@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -231,6 +232,52 @@ internal fun BoxScope.MapTopOverlays(
         // 車線は、曲がる角が近づいてから出す (数 km 先の交差点の車線まで常に出さない)。
         val shownLaneHints = if (display.distanceMeters <= 600.0) activeLaneHints else emptyList()
 
+        // バナーをタップすると、先の曲がり角の一覧を出す (Google マップのステップ一覧に相当)。
+        var showSteps by remember { androidx.compose.runtime.mutableStateOf(false) }
+        if (showSteps) {
+            val steps = remember(navigationInstructions, progress?.distanceFromStartMeters) {
+                upcomingSteps(navigationInstructions, progress?.distanceFromStartMeters ?: 0.0)
+            }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showSteps = false },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { showSteps = false }) { Text("閉じる") }
+                },
+                title = { Text("この先の曲がり角") },
+                text = {
+                    if (steps.isEmpty()) {
+                        Text("この先に曲がる角はありません")
+                    } else {
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            steps.forEach { step ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        painter = painterResource(
+                                            com.gorite.cyclemap.ui.map.turnTypeToDrawableRes(step.instruction.toGuidanceTurnType()),
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(step.label, fontWeight = FontWeight.Bold)
+                                        (step.instruction.outgoingRoadName
+                                            ?: com.gorite.cyclemap.ui.map.roadClassLabel(step.instruction.outgoingRoadType))
+                                            ?.let { Text(it, fontSize = 13.sp) }
+                                    }
+                                    val (num, unit) = com.gorite.cyclemap.ui.map.splitDistance(step.distanceMeters)
+                                    Text(num + unit, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
         val routeHazards = com.gorite.cyclemap.ui.hazard.LocalRouteHazards.current
         val traveledMeters = progress?.distanceFromStartMeters
         val hazardAhead = remember(routeHazards, traveledMeters) {
@@ -283,6 +330,7 @@ internal fun BoxScope.MapTopOverlays(
                             isRerouting = isRerouting,
                         )
                     } else {
+                        Box(modifier = Modifier.clickable { showSteps = true }) {
                         com.gorite.cyclemap.ui.map.NavTopBarC(
                             turnType = display.turnType,
                             distanceMeters = display.distanceMeters,
@@ -299,6 +347,7 @@ internal fun BoxScope.MapTopOverlays(
                             isRerouting = isRerouting,
                             laneHints = shownLaneHints,
                         )
+                        }
                     }
                     if (hazardAhead != null) {
                         Spacer(modifier = Modifier.height(6.dp))

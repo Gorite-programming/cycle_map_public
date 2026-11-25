@@ -164,6 +164,24 @@ private fun maneuverGuidanceText(instruction: RouteInstruction, distanceMeters: 
     }
 }
 
+/** 案内の一覧 (バナーをタップして開く) の 1 行: 曲がる角と、いまの位置からそこまでの距離。 */
+internal data class UpcomingStep(val instruction: RouteInstruction, val distanceMeters: Double, val label: String)
+
+/** これから通る曲がり角を近い順に最大 [limit] 件。直進や合流など曲がる向きの無い案内は含めない。 */
+internal fun upcomingSteps(
+    instructions: List<RouteInstruction>,
+    traveledMeters: Double,
+    limit: Int = 12,
+): List<UpcomingStep> = instructions
+    .asSequence()
+    .filter { it.distanceFromStartMeters > traveledMeters && it.type != InstructionType.STRAIGHT && it.toGuidanceTurnType() != TurnType.Straight }
+    .take(limit)
+    .map {
+        val label = IconResolver.getLabel(it.type, it.turnAngleDegrees)
+        UpcomingStep(it, it.distanceFromStartMeters - traveledMeters, label)
+    }
+    .toList()
+
 internal fun resolveNavGuidanceDisplay(
     progress: RouteProgress?,
     remainingMeters: Double?,

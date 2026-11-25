@@ -155,4 +155,18 @@ class NavGuidanceDisplayTest {
         assertEquals(TurnType.Right, display.turnType)
         assertEquals(120.0, display.distanceMeters, 1e-6)
     }
+
+    @Test
+    fun upcomingStepsListsOnlyRealTurnsAhead() {
+        val instructions = listOf(
+            inst(InstructionType.RIGHT_TURN, 50.0, angle = 90.0),
+            inst(InstructionType.STRAIGHT, 150.0),
+            inst(InstructionType.MERGE, 200.0),
+            inst(InstructionType.LEFT_TURN, 400.0, angle = -90.0),
+        )
+        val steps = upcomingSteps(instructions, traveledMeters = 100.0)
+        assertEquals(1, steps.size)
+        assertEquals(300.0, steps[0].distanceMeters, 1e-6)
+        assertEquals("左折", steps[0].label)
+    }
 }
