@@ -240,43 +240,11 @@ internal fun BoxScope.MapTopOverlays(
             val steps = remember(navigationInstructions, progress?.distanceFromStartMeters) {
                 upcomingSteps(navigationInstructions, progress?.distanceFromStartMeters ?: 0.0)
             }
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showSteps = false },
-                confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { showSteps = false }) { Text("閉じる") }
-                },
-                title = { Text("この先の曲がり角") },
-                text = {
-                    if (steps.isEmpty()) {
-                        Text("この先に曲がる角はありません")
-                    } else {
-                        Column(
-                            modifier = Modifier.verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            steps.forEach { step ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        painter = painterResource(
-                                            com.gorite.cyclemap.ui.map.turnTypeToDrawableRes(step.instruction.toGuidanceTurnType()),
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(step.label, fontWeight = FontWeight.Bold)
-                                        (step.instruction.outgoingRoadName
-                                            ?: com.gorite.cyclemap.ui.map.roadClassLabel(step.instruction.outgoingRoadType))
-                                            ?.let { Text(it, fontSize = 13.sp) }
-                                    }
-                                    val (num, unit) = com.gorite.cyclemap.ui.map.splitDistance(step.distanceMeters)
-                                    Text(num + unit, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                },
+            com.gorite.cyclemap.ui.components.StepListDialog(
+                title = "この先の曲がり角",
+                steps = steps,
+                emptyText = "この先に曲がる角はありません",
+                onDismiss = { showSteps = false },
             )
         }
 

@@ -1108,6 +1108,7 @@ internal fun MapScreen(
         com.gorite.cyclemap.ui.state.LocalHandednessController provides handednessController,
         com.gorite.cyclemap.ui.state.LocalRoadRuleController provides roadRuleController,
         com.gorite.cyclemap.ui.hazard.LocalRouteHazards provides routeHazards,
+        com.gorite.cyclemap.ui.components.LocalRouteInstructions provides state.navigationInstructionsState.value,
     ) {
     MapScreenScaffold(
         state = state,

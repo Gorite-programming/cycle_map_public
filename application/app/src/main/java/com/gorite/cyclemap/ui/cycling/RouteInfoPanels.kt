@@ -23,6 +23,8 @@ import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -330,6 +332,25 @@ internal fun RoutePreviewActions(
     onDownloadCorridorTiles: () -> Unit,
     onExportGpx: () -> Unit,
 ) {
+    // 出発前に、曲がる角を順に確認できる (Google マップの「ステップ」一覧)
+    val instructions = com.gorite.cyclemap.ui.components.LocalRouteInstructions.current
+    var showSteps by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (instructions.isNotEmpty()) {
+        androidx.compose.material3.TextButton(onClick = { showSteps = true }) {
+            Text("曲がり角の一覧を見る", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+    if (showSteps) {
+        val steps = androidx.compose.runtime.remember(instructions) {
+            com.gorite.cyclemap.navigation.upcomingSteps(instructions, 0.0, limit = 200)
+        }
+        com.gorite.cyclemap.ui.components.StepListDialog(
+            title = "この経路の曲がり角",
+            steps = steps,
+            emptyText = "曲がる角はありません",
+            onDismiss = { showSteps = false },
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
