@@ -230,6 +230,27 @@ internal fun BoxScope.MapControlsOverlay(
                 )
                 .zIndex(2f),
         )
+        // 案内中に追従が外れたら、横画面でも大きな「現在地に戻る」を出す (フッターの上)
+        if (isNavigationActive && !followLocation) {
+            Surface(
+                onClick = onTargetClick,
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = 84.dp)
+                    .zIndex(3f),
+            ) {
+                Text(
+                    text = "現在地に戻る",
+                    modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 24.dp, vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+            }
+        }
     } else if (!isNavigationActive) {
         val controlsTop = if (topOverlayHeight > 0.dp) effectiveTopPadding + topOverlayHeight + 16.dp
         else effectiveTopPadding + if (isRoutePreviewActive || com.gorite.cyclemap.ui.state.isSimpleMode()) 12.dp else 122.dp
