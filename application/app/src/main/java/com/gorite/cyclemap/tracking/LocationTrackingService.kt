@@ -410,9 +410,9 @@ class LocationTrackingService : Service() {
             // BUG-50 fix: Do not compare distanceMeters directly against accuracy,
             // because at 15 km/h (4.2 m/fix) typical GPS accuracy (5-15 m) will constantly zero out speed.
             val isStationary = if (newLocation.hasSpeed()) {
-                rawSpeed < 0.5
+                rawSpeed < LocationQualityGate.STOP_SPEED_MPS
             } else {
-                distanceMeters < 1.0 || rawSpeed < 0.5
+                distanceMeters < 1.0 || rawSpeed < LocationQualityGate.STOP_SPEED_MPS
             }
             val finalRawSpeed = if (isStationary) 0.0 else rawSpeed
 
@@ -422,7 +422,7 @@ class LocationTrackingService : Service() {
         } else {
             // First location or recovering from GPS loss / gap
             val rawSpeed = if (newLocation.hasSpeed()) newLocation.speed.toDouble() else 0.0
-            smoothedSpeed = if (rawSpeed < 0.5) 0.0 else rawSpeed
+            smoothedSpeed = if (rawSpeed < LocationQualityGate.STOP_SPEED_MPS) 0.0 else rawSpeed
             speed = smoothedSpeed
         }
 
