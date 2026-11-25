@@ -182,18 +182,22 @@ class WeatherRepository(
             return@withLock
         }
         val result = client.fetchForecastJson(area.officeCode)
+        // 通信中に別の予報区へ移っていたら、古い地域の結果で表示を上書きしない (キャッシュには残す)
+        val stillCurrent = { currentArea?.let { it.officeCode == area.officeCode && it.class10Code == area.class10Code } != false }
         result.onSuccess { jsonStr ->
             val parsed = JmaWeatherParser.parse(jsonStr, area)
             if (parsed != null) {
                 saveCache(parsed)
-                _uiState.value = WeatherUiState.Fresh(parsed)
-            } else {
+                if (stillCurrent()) _uiState.value = WeatherUiState.Fresh(parsed)
+            } else if (stillCurrent()) {
                 val cached = loadCachedForOffice(area.officeCode, area.class10Code)
                 _uiState.value = WeatherUiState.Error("気象データの解析に失敗しました", cached)
             }
         }.onFailure { err ->
             val cached = loadCachedForOffice(area.officeCode, area.class10Code)
-            if (cached != null) {
+            if (!stillCurrent()) {
+                // 表示は今の地域のまま
+            } else if (cached != null) {
                 _uiState.value = WeatherUiState.Stale(cached, isOffline = true)
             } else {
                 _uiState.value = WeatherUiState.Error(err.message ?: "通信エラー", null)
