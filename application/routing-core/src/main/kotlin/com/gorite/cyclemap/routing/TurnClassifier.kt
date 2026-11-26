@@ -65,6 +65,9 @@ internal object RoadTypes {
  */
 object TurnClassifier {
 
+    /** 前に進める枝が 1 本しか無い (選ぶ余地の無い) ノードでの案内の reason。曲がり角の分割点の判定に使う。 */
+    const val REASON_SINGLE_BRANCH = "single-branch"
+
     private const val U_TURN_THRESHOLD_DEGREES = 150.0
     /** 単一枝かつ道路種別が変化する場合のUターン判定閾値 (急カーブとしてではなく転回とみなすため浅めに設定) */
     private const val U_TURN_SINGLE_ARM_DEGREES = 100.0
@@ -315,7 +318,7 @@ object TurnClassifier {
                 ) {
                     null
                 } else {
-                    instruction(classifyHairpinOrTurn(input, takenMagnitude, takenTurn, config), "single-branch")
+                    instruction(classifyHairpinOrTurn(input, takenMagnitude, takenTurn, config), REASON_SINGLE_BRANCH)
                 }
             }
             2 -> {

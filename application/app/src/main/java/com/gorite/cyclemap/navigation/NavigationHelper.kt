@@ -111,12 +111,14 @@ internal fun buildRouteInstructions(
             incomingTurnLanes = routeBranches.getOrNull(ins.routeIndex - 1)?.turnLanes,
         )
     }
+    // 交差点の中で細切れになった案内 (入口の合流・曲線の途中の右折) を除いてから名前を付ける
+    val cleaned = cleanUpInstructions(instructionsWithRoads)
     val instructions = if (graph.hasJunctionNames) {
-        attachJunctionNames(instructionsWithRoads, deduplicateJunctionNames) { nodeId ->
+        attachJunctionNames(cleaned, deduplicateJunctionNames) { nodeId ->
             graphIndexOf(nodeId)?.let { graph.junctionNameNear(it) }
         }
     } else {
-        instructionsWithRoads
+        cleaned
     }
     for (instruction in instructions) {
         runCatching {

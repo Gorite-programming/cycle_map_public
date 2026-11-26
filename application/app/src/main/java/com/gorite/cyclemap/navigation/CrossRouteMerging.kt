@@ -148,7 +148,8 @@ internal fun mergeInstructionParts(parts: List<CrossInstructionPart>): List<Rout
         distanceOffset += part.distanceMeters
     }
     val sorted = out.sortedWith(compareBy<RouteInstruction> { it.routeIndex }.thenBy { it.distanceFromStartMeters })
-    return suppressRepeatedJunctionNames(sorted)
+    // 県境の案内とその前後の区間の案内が、同じ交差点の中で細切れになることもあるので、ここでも整える
+    return suppressRepeatedJunctionNames(cleanUpInstructions(sorted))
 }
 
 /** 同一ポータルを1ノードとしてA/Bの勾配・標高列を連結する。 */
