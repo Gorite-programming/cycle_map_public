@@ -1,6 +1,7 @@
 package com.gorite.cyclemap.navigation
 
 import com.gorite.cyclemap.routing.InstructionType
+import com.gorite.cyclemap.routing.JunctionName
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.RoutePoint
@@ -30,6 +31,7 @@ internal data class CrossPortalSide(
     val adjacentPoint: RoutePoint,
     val routeEdge: LazyMappedRoadGraph.JunctionBranch?,
     val branches: List<TurnClassifier.MappedBranch>,
+    val junction: JunctionName? = null,
 )
 
 internal data class CrossElevationPart(
@@ -49,7 +51,8 @@ internal fun buildCrossInstructionPart(
     val firstEdge = parts.firstOrNull { it.nodeIndices.size >= 2 }?.nodeIndices
     val lastEdge = parts.lastOrNull { it.nodeIndices.size >= 2 }?.nodeIndices
     return CrossInstructionPart(
-        instructions = buildRouteInstructions(graph, path.nodeIds, path.coordinates),
+        // 県境の案内も含め、全区間の累積距離が確定してから重複を除く。
+        instructions = buildRouteInstructions(graph, path.nodeIds, path.coordinates, deduplicateJunctionNames = false),
         nodeCount = path.nodeIds.size,
         distanceMeters = path.distanceMeters,
         entry = firstEdge?.let { readPortalSide(graph, it[0], it[1], atStart = true) },
@@ -80,6 +83,7 @@ private fun readPortalSide(
     return CrossPortalSide(
         portal.id, RoutePoint(portal.latitude, portal.longitude),
         adjacent.id, RoutePoint(adjacent.latitude, adjacent.longitude), routeEdge, branches,
+        junction = graph.junctionNameNear(portalIndex),
     )
 }
 
@@ -102,7 +106,7 @@ private fun classifyCrossPortal(
         distanceFromStartMeters = distanceFromStart,
         outgoingRoadName = outgoing.routeEdge?.roadName,
         incomingTurnLanes = incoming.routeEdge?.turnLanes,
-    )
+    )?.withJunctionName(outgoing.junction ?: incoming.junction)
 }
 
 /** A/B の案内を統合経路の routeIndex と距離に変換する。境界ポータルのB側案内は重複させない。 */
@@ -143,7 +147,8 @@ internal fun mergeInstructionParts(parts: List<CrossInstructionPart>): List<Rout
         nodeOffset += (part.nodeCount - skipBoundary).coerceAtLeast(0)
         distanceOffset += part.distanceMeters
     }
-    return out.sortedWith(compareBy<RouteInstruction> { it.routeIndex }.thenBy { it.distanceFromStartMeters })
+    val sorted = out.sortedWith(compareBy<RouteInstruction> { it.routeIndex }.thenBy { it.distanceFromStartMeters })
+    return suppressRepeatedJunctionNames(sorted)
 }
 
 /** 同一ポータルを1ノードとしてA/Bの勾配・標高列を連結する。 */

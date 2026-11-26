@@ -1,7 +1,9 @@
 package com.gorite.cyclemap.navigation
 
 import com.gorite.cyclemap.routing.InstructionType
+import com.gorite.cyclemap.routing.JunctionName
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
+import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.routing.haversineMeters
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -17,6 +19,59 @@ class NavigationHelperInstructionTest {
     val tempFolder = TemporaryFolder()
 
     private data class SynNode(val id: Long, val lat: Double, val lon: Double)
+
+    @Test
+    fun attachesJunctionOnTheTurnNodeOrNearbyWithItsReading() {
+        val names = mapOf(
+            100L to JunctionName("本町一丁目", "ほんまちいっちょうめ", 1, 12, 0.0),
+            200L to JunctionName("駅前", "えきまえ", 2, 23, 21.0),
+        )
+        val turns = listOf(turn(100L, 100.0), turn(200L, 200.0), turn(300L, 300.0))
+
+        val named = attachJunctionNames(turns, junctionAt = names::get)
+
+        assertEquals(listOf("本町一丁目", "駅前", null), named.map { it.junctionName })
+        assertEquals(listOf("ほんまちいっちょうめ", "えきまえ", null), named.map { it.junctionReading })
+    }
+
+    @Test
+    fun skipsMinorInstructionsAndNamesMatchingTheOutgoingRoad() {
+        val base = turn(100L, 100.0)
+        val minorTypes = listOf(
+            InstructionType.STRAIGHT, InstructionType.MERGE,
+            InstructionType.LANE_INCREASE, InstructionType.LANE_DECREASE,
+            InstructionType.SIDE_ROAD_ENTER, InstructionType.SIDE_ROAD_EXIT,
+        )
+        val instructions = minorTypes.map { base.copy(type = it) } + listOf(
+            base.copy(type = InstructionType.CROSS_JUNCTION, turnAngleDegrees = 0.0),
+            base.copy(outgoingRoadName = "駅前"),
+        )
+
+        assertEquals(instructions, attachJunctionNames(instructions) { JunctionName("駅前", "えきまえ", 1, 12, 0.0) })
+    }
+
+    @Test
+    fun suppressesRepeatedNamesThrough60MetersFromTheLastNamedTurn() {
+        val turns = listOf(turn(100L, 100.0), turn(125L, 125.0), turn(160L, 160.0), turn(161L, 161.0))
+        val named = attachJunctionNames(turns) { nodeId ->
+            if (nodeId == 125L) null else JunctionName("駅前", "えきまえ", 1, 12, 0.0)
+        }
+
+        assertEquals(listOf("駅前", null, null, "駅前"), named.map { it.junctionName })
+        assertEquals(listOf("えきまえ", null, null, "えきまえ"), named.map { it.junctionReading })
+    }
+
+    private fun turn(nodeId: Long, distance: Double) = RouteInstruction(
+        type = InstructionType.RIGHT_TURN,
+        nodeId = nodeId,
+        routeIndex = 1,
+        distanceFromStartMeters = distance,
+        turnAngleDegrees = 90.0,
+        junctionBranches = 3,
+        incomingRoadType = "residential",
+        outgoingRoadType = "residential",
+        reason = "test",
+    )
 
     private fun buildSyntheticGraph(
         nodes: List<SynNode>,

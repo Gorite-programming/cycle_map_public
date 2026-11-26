@@ -26,6 +26,7 @@ import org.osmdroid.views.MapView
 import com.gorite.cyclemap.contract.TurnType
 import com.gorite.cyclemap.routing.IconResolver
 import com.gorite.cyclemap.routing.InstructionType
+import com.gorite.cyclemap.routing.JunctionName
 import com.gorite.cyclemap.routing.LazyMappedRoadGraph
 import com.gorite.cyclemap.routing.ManeuverType
 import com.gorite.cyclemap.routing.RouteInstruction
@@ -37,6 +38,7 @@ import com.gorite.cyclemap.tracking.GpsSignalStatus
 import com.gorite.cyclemap.tracking.LocationTrackingService
 import com.gorite.cyclemap.tracking.locationServiceConnection
 import com.gorite.cyclemap.ui.map.toGuidanceTurnType
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,7 @@ internal fun buildRouteInstructions(
     graph: LazyMappedRoadGraph?,
     nodeIds: List<Long>,
     coordinates: List<Pair<Double, Double>>,
+    deduplicateJunctionNames: Boolean = true,
 ): List<RouteInstruction> {
     if (graph == null || nodeIds.size < 3 || coordinates.size != nodeIds.size) return emptyList()
     val points = coordinates.map { (lat, lon) -> RoutePoint(lat, lon) }
@@ -96,7 +99,7 @@ internal fun buildRouteInstructions(
         else graph.outgoingBranches(fromIndex).firstOrNull { it.targetIndex == toIndex }
     }
     val edgeNames: List<String?> = routeBranches.map { it?.roadName }
-    val instructions = TurnClassifier.classifyMappedRoute(
+    val instructionsWithRoads = TurnClassifier.classifyMappedRoute(
         nodeIds = nodeIds,
         coordinates = points,
         branchesOf = ::branchesOf,
@@ -107,6 +110,13 @@ internal fun buildRouteInstructions(
             // 曲がり角に入ってくる辺 (routeIndex-1 → routeIndex) の車線
             incomingTurnLanes = routeBranches.getOrNull(ins.routeIndex - 1)?.turnLanes,
         )
+    }
+    val instructions = if (graph.hasJunctionNames) {
+        attachJunctionNames(instructionsWithRoads, deduplicateJunctionNames) { nodeId ->
+            graphIndexOf(nodeId)?.let { graph.junctionNameNear(it) }
+        }
+    } else {
+        instructionsWithRoads
     }
     for (instruction in instructions) {
         runCatching {
@@ -154,24 +164,48 @@ private fun straightGuidanceText(distanceMeters: Double): String = when (((dista
     else -> "この先しばらく直進です"
 }
 
-private fun maneuverGuidanceText(instruction: RouteInstruction, distanceMeters: Double): String {
-    val label = IconResolver.getLabel(instruction.type, instruction.turnAngleDegrees)
-    return when {
-        distanceMeters >= 500.0 -> "この先 ${label}です"
-        distanceMeters >= 100.0 -> "${label}です"
-        distanceMeters >= 30.0 -> "まもなく${label}です"
-        else -> "${label}です"
-    }
-}
-
 /** 曲がる角としては主役にならない案内 (直進・合流・車線の増減・脇道)。角度が付いていても同じ扱いにする。 */
 private val MINOR_INSTRUCTION_TYPES = setOf(
     InstructionType.STRAIGHT, InstructionType.MERGE, InstructionType.LANE_INCREASE,
     InstructionType.LANE_DECREASE, InstructionType.SIDE_ROAD_ENTER, InstructionType.SIDE_ROAD_EXIT,
 )
 
-private fun RouteInstruction.isMinorForDisplay(): Boolean =
+internal fun RouteInstruction.isMinorForDisplay(): Boolean =
     type in MINOR_INSTRUCTION_TYPES || toGuidanceTurnType() == TurnType.Straight
+
+internal fun attachJunctionNames(
+    instructions: List<RouteInstruction>,
+    deduplicate: Boolean = true,
+    junctionAt: (Long) -> JunctionName?,
+): List<RouteInstruction> {
+    val named = instructions.map { instruction ->
+        if (instruction.isMinorForDisplay()) instruction else instruction.withJunctionName(junctionAt(instruction.nodeId))
+    }
+    return if (deduplicate) suppressRepeatedJunctionNames(named) else named
+}
+
+internal fun RouteInstruction.withJunctionName(junction: JunctionName?): RouteInstruction =
+    if (junction == null || isMinorForDisplay() || junction.name == outgoingRoadName) this
+    else copy(junctionName = junction.name, junctionReading = junction.reading)
+
+private const val REPEATED_JUNCTION_DISTANCE_METERS = 60.0
+
+internal fun suppressRepeatedJunctionNames(instructions: List<RouteInstruction>): List<RouteInstruction> {
+    var previousNamed: RouteInstruction? = null
+    return instructions.map { instruction ->
+        val previous = previousNamed
+        when {
+            instruction.junctionName == null -> instruction
+            previous != null && instruction.junctionName == previous.junctionName &&
+                abs(instruction.distanceFromStartMeters - previous.distanceFromStartMeters) <= REPEATED_JUNCTION_DISTANCE_METERS ->
+                instruction.copy(junctionName = null, junctionReading = null)
+            else -> {
+                previousNamed = instruction
+                instruction
+            }
+        }
+    }
+}
 
 /** 案内の一覧 (バナーをタップして開く) の 1 行: 曲がる角と、いまの位置からそこまでの距離。 */
 internal data class UpcomingStep(val instruction: RouteInstruction, val distanceMeters: Double, val label: String)

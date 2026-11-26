@@ -287,9 +287,14 @@ internal fun BoxScope.MapTopOverlays(
                             showStopNavigation = !hasNavigationFooter,
                             currentStep = com.gorite.cyclemap.contract.GuidanceStep(
                                 turnType = display.turnType,
-                                instructionText = display.instructionText,
-                                streetName = targetInstruction?.outgoingRoadName
-                                    ?: com.gorite.cyclemap.ui.map.roadClassLabel(targetInstruction?.outgoingRoadType),
+                                instructionText = targetInstruction?.takeIf { it.junctionName != null }?.let {
+                                    maneuverGuidanceText(it, display.distanceMeters, includeJunctionName = false)
+                                } ?: display.instructionText,
+                                streetName = landscapeStreetLabel(
+                                    targetInstruction?.junctionName,
+                                    targetInstruction?.outgoingRoadName,
+                                    com.gorite.cyclemap.ui.map.roadClassLabel(targetInstruction?.outgoingRoadType),
+                                ),
                                 distanceToTurnMeters = display.distanceMeters
                             ),
                             // 下段のフッターと同じ走行統計から作る (計算元が違うと到着時刻が 1 分ずれる)。

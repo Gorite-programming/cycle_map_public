@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gorite.cyclemap.navigation.UpcomingStep
+import com.gorite.cyclemap.navigation.stepListLabel
 import com.gorite.cyclemap.routing.RouteInstruction
 import com.gorite.cyclemap.ui.map.toGuidanceTurnType
 
@@ -56,7 +57,7 @@ internal fun StepListDialog(title: String, steps: List<UpcomingStep>, emptyText:
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(step.label, fontWeight = FontWeight.Bold)
+                                Text(stepListLabel(step), fontWeight = FontWeight.Bold)
                                 (step.instruction.outgoingRoadName
                                     ?: com.gorite.cyclemap.ui.map.roadClassLabel(step.instruction.outgoingRoadType))
                                     ?.let { Text(it, fontSize = 13.sp) }
