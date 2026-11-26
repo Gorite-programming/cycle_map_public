@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.floor
 
 private const val DEG_LAT_METERS = 111_320.0
 
@@ -125,6 +126,19 @@ class LazyMappedRoadGraph private constructor(
 
     /** Optional per-edge bicycle rules, mapped without a heap copy. */
     private var edgeBicycleInfos: MappedIntColumn? = null
+
+    /** 名前付き交差点の索引。索引の末尾に CYCLEMAP_JUNCTIONNAME_V1 がある graph だけ持つ。 */
+    internal var junctionNameIndex: JunctionNameIndex? = null
+
+    /** 交差点名区間を持つ graph か。 */
+    val hasJunctionNames: Boolean get() = junctionNameIndex != null
+
+    /** [index] のノードから [radiusMeters] 以内にある、最も近い名前付きの交差点。区間が無い・見つからなければ null。 */
+    fun junctionNameNear(index: Int, radiusMeters: Double = 35.0): JunctionName? {
+        if (index !in nodeIds.indices || radiusMeters < 0.0 || radiusMeters.isNaN()) return null
+        val jIndex = junctionNameIndex ?: return null
+        return jIndex.findNearest(index, radiusMeters, latitudes, longitudes)
+    }
 
     fun bicycleInfoOfEdge(ordinal: Int): BicycleRoadInfo? {
         val bits = edgeBicycleInfos?.getOrNull(ordinal) ?: return null
@@ -1109,6 +1123,45 @@ class LazyMappedRoadGraph private constructor(
         private const val ROAD_NAME_SECTION_MAGIC = "CYCLEMAP_ROADNAME_V1"
         private const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
         private const val BIKE_INFO_SECTION_MAGIC = "CYCLEMAP_BIKEINFO_V1"
+        private const val JUNCTION_NAME_SECTION_MAGIC = "CYCLEMAP_JUNCTIONNAME_V1"
+
+        /** 名前付き交差点の区間を読む。壊れている・途中で切れている場合は null。 */
+        private fun readJunctionNameSection(
+            input: DataInputStream, nodeCount: Int, indexMapped: ByteBuffer, position: () -> Long,
+        ): JunctionNameIndex? {
+            val nameCount = input.readInt()
+            if (nameCount < 0) return null
+            if (nameCount.toLong() * 2L > indexMapped.limit().toLong() - position()) return null
+            val names = Array(nameCount) { input.readUTF() }
+
+            val readingCount = input.readInt()
+            if (readingCount < 0) return null
+            if (readingCount.toLong() * 2L > indexMapped.limit().toLong() - position()) return null
+            val readings = Array(readingCount) { input.readUTF() }
+
+            val entryCount = input.readInt()
+            if (entryCount < 0) return null
+            if (entryCount.toLong() * 13L > indexMapped.limit().toLong() - position()) return null
+
+            val nodeIndices = IntArray(entryCount)
+            val nameIds = IntArray(entryCount)
+            val readingIds = IntArray(entryCount)
+            val kinds = IntArray(entryCount)
+            for (i in 0 until entryCount) {
+                val ni = input.readInt()
+                val nid = input.readInt()
+                val rid = input.readInt()
+                val kind = input.readByte().toInt() and 0xff
+                if (ni !in 0 until nodeCount || nid !in 0 until nameCount || (rid != -1 && rid !in 0 until readingCount)) {
+                    return null
+                }
+                nodeIndices[i] = ni
+                nameIds[i] = nid
+                readingIds[i] = rid
+                kinds[i] = kind
+            }
+            return JunctionNameIndex(names, readings, nodeIndices, nameIds, readingIds, kinds)
+        }
 
         /** 文字列の表 + 辺ごとの番号 (-1 は無し) の区間を読む。件数が合わなければ null。 */
         private fun readStringTableSection(
@@ -1164,6 +1217,10 @@ class LazyMappedRoadGraph private constructor(
                             val base = mappedSection(indexMapped, position(), edgeCount.toLong() * 4L) ?: return
                             skipFully(input, edgeCount.toLong() * 4L)
                             graph.edgeBicycleInfos = MappedIntColumn(indexMapped, base, edgeCount, 4)
+                        }
+                        JUNCTION_NAME_SECTION_MAGIC -> {
+                            val jIndex = readJunctionNameSection(input, nodeCount, indexMapped, position) ?: return
+                            graph.junctionNameIndex = jIndex
                         }
                         else -> return
                     }
@@ -1369,6 +1426,139 @@ internal class SpatialGridIndex(
 
     companion object {
         private const val GRID_DIM = 128
+    }
+}
+
+/** 交差点名検索の結果。kind は 1 = 信号, 2 = junction=yes。 */
+data class JunctionName(
+    val name: String,
+    val reading: String?,
+    val kind: Int,
+    val nodeIndex: Int,
+    val distanceMeters: Double,
+)
+
+/**
+ * 名前付き交差点ノードの空間格子インデックス。
+ * 緯度経度を約 100 m 四方 (0.001 度) の格子に分け、近傍の格子だけを探査する。
+ */
+internal class JunctionNameIndex(
+    private val names: Array<String>,
+    private val readings: Array<String>,
+    private val nodeIndices: IntArray,
+    private val nameIds: IntArray,
+    private val readingIds: IntArray,
+    private val kinds: IntArray,
+) {
+    private class Grid(
+        val cellHead: HashMap<Long, Int>,
+        val nextEntry: IntArray,
+    )
+
+    @Volatile
+    private var gridCache: Grid? = null
+
+    private fun grid(latitudes: MappedDoubleColumn, longitudes: MappedDoubleColumn): Grid {
+        gridCache?.let { return it }
+        synchronized(this) {
+            gridCache?.let { return it }
+            val n = nodeIndices.size
+            val cellHead = HashMap<Long, Int>(maxOf(16, n * 2))
+            val nextEntry = IntArray(n) { -1 }
+            for (i in 0 until n) {
+                val ni = nodeIndices[i]
+                val key = cellKey(toCell(latitudes[ni]), toCell(longitudes[ni]))
+                val prev = cellHead.put(key, i)
+                if (prev != null) nextEntry[i] = prev
+            }
+            return Grid(cellHead, nextEntry).also { gridCache = it }
+        }
+    }
+
+    fun findNearest(
+        queryIndex: Int,
+        radiusMeters: Double,
+        latitudes: MappedDoubleColumn,
+        longitudes: MappedDoubleColumn,
+    ): JunctionName? {
+        if (nodeIndices.isEmpty()) return null
+        val lat = latitudes[queryIndex]
+        val lon = longitudes[queryIndex]
+        var bestEntry = -1
+        var bestDist = Double.POSITIVE_INFINITY
+        var bestKindRank = Int.MAX_VALUE
+        var bestIsSelf = false
+        var bestNode = Int.MAX_VALUE
+
+        fun consider(entry: Int) {
+            val ni = nodeIndices[entry]
+            val d = if (ni == queryIndex) 0.0 else haversineMeters(lat, lon, latitudes[ni], longitudes[ni])
+            if (d > radiusMeters) return
+            val kindRank = kindPriority(kinds[entry])
+            val isSelf = ni == queryIndex
+            val better = when {
+                bestEntry < 0 -> true
+                d < bestDist -> true
+                d > bestDist -> false
+                kindRank < bestKindRank -> true
+                kindRank > bestKindRank -> false
+                isSelf && !bestIsSelf -> true
+                !isSelf && bestIsSelf -> false
+                else -> ni < bestNode
+            }
+            if (better) {
+                bestEntry = entry
+                bestDist = d
+                bestKindRank = kindRank
+                bestIsSelf = isSelf
+                bestNode = ni
+            }
+        }
+
+        val latDelta = radiusMeters / 110_000.0
+        val maxAbsLat = maxOf(abs(lat - latDelta), abs(lat + latDelta)).coerceAtMost(89.0)
+        val lonDelta = radiusMeters / (110_000.0 * cos(Math.toRadians(maxAbsLat)).coerceAtLeast(0.05))
+        val minCy = toCell(lat - latDelta)
+        val maxCy = toCell(lat + latDelta)
+        val minCx = toCell(lon - lonDelta)
+        val maxCx = toCell(lon + lonDelta)
+        val cellCount = (maxCy.toLong() - minCy.toLong() + 1L) * (maxCx.toLong() - minCx.toLong() + 1L)
+
+        if (cellCount > 4096L || nodeIndices.size <= 16) {
+            for (i in nodeIndices.indices) consider(i)
+        } else {
+            val g = grid(latitudes, longitudes)
+            for (cy in minCy..maxCy) {
+                for (cx in minCx..maxCx) {
+                    var entry = g.cellHead[cellKey(cy, cx)] ?: continue
+                    while (entry >= 0) {
+                        consider(entry)
+                        entry = g.nextEntry[entry]
+                    }
+                }
+            }
+        }
+
+        if (bestEntry < 0) return null
+        val rid = readingIds[bestEntry]
+        return JunctionName(
+            name = names[nameIds[bestEntry]],
+            reading = if (rid >= 0) readings[rid] else null,
+            kind = kinds[bestEntry],
+            nodeIndex = nodeIndices[bestEntry],
+            distanceMeters = bestDist,
+        )
+    }
+
+    companion object {
+        private const val CELL_DEG = 0.001
+        private fun toCell(deg: Double): Int = floor(deg / CELL_DEG).toInt()
+        private fun cellKey(cy: Int, cx: Int): Long = (cy.toLong() shl 32) or (cx.toLong() and 0xffffffffL)
+        private fun kindPriority(kind: Int): Int = when (kind) {
+            1 -> 0
+            2 -> 1
+            else -> 2
+        }
     }
 }
 

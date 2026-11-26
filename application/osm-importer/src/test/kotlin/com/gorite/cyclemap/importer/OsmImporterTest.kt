@@ -1,9 +1,17 @@
 package com.gorite.cyclemap.importer
 
+import com.gorite.cyclemap.routing.GraphEdge
 import com.gorite.cyclemap.routing.GraphNode
+import com.gorite.cyclemap.routing.LazyMappedRoadGraph
+import com.gorite.cyclemap.routing.RoadGraph
+import java.io.DataInputStream
+import java.io.File
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OsmImporterTest {
@@ -70,5 +78,103 @@ class OsmImporterTest {
         assertTrue(GeoBBox.JAPAN.contains(naha))
         assertTrue(GeoBBox.JAPAN.contains(yamaguchi))
         assertFalse(GeoBBox.YAMAGUCHI.contains(tokyo))
+    }
+
+    @Test
+    fun `extractJunctionNodeInfo selects signals and junction yes and excludes others`() {
+        val signal = extractJunctionNodeInfo(mapOf("highway" to "traffic_signals", "name" to "八丁堀交差点", "name:ja-Hira" to "はっちょうぼり"))
+        assertEquals(JunctionNodeInfo("八丁堀", "はっちょうぼり", 1), signal)
+
+        val jyes = extractJunctionNodeInfo(mapOf("junction" to "yes", "name" to "紙屋町"))
+        assertEquals(JunctionNodeInfo("紙屋町", null, 2), jyes)
+
+        // 信号と junction=yes の両方がある場合は種別 1 (信号) を優先
+        val both = extractJunctionNodeInfo(mapOf("highway" to "traffic_signals", "junction" to "yes", "name" to "十日市"))
+        assertEquals(JunctionNodeInfo("十日市", null, 1), both)
+
+        // バス停・横断歩道・高速出入口は含めない
+        assertNull(extractJunctionNodeInfo(mapOf("highway" to "crossing", "name" to "駅前横断歩道")))
+        assertNull(extractJunctionNodeInfo(mapOf("highway" to "bus_stop", "name" to "市役所前")))
+        assertNull(extractJunctionNodeInfo(mapOf("highway" to "motorway_junction", "name" to "広島IC")))
+        assertNull(extractJunctionNodeInfo(mapOf("highway" to "traffic_signals")))
+    }
+
+    @Test
+    fun `writeGraphIndex writes JUNCTIONNAME section in ascending nodeIndex order`() {
+        val dir = Files.createTempDirectory("junction-index").toFile()
+        val n1 = GraphNode(100L, 34.3950, 132.4550)
+        val n2 = GraphNode(200L, 34.3950, 132.4552)
+        val n3 = GraphNode(300L, 34.3960, 132.4550)
+        val graph = RoadGraph(
+            linkedMapOf(100L to n1, 200L to n2, 300L to n3),
+            linkedMapOf(
+                100L to listOf(GraphEdge(100L, 200L, 18.0, "primary", roadName = "相生通り")),
+                200L to listOf(GraphEdge(200L, 100L, 18.0, "primary", roadName = "相生通り"), GraphEdge(200L, 300L, 111.0, "secondary")),
+                300L to listOf(GraphEdge(300L, 200L, 111.0, "secondary")),
+            ),
+        )
+        val graphFile = File(dir, "test.graph")
+        val indexFile = File(dir, "test.graph.idx")
+        val writer = GraphBinaryWriter()
+        writer.write(graph, graphFile)
+        // わざと逆順 (300 -> 100) で渡しても nodeIndex 昇順で書き出されることを検証
+        val junctions = linkedMapOf(
+            300L to JunctionNodeInfo("本町", null, 2),
+            100L to JunctionNodeInfo("紙屋町", "かみやちょう", 1),
+        )
+        writeGraphIndex(graphFile, indexFile, null, writer.edgeRoadNames, null, junctions)
+
+        // バイナリ形式で nodeIndex 昇順かつフォーマットどおり書かれているか確認
+        DataInputStream(indexFile.inputStream().buffered()).use { input ->
+            assertEquals("CYCLEMAP_INDEX_V2", input.readUTF())
+            val nc = input.readInt(); assertEquals(3, nc)
+            repeat(nc) { input.readLong() }
+            repeat(nc) { input.readInt() }
+            repeat(nc) { input.readInt() }
+            val ec = input.readInt(); assertEquals(4, ec)
+            repeat(ec) { input.readInt() }
+            assertEquals(ROAD_NAME_SECTION_MAGIC, input.readUTF())
+            val rnCount = input.readInt(); repeat(rnCount) { input.readUTF() }
+            assertEquals(ec, input.readInt()); repeat(ec) { input.readInt() }
+
+            assertEquals(JUNCTION_NAME_SECTION_MAGIC, input.readUTF())
+            assertEquals(2, input.readInt())
+            assertEquals("紙屋町", input.readUTF())
+            assertEquals("本町", input.readUTF())
+            assertEquals(1, input.readInt())
+            assertEquals("かみやちょう", input.readUTF())
+            assertEquals(2, input.readInt())
+            // entry 0: nodeIndex=0 (100L)
+            assertEquals(0, input.readInt())
+            assertEquals(0, input.readInt())
+            assertEquals(0, input.readInt())
+            assertEquals(1, input.readByte().toInt())
+            // entry 1: nodeIndex=2 (300L)
+            assertEquals(2, input.readInt())
+            assertEquals(1, input.readInt())
+            assertEquals(-1, input.readInt())
+            assertEquals(2, input.readByte().toInt())
+            assertEquals(-1, input.read())
+        }
+
+        // LazyMappedRoadGraph で読み込んで検索できること
+        LazyMappedRoadGraph.load(graphFile, indexFile).use { lg ->
+            assertTrue(lg.hasJunctionNames)
+            val j0 = assertNotNull(lg.junctionNameNear(lg.nodeIndexOf(100L)))
+            assertEquals("紙屋町", j0.name)
+            assertEquals("かみやちょう", j0.reading)
+            assertEquals(1, j0.kind)
+            assertEquals(0.0, j0.distanceMeters, 1e-6)
+
+            // 200L は 100L から約 18m なので 35m 以内で「紙屋町」がヒットする
+            val j1 = assertNotNull(lg.junctionNameNear(lg.nodeIndexOf(200L), 35.0))
+            assertEquals("紙屋町", j1.name)
+            assertEquals(lg.nodeIndexOf(100L), j1.nodeIndex)
+
+            val j2 = assertNotNull(lg.junctionNameNear(lg.nodeIndexOf(300L)))
+            assertEquals("本町", j2.name)
+            assertNull(j2.reading)
+            assertEquals(2, j2.kind)
+        }
     }
 }

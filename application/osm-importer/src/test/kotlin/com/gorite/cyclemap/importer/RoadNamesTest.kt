@@ -126,4 +126,37 @@ class RoadNamesTest {
             assertNull(lg.outgoingBranches(lg.nodeIndexOf(1)).single().roadName)
         }
     }
+
+    @Test
+    fun `交差点名の整え方と読みの抽出`() {
+        // 末尾の「交差点」を除く
+        assertEquals("本町一丁目", junctionDisplayName(mapOf("name" to "本町一丁目交差点")))
+        assertEquals("平良山手", junctionDisplayName(mapOf("name" to "  平良山手 交差点  ")))
+        // 「交差点」だけなら空になって捨てる
+        assertNull(junctionDisplayName(mapOf("name" to "交差点")))
+        // ';' で区切られた名前は最初の 1 つだけを使う
+        assertEquals("紙屋町東", junctionDisplayName(mapOf("name" to "紙屋町東交差点;紙屋町")))
+        // 数字・英字・記号だけの名前は捨てる
+        assertNull(junctionDisplayName(mapOf("name" to "12345")))
+        assertNull(junctionDisplayName(mapOf("name" to "A-12")))
+        assertNull(junctionDisplayName(mapOf("name" to "No.5")))
+        assertNull(junctionDisplayName(mapOf("name" to "１２３")))
+        assertNull(junctionDisplayName(mapOf("name" to "---")))
+        assertNull(junctionDisplayName(mapOf("name" to "   ")))
+        // 日本語 + 数字/英字は残す
+        assertEquals("JR広島駅北口", junctionDisplayName(mapOf("name" to "JR広島駅北口")))
+        assertEquals("本町2", junctionDisplayName(mapOf("name" to "本町2")))
+        // 25 文字ちょうどは残し、26 文字は捨てる
+        val len25 = "あ".repeat(25)
+        val len26 = "あ".repeat(26)
+        assertEquals(len25, junctionDisplayName(mapOf("name" to len25)))
+        assertEquals(len25, junctionDisplayName(mapOf("name" to "${len25}交差点")))
+        assertNull(junctionDisplayName(mapOf("name" to len26)))
+        // 読み: name:ja-Hira 優先、無ければ name:ja_kana、無ければ null
+        assertEquals("ほんまちいっちょうめ", junctionReading(mapOf("name:ja-Hira" to "ほんまちいっちょうめ", "name:ja_kana" to "ホンマチイッチョウメ")))
+        assertEquals("ホンマチイッチョウメ", junctionReading(mapOf("name:ja_kana" to "ホンマチイッチョウメ")))
+        assertEquals("かみやちょう", junctionReading(mapOf("name:ja-Hira" to "かみやちょう;かみや")))
+        assertNull(junctionReading(mapOf("name" to "本町一丁目")))
+        assertNull(junctionReading(mapOf("name:ja-Hira" to "   ")))
+    }
 }

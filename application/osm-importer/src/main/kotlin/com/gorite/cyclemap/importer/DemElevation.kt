@@ -17,6 +17,9 @@ const val ROAD_NAME_SECTION_MAGIC = "CYCLEMAP_ROADNAME_V1"
 /** 索引の末尾 (道路名区間の後) に付ける、辺ごとの車線 (turn:lanes) の区間の目印。 */
 const val TURN_LANES_SECTION_MAGIC = "CYCLEMAP_TURNLANES_V1"
 
+/** 索引の末尾 (BIKEINFO 区間の後) に付ける、名前付き交差点の区間の目印。 */
+const val JUNCTION_NAME_SECTION_MAGIC = "CYCLEMAP_JUNCTIONNAME_V1"
+
 /** 標高 (m) を 0.1m 単位の Short にする。不明 (null・NaN)・範囲外は Short.MIN_VALUE。 */
 fun encodeElevationDecimeters(meters: Float?): Short {
     if (meters == null || meters.isNaN()) return Short.MIN_VALUE

@@ -194,4 +194,85 @@ class BikeInfoReindexTest {
         assertFails { validateBikeInfoInput(index, 999, table.size) }
         assertFails { validateBikeInfoInput(index, table.nodeCount, 999) }
     }
+
+    @Test fun insertsBikeInfoBeforeJunctionNameAndPreservesCanonicalOrder() {
+        val file = File.createTempFile("bikeinfo-junction", ".graph").apply { deleteOnExit() }
+        val graph = RoadGraph(
+            linkedMapOf(20L to GraphNode(20, 34.0, 132.0), 10L to GraphNode(10, 34.001, 132.001)),
+            linkedMapOf(
+                20L to listOf(GraphEdge(20, 10, 10.0, "trunk", false)),
+                10L to listOf(GraphEdge(10, 20, 10.0, "trunk", false)),
+            ),
+        )
+        GraphBinaryWriter().write(graph, file)
+        val index = File(file.path + ".idx").apply { deleteOnExit() }
+        val junctions = mapOf(
+            20L to JunctionNodeInfo("本町一丁目", "ほんまちいっちょうめ", 1),
+            10L to JunctionNodeInfo("紙屋町", null, 2),
+        )
+        writeGraphIndex(
+            file, index,
+            mapOf(20L to 12f, 10L to 13f),
+            listOf("国道2号", "県道41号"),
+            listOf("left|through", null),
+            junctions,
+        )
+
+        val table = BikeInfoReindex.readGraph(file, "2")
+        table.accept(OsmWay(1, longArrayOf(10, 20), tags))
+        val output = File(index.path + ".bike").apply { deleteOnExit() }
+        writeBikeInfoIndex(index, output, table.nodeCount, table.values)
+
+        // 区間の並びが ELEVATION -> ROADNAME -> TURNLANES -> BIKEINFO -> JUNCTIONNAME になっていることを検証
+        val sectionOrder = mutableListOf<String>()
+        DataInputStream(output.inputStream().buffered()).use { input ->
+            assertEquals("CYCLEMAP_INDEX_V2", input.readUTF())
+            val nc = input.readInt()
+            repeat(nc) { input.readLong() }
+            repeat(nc) { input.readInt() }
+            repeat(nc) { input.readInt() }
+            val ec = input.readInt()
+            repeat(ec) { input.readInt() }
+            while (input.available() > 0) {
+                val magic = input.readUTF()
+                sectionOrder += magic
+                when (magic) {
+                    ELEVATION_SECTION_MAGIC -> { assertEquals(nc, input.readInt()); repeat(nc) { input.readShort() } }
+                    ROAD_NAME_SECTION_MAGIC, TURN_LANES_SECTION_MAGIC -> {
+                        val c = input.readInt(); repeat(c) { input.readUTF() }
+                        assertEquals(ec, input.readInt()); repeat(ec) { input.readInt() }
+                    }
+                    BIKEINFO_MAGIC -> { assertEquals(ec, input.readInt()); repeat(ec) { input.readInt() } }
+                    JUNCTION_NAME_SECTION_MAGIC -> {
+                        val n = input.readInt(); repeat(n) { input.readUTF() }
+                        val r = input.readInt(); repeat(r) { input.readUTF() }
+                        val e = input.readInt()
+                        repeat(e) { input.readInt(); input.readInt(); input.readInt(); input.readByte() }
+                    }
+                    else -> fail("Unexpected section: $magic")
+                }
+            }
+        }
+        assertEquals(
+            listOf(ELEVATION_SECTION_MAGIC, ROAD_NAME_SECTION_MAGIC, TURN_LANES_SECTION_MAGIC, BIKEINFO_MAGIC, JUNCTION_NAME_SECTION_MAGIC),
+            sectionOrder,
+        )
+
+        // 両方の区間が LazyMappedRoadGraph で正しく読めること
+        LazyMappedRoadGraph.load(file, output).use { lg ->
+            assertEquals(classifyBicycleRoad(tags, true), lg.bicycleInfoOfEdge(0))
+            assertEquals(classifyBicycleRoad(tags, false), lg.bicycleInfoOfEdge(1))
+            val j0 = assertNotNull(lg.junctionNameNear(0))
+            assertEquals("本町一丁目", j0.name)
+            assertEquals("ほんまちいっちょうめ", j0.reading)
+            assertEquals(1, j0.kind)
+            val j1 = assertNotNull(lg.junctionNameNear(1))
+            assertEquals("紙屋町", j1.name)
+            assertNull(j1.reading)
+            assertEquals(2, j1.kind)
+        }
+
+        // 二重追記はエラーになる
+        assertFails { writeBikeInfoIndex(output, File(output.path + ".twice"), table.nodeCount, table.values) }
+    }
 }

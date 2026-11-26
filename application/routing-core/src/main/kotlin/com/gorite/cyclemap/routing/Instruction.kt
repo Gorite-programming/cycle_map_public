@@ -83,6 +83,10 @@ data class RouteInstruction(
     val outgoingRoadName: String? = null,
     /** 曲がり角の手前の道の車線 (OSM の turn:lanes)。車線案内に使う。graph が車線を持つときだけ。 */
     val incomingTurnLanes: String? = null,
+    /** 曲がり角の交差点名 (「本町一丁目」など)。無ければ null。 */
+    val junctionName: String? = null,
+    /** 曲がり角の交差点名の読み (ひらがな・カタカナ)。無ければ null。 */
+    val junctionReading: String? = null,
 ) {
     fun debugLine(
         currentEdge: String,

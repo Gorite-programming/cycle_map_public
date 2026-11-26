@@ -192,8 +192,12 @@ internal class BikeInfoStats {
     }
 }
 
-/** Parse section boundaries rather than scanning raw bytes (a road name can contain the magic). */
-internal fun validateBikeInfoInput(index: File, nodes: Int, edges: Int) {
+/**
+ * Parse section boundaries rather than scanning raw bytes (a road name can contain the magic).
+ * Returns the byte offset where [BIKEINFO_MAGIC] should be inserted: immediately before
+ * [JUNCTION_NAME_SECTION_MAGIC] if present, or at EOF otherwise.
+ */
+internal fun validateBikeInfoInput(index: File, nodes: Int, edges: Int): Long {
     RandomAccessFile(index, "r").use { input ->
         fun skip(bytes: Long) {
             require(bytes >= 0 && bytes <= input.length() - input.filePointer) { "Truncated index" }
@@ -204,7 +208,9 @@ internal fun validateBikeInfoInput(index: File, nodes: Int, edges: Int) {
         skip(nodes * 16L)
         require(input.readInt() == edges) { "Index edge count differs from graph" }
         skip(edges * 4L)
+        var junctionSectionStart: Long? = null
         while (input.filePointer < input.length()) {
+            val sectionStart = input.filePointer
             when (val magic = input.readUTF()) {
                 BIKEINFO_MAGIC -> error("Input index already contains $BIKEINFO_MAGIC")
                 "CYCLEMAP_ELEVATION_V1" -> {
@@ -215,21 +221,46 @@ internal fun validateBikeInfoInput(index: File, nodes: Int, edges: Int) {
                     repeat(count) { input.readUTF() }
                     require(input.readInt() == edges); skip(edges * 4L)
                 }
+                JUNCTION_NAME_SECTION_MAGIC -> {
+                    require(junctionSectionStart == null) { "Duplicate $JUNCTION_NAME_SECTION_MAGIC section" }
+                    junctionSectionStart = sectionStart
+                    val nameCount = input.readInt(); require(nameCount >= 0)
+                    repeat(nameCount) { input.readUTF() }
+                    val readingCount = input.readInt(); require(readingCount >= 0)
+                    repeat(readingCount) { input.readUTF() }
+                    val entryCount = input.readInt(); require(entryCount >= 0)
+                    skip(entryCount.toLong() * 13L)
+                }
                 else -> error("Unknown index section: $magic")
             }
         }
+        return junctionSectionStart ?: input.length()
+    }
+}
+
+private fun copyExactBytes(src: InputStream, dst: OutputStream, byteCount: Long) {
+    val buf = ByteArray(8192)
+    var remaining = byteCount
+    while (remaining > 0) {
+        val read = src.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+        if (read < 0) throw EOFException("Unexpected EOF while copying index")
+        dst.write(buf, 0, read)
+        remaining -= read
     }
 }
 
 internal fun writeBikeInfoIndex(input: File, output: File, nodes: Int, values: IntArray) {
-    validateBikeInfoInput(input, nodes, values.size)
+    val insertOffset = validateBikeInfoInput(input, nodes, values.size)
     // CREATE_NEW also prevents overwriting inputs through symlinks/hard links or a mistaken output path.
     val stream = Files.newOutputStream(output.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
     try {
         DataOutputStream(BufferedOutputStream(stream)).use { out ->
-            input.inputStream().buffered().use { it.copyTo(out) }
-            out.writeUTF(BIKEINFO_MAGIC); out.writeInt(values.size)
-            values.forEach(out::writeInt)
+            input.inputStream().buffered().use { src ->
+                copyExactBytes(src, out, insertOffset)
+                out.writeUTF(BIKEINFO_MAGIC); out.writeInt(values.size)
+                values.forEach(out::writeInt)
+                src.copyTo(out)
+            }
         }
     } catch (failure: Throwable) {
         try { Files.deleteIfExists(output.toPath()) } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }

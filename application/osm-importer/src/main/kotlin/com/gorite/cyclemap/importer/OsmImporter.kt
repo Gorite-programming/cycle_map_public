@@ -264,6 +264,22 @@ private class NodeCoordStore(capacity: Int) {
     private fun mix(value: Long): Int = (value xor (value ushr 32)).toInt()
 }
 
+internal data class JunctionNodeInfo(
+    val name: String,
+    val reading: String?,
+    val kind: Int,
+)
+
+/** ノードのタグから交差点名情報を抽出する。信号 (種別 1) を junction=yes (種別 2) より優先する。 */
+internal fun extractJunctionNodeInfo(tags: Map<String, String>): JunctionNodeInfo? {
+    val isSignal = tags["highway"] == "traffic_signals"
+    val isJunctionYes = tags["junction"] == "yes"
+    if (!isSignal && !isJunctionYes) return null
+    val displayName = junctionDisplayName(tags) ?: return null
+    val kind = if (isSignal) 1 else 2
+    return JunctionNodeInfo(displayName, junctionReading(tags), kind)
+}
+
 /**
  * Two-pass memory-efficient graph builder.
  * Replaces the old PbfReader.read() + OsmGraphBuilder.build() pipeline.
@@ -272,6 +288,10 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
 
     /** 直前の [build] で見つけた構造物 (トンネル・橋) の way。標高の補間に使う。 */
     var structures: StructureWays = StructureWays(emptyList(), emptySet())
+        private set
+
+    /** 直前の [build] で集めた、グラフに含まれる名前付き交差点ノード (OSM ノード ID → 交差点名情報)。 */
+    internal var junctionNodes: Map<Long, JunctionNodeInfo> = emptyMap()
         private set
 
     fun build(pbfFile: File): RoadGraph {
@@ -295,17 +315,35 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
         structures = StructureWays.from(bicycleWays, { it.tags }, { it.nodeIds })
 
         // ----------------------------------------------------------------
-        // Pass 2: load only required node coordinates
+        // Pass 2: load only required node coordinates (+ named junction tags)
         // ----------------------------------------------------------------
         println("[graph 2/2] Resolving node coordinates...")
         val coords = NodeCoordStore(neededNodeIds.size * 2)
+        val collectedJunctions = HashMap<Long, JunctionNodeInfo>()
 
         readPbf(pbfFile) { entity ->
             if (entity is Node && neededNodeIds.contains(entity.id)) {
                 coords.put(entity.id, entity.latitude, entity.longitude)
+                val tags = entity.tags
+                if (tags.isNotEmpty()) {
+                    var isSignal = false
+                    var isJunctionYes = false
+                    var hasName = false
+                    for (t in tags) {
+                        when (t.key) {
+                            "highway" -> if (t.value == "traffic_signals") isSignal = true
+                            "junction" -> if (t.value == "yes") isJunctionYes = true
+                            "name" -> if (t.value.isNotBlank()) hasName = true
+                        }
+                    }
+                    if (hasName && (isSignal || isJunctionYes)) {
+                        val tagMap = tags.associate { it.key to it.value }
+                        extractJunctionNodeInfo(tagMap)?.let { collectedJunctions[entity.id] = it }
+                    }
+                }
             }
         }
-        println("[graph 2/2] Done.")
+        println("[graph 2/2] Done. candidateJunctions=${collectedJunctions.size}")
 
         // ----------------------------------------------------------------
         // Graph construction (same logic as OsmGraphBuilder.build)
@@ -352,6 +390,9 @@ class TwoPassGraphBuilder(private val bbox: GeoBBox = GeoBBox.YAMAGUCHI) {
                 }
             }
         }
+
+        junctionNodes = if (collectedJunctions.isEmpty()) emptyMap()
+        else collectedJunctions.filterKeys { it in graphNodes }
 
         return RoadGraph(graphNodes, outgoing)
     }
@@ -807,7 +848,7 @@ fun main(args: Array<String>) {
     val writer = GraphBinaryWriter(elevations)
     writer.write(graph, output)
     val indexFile = File(output.path + ".idx")
-    writeGraphIndex(output, indexFile, elevations, writer.edgeRoadNames, writer.edgeTurnLanes)
+    writeGraphIndex(output, indexFile, elevations, writer.edgeRoadNames, writer.edgeTurnLanes, builder.junctionNodes)
 
     peak.stop()
     val edgeCount = graph.outgoing.values.sumOf { it.size }
@@ -834,12 +875,50 @@ private fun writeStringTableSection(output: DataOutputStream, magic: String, val
     println("$label distinct=${table.size} edges=${ids.count { it >= 0 }} / ${values.size}")
 }
 
+/** 名前付き交差点 (信号・junction=yes) の区間を nodeIndex 昇順で書く。 */
+private fun writeJunctionNameSection(
+    output: DataOutputStream,
+    nodeIdByIndex: LongArray,
+    junctionNodes: Map<Long, JunctionNodeInfo>,
+) {
+    val nameTable = LinkedHashMap<String, Int>()
+    val readingTable = LinkedHashMap<String, Int>()
+    val nodeIndices = ArrayList<Int>()
+    val nameIds = ArrayList<Int>()
+    val readingIds = ArrayList<Int>()
+    val kinds = ArrayList<Int>()
+    for (nodeIndex in nodeIdByIndex.indices) {
+        val info = junctionNodes[nodeIdByIndex[nodeIndex]] ?: continue
+        val nameId = nameTable.getOrPut(info.name) { nameTable.size }
+        val readingId = info.reading?.let { r -> readingTable.getOrPut(r) { readingTable.size } } ?: -1
+        nodeIndices.add(nodeIndex)
+        nameIds.add(nameId)
+        readingIds.add(readingId)
+        kinds.add(info.kind)
+    }
+    if (nodeIndices.isEmpty()) return
+    output.writeUTF(JUNCTION_NAME_SECTION_MAGIC)
+    output.writeInt(nameTable.size)
+    nameTable.keys.forEach(output::writeUTF)
+    output.writeInt(readingTable.size)
+    readingTable.keys.forEach(output::writeUTF)
+    output.writeInt(nodeIndices.size)
+    for (i in nodeIndices.indices) {
+        output.writeInt(nodeIndices[i])
+        output.writeInt(nameIds[i])
+        output.writeInt(readingIds[i])
+        output.writeByte(kinds[i])
+    }
+    println("junctionNames distinct=${nameTable.size} readings=${readingTable.size} nodes=${nodeIndices.size} / ${nodeIdByIndex.size}")
+}
+
 internal fun writeGraphIndex(
     graphFile: File,
     indexFile: File,
     elevations: Map<Long, Float>? = null,
     edgeRoadNames: List<String?>? = null,
     edgeTurnLanes: List<String?>? = null,
+    junctionNodes: Map<Long, JunctionNodeInfo>? = null,
 ) {
     DataInputStream(BufferedInputStream(FileInputStream(graphFile))).use { input ->
         val magicLength = input.readUnsignedShort()
@@ -904,6 +983,10 @@ internal fun writeGraphIndex(
             // 続けて車線区間 (OSM の turn:lanes)。案内の車線表示に使う。
             if (edgeTurnLanes != null && edgeTurnLanes.size == edgeCount && edgeTurnLanes.any { it != null }) {
                 writeStringTableSection(output, TURN_LANES_SECTION_MAGIC, edgeTurnLanes, "turnLanes")
+            }
+            // 最後に名前付き交差点区間。古いアプリは知らない目印で読むのをやめるため、常に末尾に置く。
+            if (!junctionNodes.isNullOrEmpty()) {
+                writeJunctionNameSection(output, nodeIdByIndex, junctionNodes)
             }
         }
         println("index nodes=$nodeCount edges=$edgeCount output=${indexFile.absolutePath}")
